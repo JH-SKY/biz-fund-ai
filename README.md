@@ -57,11 +57,11 @@
 3. **심화 분석 리포트 (Future)**: AI 진단을 넘어선 정밀 경영 진단 및 심화 리포트 서비스 (TBD).
 
 ### 📂 문서 바로가기 (Documentation)
-1. [01_기획 및 요구사항 (concept_and_requirements.md)](./01_concept_and_requirements.md)
-2. [02_시스템 아키텍처 (system_architecture.md)](./02_system_architecture.md) 
-3. [03_데이터 설계 (data_design_spec.md)](./03_data_design_spec.md) 
-4. [04_실험 및 평가 (experiment_and_test.md)](./04_experiment_and_test.md) 
-5. [05_트러블슈팅 로그 (troubleshooting_log.md)](./05_troubleshooting_log.md) 
+1. [01_기획 및 요구사항 (concept_and_requirements.md)](./docs/01_concept_and_requirements.md)
+2. [02_시스템 아키텍처 (system_architecture.md)](./docs/02_system_architecture.md) 
+3. [03_데이터 설계 (data_design_spec.md)](./docs/03_data_design_spec.md) 
+4. [04_실험 및 평가 (experiment_and_test.md)](./docs/04_experiment_and_test.md) 
+5. [05_트러블슈팅 로그 (troubleshooting_log.md)](./docs/05_troubleshooting_log.md) 
 
 ### 📈 버전 관리 (Changelog)
 * v0.1 (2026-03-10): 프로젝트 초기 기획 및 README/요구사항 정의서 작성.
