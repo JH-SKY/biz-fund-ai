@@ -57,6 +57,16 @@ Biz-Up은 정책 공고를 구조화하고, 사업자 데이터를 기반으로
 | **기타 (Etc)** | **OAuth 2.0 (Social Login)** | 간편 로그인을 통한 사용자 접근성 향상 및 안전한 본인 인증 체계 |
 | | **Selenium, BS4** | 실시간 정책 공고 및 지원금 데이터를 수집하기 위한 자동화 파이프라인 |
 ---
+
+---
+### ✍️ 개발 기록 
+본 프로젝트의 **시작점(기획의도)** 및 **개발의 흐름**은 아래 블로그에서 상세히 확인하실 수 있습니다.
+
+[![Velog Badge](https://img.shields.io/badge/Velog-11B48A?style=for-the-badge&logo=velog&logoColor=white)](https://velog.io/@jh-sky/posts)
+
+비전공자에서 AI 서비스 개발자로 성장하는 과정을 가감 없이 기록하고 있습니다.
+
+---
 ### 💰 비즈니스 모델 (Revenue Model)
 1. **인프라 매칭 수수료 (B2B)**: 시뮬레이션 결과와 연계된 검증된 스마트 기기/솔루션 업체 매칭.
 2. **B2B 전략 제휴**: 소상공인 대상 세무, 법률, 마케팅 서비스와의 정보성 연계 및 광고 모델.
@@ -68,6 +78,19 @@ Biz-Up은 정책 공고를 구조화하고, 사업자 데이터를 기반으로
 3. [03_데이터 설계 (data_design_spec.md)](./docs/03_data_design_spec.md) 
 4. [04_실험 및 평가 (experiment_and_test.md)](./docs/04_experiment_and_test.md) 
 5. [05_트러블슈팅 로그 (troubleshooting_log.md)](./docs/05_troubleshooting_log.md) 
+
+<details>
+  <summary>🔍 비즈업 서비스 데이터베이스 상세 구조 보기 (클릭)</summary>
+  <br />
+  <p align="center">
+    <img src="./docs/images/erd_v2.png" alt="비즈업 서비스 ERD v2" width="100%">
+  </p>
+  
+  > **설계 핵심 요약**
+  > 1. **확장성**: `UUID` 기반 PK 설정을 통해 대규모 데이터 분산 처리에 대비했습니다.
+  > 2. **추적성**: `chat_logs`와 `trace_id`를 연결하여 LLM 답변 생성 과정을 모니터링할 수 있도록 설계했습니다.
+  > 3. **무결성**: `biz_pick_policies` 중계 테이블을 통해 정책과 콘텐츠 간의 N:M 관계를 해소했습니다.
+</details>
 
 ### 📈 버전 관리 (Changelog)
 * v0.1 (2026-03-10): 프로젝트 초기 기획 및 README/요구사항 정의서 작성.
