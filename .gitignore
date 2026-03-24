@@ -1,10 +1,56 @@
-# Python-generated files
+# 🏗️ [Biz-Fund-AI] 통합 .gitignore 설정
+
+### 1. 보안 및 환경 설정 
+# 모든 폴더의 .env 파일 차단 (API 키, DB 비밀번호 보호)
+.env
+*.env
+.env.*
+# 특정 OS 설정 파일 차단
+.DS_Store
+Thumbs.db
+
+### 2. Python & 가상환경 
+# uv 및 표준 가상환경 폴더
+.venv/
+venv/
+ENV/
+# 파이썬 캐시 파일 
 __pycache__/
-*.py[oc]
+*.py[cod]
+*$py.class
+*.pyc
+# 빌드 및 배포 관련 폴더
 build/
 dist/
-wheels/
-*.egg-info
+*.egg-info/
 
-# Virtual environments
-.venv
+### 3. FastAPI & Backend 특화
+# 데이터베이스 관련 (로컬 테스트용 DB 파일)
+*.db
+*.sqlite3
+# 로그 파일 (서버 기록)
+*.log
+
+### 4. Frontend (React/Next.js 예정)
+# 노드 패키지 폴더 
+node_modules/
+# 빌드 결과물
+.next/
+out/
+# 프론트엔드 로그
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+### 5. IDE & 에디터 설정 
+# VS Code 설정 
+.vscode/
+# PyCharm 등 JetBrains 설정
+.idea/
+
+### 6. RAG 소스 데이터 
+# 용량이 큰 원본 PDF나 데이터셋은 깃허브 대신 클라우드나 로컬에 보관
+data/raw/
+data/processed/
+# 하지만 폴더 구조는 유지하고 싶다면 아래처럼 빈 .gitkeep 파일만 허용 가능
+!data/.gitkeep
