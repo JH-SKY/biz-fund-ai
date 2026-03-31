@@ -14,7 +14,22 @@ load_dotenv()
 # 2. 메타데이터 연결 (개념 연결):
 # - 우리가 앞으로 만들 모든 모델의 부모(Base)를 가져와 감시 대상으로 등록합니다.
 from src.app.models.base import Base
+from src.app.models.auth.admin import Admin
+from src.app.models.auth.admin_audit_log import AdminAuditLog
 from src.app.models.auth.user import User
+from src.app.models.business.application import Application
+from src.app.models.business.business import Business
+from src.app.models.business.document import Document
+from src.app.models.business.financial_snapshot import BusinessFinancialSnapshot
+from src.app.models.business.simulation_log import SimulationLog
+from src.app.models.chat.chat import ChatRoom
+from src.app.models.chat.chat_log import ChatLog
+from src.app.models.policy.biz_pick import BizPick
+from src.app.models.policy.match_log import MatchLog
+from src.app.models.policy.policy import Policy
+from src.app.models.system.batch_log import BatchLog
+from src.app.models.system.lead_request import LeadRequest
+from src.app.models.system.notification import Notification
 
 config = context.config
 target_metadata = Base.metadata

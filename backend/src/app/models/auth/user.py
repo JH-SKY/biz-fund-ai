@@ -1,11 +1,22 @@
 # src/app/models/auth/user.py
+from __future__ import annotations
+
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Optional
-from sqlalchemy import String, Boolean, TIMESTAMP, Text, text, Enum as sqlalchemy_Enum
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from src.app.models.business.business import Business
+    from src.app.models.chat.chat import ChatRoom
+    from src.app.models.chat.chat_log import ChatLog
+    from src.app.models.system.lead_request import LeadRequest
+    from src.app.models.system.notification import Notification
+
+from sqlalchemy import Boolean, String, TIMESTAMP, Text, text, Enum as sqlalchemy_Enum
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from src.app.models.base import Base
 
 
@@ -63,4 +74,20 @@ class User(Base):
     # - created_at: 가입 시점 기록 (유입 분석용)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, server_default=text("CURRENT_TIMESTAMP"), nullable=False
+    )
+
+    businesses: Mapped[list["Business"]] = relationship(
+        "Business", back_populates="user"
+    )
+    chat_rooms: Mapped[list["ChatRoom"]] = relationship(
+        "ChatRoom", back_populates="user"
+    )
+    chat_logs: Mapped[list["ChatLog"]] = relationship(
+        "ChatLog", back_populates="user"
+    )
+    notifications: Mapped[list["Notification"]] = relationship(
+        "Notification", back_populates="user"
+    )
+    lead_requests: Mapped[list["LeadRequest"]] = relationship(
+        "LeadRequest", back_populates="user"
     )
