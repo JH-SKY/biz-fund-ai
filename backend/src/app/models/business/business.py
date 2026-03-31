@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from src.app.models.system.lead_request import LeadRequest
     from src.app.models.system.notification import Notification
 
-from sqlalchemy import Boolean, Date, ForeignKey, String, TIMESTAMP, text
+from sqlalchemy import Boolean, Date, ForeignKey, String, TIMESTAMP, text, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -38,9 +38,7 @@ class Business(Base):
         nullable=False,
         comment="이 사업장을 소유한 사용자 ID (users.id)",
     )
-    biz_name: Mapped[str] = mapped_column(
-        String(100), nullable=False, comment="상호명"
-    )
+    biz_name: Mapped[str] = mapped_column(String(100), nullable=False, comment="상호명")
     representative_name: Mapped[Optional[str]] = mapped_column(
         String(50), nullable=True, comment="대표자명"
     )
@@ -73,6 +71,12 @@ class Business(Base):
     )
     is_ventured: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False, comment="벤처 기업 여부"
+    )
+    # - profile_score: 해당 사업장의 정보 입력 완성도 (0~100)
+    #   사장님 말씀대로 '사업장 기준'으로 점수를 매겨서,
+    #   각 사업장별로 맞춤 정책 추천 정밀도를 다르게 가져갑니다.
+    profile_score: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False, comment="사업장 정보 완성도 (0~100)"
     )
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, nullable=False, comment="업장 활성 여부 (폐업·삭제 등)"

@@ -16,7 +16,6 @@ if TYPE_CHECKING:
 from sqlalchemy import Boolean, String, TIMESTAMP, Text, text, Enum as sqlalchemy_Enum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-
 from src.app.models.base import Base
 
 
@@ -82,9 +81,7 @@ class User(Base):
     chat_rooms: Mapped[list["ChatRoom"]] = relationship(
         "ChatRoom", back_populates="user"
     )
-    chat_logs: Mapped[list["ChatLog"]] = relationship(
-        "ChatLog", back_populates="user"
-    )
+    chat_logs: Mapped[list["ChatLog"]] = relationship("ChatLog", back_populates="user")
     notifications: Mapped[list["Notification"]] = relationship(
         "Notification", back_populates="user"
     )
