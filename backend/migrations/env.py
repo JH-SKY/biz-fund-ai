@@ -17,6 +17,7 @@ from src.app.models.base import Base
 from src.app.models.auth.admin import Admin
 from src.app.models.auth.admin_audit_log import AdminAuditLog
 from src.app.models.auth.user import User
+from src.app.models.auth.user_token import UserToken
 from src.app.models.business.application import Application
 from src.app.models.business.business import Business
 from src.app.models.business.document import Document

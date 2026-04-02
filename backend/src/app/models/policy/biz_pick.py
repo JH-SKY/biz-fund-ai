@@ -1,8 +1,9 @@
 # src/app/models/policy/biz_pick.py
 import uuid
 from datetime import datetime
+from typing import Optional
 
-from sqlalchemy import String, Text, TIMESTAMP, text
+from sqlalchemy import Boolean, String, Text, TIMESTAMP, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -26,8 +27,18 @@ class BizPick(Base):
     category: Mapped[str] = mapped_column(
         String(50), nullable=False, comment="카테고리 (세무·정책자금 등)"
     )
-    content_md: Mapped[str] = mapped_column(
-        Text, nullable=False, comment="마크다운 본문"
+    content_html: Mapped[str] = mapped_column(
+        Text, nullable=False, comment="HTML 본문 (관리자 API에서 그대로 저장·조회)"
+    )
+    thumbnail_url: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True, comment="썸네일 이미지 URL"
+    )
+    is_published: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default=text("true"),
+        comment="발행(공개) 여부",
     )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP,

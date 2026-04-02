@@ -1,15 +1,20 @@
 # src/app/main.py
-from fastapi import FastAPI, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text
-from database.postgres.database import get_db
 from typing import Annotated
+
+from fastapi import Depends, FastAPI
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.app.api.v1.router import api_router
+from src.app.database.postgres.database import get_db
 
 app = FastAPI(
     title="Biz-Fund-AI API",
     description="소상공인 맞춤형 정책 매칭 및 AI 에이전트 서비스",
     version="0.1.0",
 )
+app.include_router(api_router)
+
 db_session = Annotated[AsyncSession, Depends(get_db)]
 
 

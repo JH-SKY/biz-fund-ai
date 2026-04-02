@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from src.app.models.chat.chat_log import ChatLog
     from src.app.models.policy.match_log import MatchLog
 
-from sqlalchemy import BigInteger, Date, Enum as sqlalchemy_Enum, Integer, String, Text, text
+from sqlalchemy import BigInteger, Date, Enum as sqlalchemy_Enum, Integer, String, Text, TIMESTAMP, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -86,6 +86,12 @@ class Policy(Base):
         default=0,
         server_default=text("0"),
         comment="상세 조회 누적 건수",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP,
+        server_default=text("CURRENT_TIMESTAMP"),
+        nullable=False,
+        comment="등록 일시",
     )
 
     match_logs: Mapped[list["MatchLog"]] = relationship(
