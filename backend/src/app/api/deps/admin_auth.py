@@ -16,7 +16,7 @@ from src.app.domains.admin.exception import admin_forbidden, admin_unauthorized
 from src.app.domains.admin.repository import AdminRepository
 from src.app.domains.admin.service import AdminService
 from src.app.core.security import decode_admin_token
-from src.app.models.auth.admin import Admin
+from src.app.domains.auth.model import Admin
 
 bearer_scheme = HTTPBearer(auto_error=False)
 

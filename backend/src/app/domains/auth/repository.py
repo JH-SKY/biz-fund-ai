@@ -9,8 +9,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.app.models.auth.user import SocialProvider, User
-from src.app.models.auth.user_token import UserToken
+from src.app.domains.auth.model import SocialProvider, User, UserToken
 
 
 class AuthRepository:

@@ -27,7 +27,7 @@ from src.app.domains.auth.schema import (
     SocialLoginRequest,
     SocialLoginResponseData,
 )
-from src.app.models.auth.user import SocialProvider, User
+from src.app.domains.auth.model import SocialProvider, User
 
 
 class AuthService:

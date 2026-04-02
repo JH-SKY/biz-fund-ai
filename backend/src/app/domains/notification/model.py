@@ -1,4 +1,6 @@
-# src/app/models/system/notification.py
+# src/app/domains/notification/model.py
+"""알림 도메인 SQLAlchemy 모델 — notifications."""
+
 from __future__ import annotations
 
 import uuid
@@ -6,18 +8,18 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
-    from src.app.models.auth.user import User
-    from src.app.models.business.business import Business
+    from src.app.domains.auth.model import User
+    from src.app.domains.business.model import Business
 
 from sqlalchemy import Boolean, ForeignKey, String, Text, TIMESTAMP, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from src.app.models.base import Base
+from src.app.database.postgres.base import Base
 
 
 class Notification(Base):
-    """앱·푸시 알림 기록. 설계서: notifications."""
+    """notifications 테이블 — 사용자 알림 발송 이력."""
 
     __tablename__ = "notifications"
 

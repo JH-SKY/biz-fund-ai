@@ -30,8 +30,8 @@ from src.app.domains.admin.schema import (
     PolicyCreateResponseData,
     PolicyPatchRequest,
 )
-from src.app.models.auth.admin import Admin
-from src.app.models.policy.policy import PolicyStatus
+from src.app.domains.auth.model import Admin
+from src.app.domains.policy.model import PolicyStatus
 
 
 class AdminService:

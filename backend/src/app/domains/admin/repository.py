@@ -10,13 +10,10 @@ from typing import Any, Sequence
 from sqlalchemy import desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.app.models.auth.admin import Admin
-from src.app.models.auth.admin_audit_log import AdminAuditLog
-from src.app.models.auth.user import User
-from src.app.models.chat.chat_log import ChatLog
-from src.app.models.policy.biz_pick import BizPick
-from src.app.models.policy.policy import Policy, PolicyStatus
-from src.app.models.system.batch_log import BatchLog
+from src.app.domains.auth.model import Admin, AdminAuditLog, User
+from src.app.domains.chat.model import ChatLog
+from src.app.domains.policy.model import BizPick, Policy, PolicyStatus
+from src.app.domains.system.model import BatchLog
 
 
 class AdminRepository:

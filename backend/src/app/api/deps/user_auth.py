@@ -16,7 +16,7 @@ from src.app.database.postgres.database import get_db
 from src.app.domains.auth.exception import auth_unauthorized
 from src.app.domains.auth.repository import AuthRepository
 from src.app.domains.auth.service import AuthService
-from src.app.models.auth.user import User
+from src.app.domains.auth.model import User
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
