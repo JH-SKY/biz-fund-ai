@@ -40,7 +40,7 @@
 - **Request Body (JSON):**
 ```json
 {
-  "access_token": "string",
+  "access_token": "string",`
   "device_type": "string"
 }
 ```
