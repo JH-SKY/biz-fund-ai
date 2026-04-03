@@ -51,6 +51,13 @@ app/
 - **DI 방식:** 모든 계층 간 호출은 FastAPI의 `Depends`를 활용한다.
 - **객체 관리:** Service와 Repository는 클래스(Class) 형태로 정의하며, 필요한 의존성을 생성자(`__init__`)나 `Depends`를 통해 주입받는다.
 
+
+### 1.4 엔진 확장성 (Future-Proof for RAG/Agent)
+- **Decoupling AI Logic**: 채팅(Chat) 및 진단(Diagnosis) 도메인의 Service 레이어는 실제 AI 추론 로직(LLM, RAG)과 철저히 분리한다.
+- **Interface Driven**: Service는 Engine 인터페이스(추상화)를 호출하며, 현재는 Mock 데이터를 반환하도록 구현한다. (나중에 엔진 내부만 교체해도 기존 서비스 코드가 깨지지 않아야 함)
+- **Async Handling**: AI 연산은 고부하/장시간 작업이므로, 모든 관련 흐름은 async/await 기반의 비동기 파이프라인으로 설계한다.
+- **Selective Extension**: AI 피드백, 외부 데이터 연동, 또는 업종별 가변 데이터가 발생하는 핵심 도메인(User, Business, Policy, Chat, Diagnosis, Match) 모델에 한하여 metadata (JSONB) 필드를 포함한다. 단순 로그성 테이블은 정규화된 컬럼만 사용한다.
+
 ---
 
 ## 2. 파일 생성 및 참조 규칙
