@@ -8,26 +8,47 @@
 
 ---
 
-### 1. users (사용자 계정)
+### 1. users (사용자 계정) - UPDATED
 
-- **존재 이유**: 서비스 이용자 식별 및 소셜 로그인 연동 관리
-- **관계성**: 1:N (businesses, chat_logs, notifications, lead_requests)
+- **존재 이유**: 서비스 이용자 식별, 소셜 로그인 연동 및 개인화 매칭(비전공/군필 등)을 위한 기초 데이터 관리
+- **관계성**: 1:N (user_tokens, businesses, chat_logs, chat_rooms, notifications, lead_requests)
 - **상세 명세**:
 
 | 구분 | 컬럼명 | 역할 | 타입/옵션 | 출처 | 비고 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **PK** | id | 사용자 고유 식별자 | UUID, N | 시스템 | 사용자 구분을 위한 고유 식별 키 |
-| **일반** | email | 이메일 주소 | VARCHAR(255), N | 소셜 연동 | 로그인 계정 및 알림 발송을 위한 핵심 정보 |
-| **일반** | name | 실명 | VARCHAR(50), N | 소셜 연동 | 서비스 내 본인 확인 및 서류 작성 시 자동 입력 데이터 |
-| **일반** | phone | 전화번호 | VARCHAR(20), Y | 사용자 입력 | 정책 상담 및 중요 알림(알림톡 등) 수신을 위한 연락처 |
-| **일반** | nickname | 활동명 | VARCHAR(50), Y | 사용자 입력 | 커뮤니티나 채팅 UI에서 노출될 친근한 사용자 명칭 |
-| **일반** | status | 계정 상태(active/deleted) | VARCHAR(20), N | 시스템 | 탈퇴 여부 및 이용 정지 상태를 관리하는 상태 플래그 |
-| **일반** | social_id | 소셜 고유 고정 ID | VARCHAR(255), N | 소셜 연동 | 카카오/네이버 연동 시 사용자 식별을 위한 고유 값 |
-| **일반** | social_provider | 소셜 제공자(KAKAO/NAVER) | ENUM, N | 소셜 연동 | 어떤 소셜 서비스를 통해 가입했는지 구분 |
-| **일반** | profile_image_url | 프로필 사진 URL | TEXT, Y | 소셜 연동 | 소셜 앱의 이미지를 그대로 사용하여 사용자 편의성 증대 |
-| **일반** | is_active | 활성 계정 여부 | BOOLEAN, N | 시스템 | 현재 정상적으로 서비스를 이용 가능한 계정인지 판단 |
-| **일반** | marketing_agreed_at | 마케팅 동의 일시 | TIMESTAMP, Y | 시스템 | 맞춤형 정책 알림 푸시 발송을 위한 법적 근거 데이터 |
-| **일반** | created_at | 가입 일시 | TIMESTAMP, N | 시스템 | 서비스 가입 시점을 기록하여 유입 분석에 활용 |
+| **PK** | id | 사용자 고유 식별자 | UUID, N | 시스템 | 기본값: uuid4 |
+| **일반** | email | 이메일 주소 | VARCHAR(255), N | 소셜 연동 | Unique Index 적용 |
+| **일반** | name | 실명 | VARCHAR(50), N | 소셜 연동 | - |
+| **일반** | phone | 전화번호 | VARCHAR(20), Y | 사용자 입력 | - |
+| **일반** | nickname | 활동명 | VARCHAR(50), Y | 사용자 입력 | - |
+| **일반** | status | 계정 상태 | VARCHAR(20), N | 시스템 | 기본값: 'active' |
+| **일반** | social_id | 소셜 고유 고정 ID | VARCHAR(255), N | 소셜 연동 | - |
+| **일반** | social_provider | 소셜 제공자 | ENUM, N | 소셜 연동 | KAKAO, NAVER |
+| **일반** | profile_image_url | 프로필 사진 URL | TEXT, Y | 소셜 연동 | - |
+| **일반** | is_active | 활성 계정 여부 | BOOLEAN, N | 시스템 | 기본값: True (Soft Delete 스위치) |
+| **일반** | deleted_at | 탈퇴 시각 | TIMESTAMP, Y | 시스템 |  5년 후 물리 삭제를 위한 기록용 |
+| **일반** | marketing_agreed_at | 마케팅 동의 일시 | TIMESTAMP, Y | 시스템 | - |
+| **일반** | interest_sectors | 관심 업종/분야 | JSONB, Y | 사용자 입력 |  관심 분야 리스트 (Array) |
+| **일반** | military_service | 군필 여부 | VARCHAR(30), Y | 사용자 입력 |  COMPLETED, EXEMPTED 등 |
+| **일반** | is_non_major | 비전공 창업자 여부 | BOOLEAN, Y | 사용자 입력 |  전공자/비전공자 구분 필터 |
+| **일반** | tech_stack | 기술 스택 | JSONB, Y | 사용자 입력 |  보유 기술 스택 리스트 |
+| **일반** | created_at | 가입 일시 | TIMESTAMP, N | 시스템 | Server Default: CURRENT_TIMESTAMP |
+---
+
+### 1-2. user_tokens (인증 토큰 관리) - NEW
+
+- **존재 이유**: 보안을 위한 Refresh Token 저장 및 로그아웃/탈퇴 시 토큰 무효화 처리
+- **관계성**: N:1 (users)
+- **상세 명세**:
+
+| 구분 | 컬럼명 | 역할 | 타입/옵션 | 출처 | 비고 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **PK** | id | 토큰 레코드 식별자 | UUID, N | 시스템 | - |
+| **FK** | user_id | 소유 사용자 ID | UUID, N | 시스템 | users.id 외래키 |
+| **일반** | token | Refresh Token 값 | TEXT, N | 시스템 | Unique, opaque token 원본 |
+| **일반** | expires_at | 토큰 만료 일시 | TIMESTAMP, N | 시스템 | - |
+| **일반** | is_revoked | 무효화 여부 | BOOLEAN, N | 시스템 | 로그아웃 시 True 변경 (기본값: False) |
+| **일반** | created_at | 발급 일시 | TIMESTAMP, N | 시스템 | - |
 
 ---
 
@@ -55,6 +76,7 @@
 | **일반** | is_ventured | 벤처 기업 여부 | BOOLEAN, N | 사용자 입력 | 벤처 인증 기업 대상 고액 융자/지원금 매칭 기준 |
 | **일반** | is_active | 업장 활성 여부 | BOOLEAN, N | 시스템 | 폐업 여부나 삭제 처리를 관리하는 물리적 스위치 |
 | **일반** | profile_score | 정보 입력 완성도 | INTEGER, DEFAULT 0 | 시스템 | 0~100점 사이의 점수로, 맞춤 정책 추천 정밀도의 기준이 됨 |
+| **일반** | policy_bookmarks | 관계 설정 | Relationship | 시스템 |  1:N 북마크 데이터 연결 (Cascade 삭제 포함) |
 | **일반** | created_at | 등록 일시 | TIMESTAMP, N | 시스템 | 사업장 정보가 시스템에 최초 등록된 시각 |
 
 ---
@@ -82,6 +104,11 @@
 | **일반** | ocr_status | 분석 상태(대기/완료) | VARCHAR(20), N | 시스템 | 업로드된 재무 서류의 OCR 분석 진행 현황 관리 |
 | **일반** | created_at | 기록 일시 | TIMESTAMP, N | 시스템 | 해당 재무 스냅샷이 생성된 시점 |
 | **일반** | is_verified | 데이터 검증 여부 | BOOLEAN, N | 시스템 | 공식 서류(OCR)를 통해 확인된 신뢰 데이터인지 구분 |
+| **일반** | operating_profit | 영업이익 | BIGINT, Y | OCR/입력 | API 명세서 대응 (음수 가능) |
+| **일반** | capital | 자본금 | BIGINT, Y | OCR/입력 | API 명세서 대응 |
+| **일반** | is_active | 활성 여부 | BOOLEAN, N | 시스템 |  Soft Delete 스위치 (Default: True) |
+
+* **데이터 무결성 제약 추가**: (business_id, snapshot_year) UNIQUE 제약 조건 적용
 
 ---
 
@@ -147,7 +174,7 @@
 | **일반** | context_type | 발생 위치(위젯/페이지) | VARCHAR(20), Y | 시스템 | 유입 경로에 따른 맞춤형 응대를 위한 위치 기록 |
 | **일반** | created_at | 대화 일시 | TIMESTAMP, N | 시스템 | 대화 순서 및 상담 히스토리 관리를 위한 시점 |
 | **일반** | trace_id | 랭스미스 추적 ID | VARCHAR(100), Y | 시스템 | 문제 발생 시 LLM 내부 로직을 추적하기 위한 CCTV ID |
-| **일반** | total_cost | 소모 비용 ($) | DECIMAL(12, 8), Y | 시스템 | 해당 질문에 소요된 API 토큰 비용을 기록하여 수익성 분석 |
+| **일반** | total_cost | 소모 비용 ($) | NUMERIC(12, 8), Y | 시스템 | 해당 질문에 소요된 API 토큰 비용을 기록하여 수익성 분석 |
 | **일반** | referenced_chunks | RAG 참조 데이터 | JSONB, Y | **AI 생성** | 답변의 근거가 된 공고문의 특정 문단(텍스트 조각)들을 저장 |
 | **일반** | is_disliked | 비추천 여부(👎) | BOOLEAN, D:F | 사용자 | 유저가 싫어요를 누르면 True로 변경 (디버깅 대상) |
 | **일반** | feedback_code | 피드백 사유 코드 | VARCHAR(20), Y | 사용자 | INCORRECT(정보오류), UNKIND(불친절), COMPLEX(어려움) 등 |
@@ -187,6 +214,9 @@
 | **일반** | file_url | S3 저장 경로 | TEXT, N | 시스템 | 실제 파일이 저장된 클라우드 스토리지 주소 |
 | **일반** | issued_at | 서류 발급 일자 | DATE, Y | **OCR/입력** | 서류의 유효기간이나 최신성 여부를 판단하기 위한 정보 |
 | **일반** | created_at | 업로드 일시 | TIMESTAMP, N | 시스템 | 사용자가 서류를 시스템에 올린 시점 |
+| **일반** | ocr_status | OCR 분석 상태 | VARCHAR(20), N | 시스템 | PENDING, COMPLETED, FAILED 관리 |
+| **일반** | ocr_result | OCR 추출 원본 | JSONB, Y | 시스템 | API 명세서 #11 ocr_data 필드 대응 데이터 |
+| **일반** | is_active | 활성 여부 | BOOLEAN, N | 시스템 | Soft Delete 스위치 (Default: True) |
 
 ---
 
