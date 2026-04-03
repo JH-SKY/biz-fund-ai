@@ -170,6 +170,18 @@ class AuthService:
     async def withdraw(self, user: User) -> None:
         """도메인 규칙: 물리 삭제 금지 → Soft Delete.
 
+        회원 탈퇴 처리 (Soft Delete).
+
+        1. 연결된 모든 토큰 무효화: 즉시 접근 차단 (출입증 회수)
+        2. 유저 상태·시각 기록: Repository `soft_delete_user`에서
+           `is_active=False`, `status='DELETED'`, `deleted_at=now(UTC)` 반영
+           — [도메인 규칙 1.2] ① 5년 후 물리 삭제를 위한 타임스탬프 기록
+           (비유: 보관 기한이 찍힌 '폐기 예정' 각인).
+
+        ※ 설계 의도:
+        재가입 시 데이터 복구 편의성과 통계 목적을 위해
+        연관된 사업장(Business)이나 채팅 이력은 삭제하거나 연결을 끊지 않고 그대로 유지함.
+
         cascade: 해당 유저의 모든 토큰도 함께 무효화.
         """
         await self._repo.revoke_all_user_tokens(user.id)

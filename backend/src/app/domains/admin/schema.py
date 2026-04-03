@@ -106,6 +106,7 @@ class AdminUserItem(BaseModel):
     user_id: str
     name: str
     email: str
+    status: str = Field(..., description="계정 상태 코드 (예: active, DELETED)")
     is_active: bool
     created_at: str
 

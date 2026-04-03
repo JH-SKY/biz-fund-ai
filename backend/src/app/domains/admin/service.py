@@ -258,11 +258,13 @@ class AdminService:
         page: int,
         size: int,
         search_keyword: str | None,
+        only_active: bool = True,
     ) -> AdminUserListData:
         rows, total = await self._repo.list_users(
             page=page,
             size=size,
             search_keyword=search_keyword,
+            only_active=only_active,
         )
         total_pages = (total + size - 1) // size if size > 0 else 0
         items: list[AdminUserItem] = []
@@ -275,6 +277,7 @@ class AdminService:
                     user_id=str(u.id),
                     name=u.name,
                     email=u.email,
+                    status=u.status,
                     is_active=u.is_active,
                     created_at=ts.isoformat().replace("+00:00", "Z"),
                 )

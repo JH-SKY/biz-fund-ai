@@ -215,8 +215,12 @@ class AdminRepository:
         page: int,
         size: int,
         search_keyword: str | None,
+        only_active: bool = True,
     ) -> tuple[Sequence[User], int]:
         filters = []
+        # [도메인 규칙 1.2] ① 격리 펜스 — 비유: 운영 목록은 '활성 구역'만 열람(탈퇴 유저는 펜스 밖).
+        if only_active:
+            filters.append(User.is_active.is_(True))
         if search_keyword and search_keyword.strip():
             kw = f"%{search_keyword.strip()}%"
             filters.append(

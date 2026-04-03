@@ -173,10 +173,15 @@ async def admin_list_users(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=200),
     search_keyword: str | None = Query(None),
+    include_inactive_users: bool = Query(
+        False,
+        description="True면 탈퇴(비활성) 유저까지 포함. 기본은 활성만(격리 펜스).",
+    ),
 ):
     data = await svc.list_users(
         page=page,
         size=size,
         search_keyword=search_keyword,
+        only_active=not include_inactive_users,
     )
     return api_json(http_status=200, data=data.model_dump(), message="success")

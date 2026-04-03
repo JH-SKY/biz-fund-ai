@@ -39,7 +39,13 @@ class SocialProvider(str, Enum):
 
 
 class User(Base):
-    """users 테이블 — 소셜 로그인·프로필·관심분야."""
+    """
+    users 테이블 — 소셜 로그인·프로필·관심분야.
+    [도메인 설계 원칙]
+    1. 탈퇴 시 실제 데이터를 삭제하지 않는 'Soft Delete' 방식을 사용합니다.
+    2. 유저가 탈퇴(is_active=False)해도 연결된 'Business', 'ChatRoom' 데이터는 유지합니다.
+    3. (주의) 타 도메인에서 데이터를 조회할 때, 반드시 유저의 is_active 상태를 확인해야 합니다.
+    """
 
     __tablename__ = "users"
 
@@ -62,6 +68,13 @@ class User(Base):
     )
     profile_image_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # [도메인 규칙 1.2] ① 탈퇴 시각 — 비유: '폐기 예정일이 찍힌 보관 스티커'(5년 후 물리 삭제를 위한 타임스탬프 기록).
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP,
+        nullable=True,
+        default=None,
+        comment="탈퇴 시각(UTC). 5년 후 물리 삭제를 위한 타임스탬프 기록",
+    )
     marketing_agreed_at: Mapped[Optional[datetime]] = mapped_column(
         TIMESTAMP, nullable=True
     )
@@ -69,7 +82,9 @@ class User(Base):
         JSONB, nullable=True, comment="관심 업종/분야 리스트 (JSONB array)"
     )
     military_service: Mapped[Optional[str]] = mapped_column(
-        String(30), nullable=True, comment="군필 여부 (COMPLETED/EXEMPTED/IN_PROGRESS/NA)"
+        String(30),
+        nullable=True,
+        comment="군필 여부 (COMPLETED/EXEMPTED/IN_PROGRESS/NA)",
     )
     is_non_major: Mapped[Optional[bool]] = mapped_column(
         Boolean, nullable=True, comment="비전공 창업자 여부"
@@ -81,18 +96,14 @@ class User(Base):
         TIMESTAMP, server_default=text("CURRENT_TIMESTAMP"), nullable=False
     )
 
-    tokens: Mapped[list["UserToken"]] = relationship(
-        "UserToken", back_populates="user"
-    )
+    tokens: Mapped[list["UserToken"]] = relationship("UserToken", back_populates="user")
     businesses: Mapped[list["Business"]] = relationship(
         "Business", back_populates="user"
     )
     chat_rooms: Mapped[list["ChatRoom"]] = relationship(
         "ChatRoom", back_populates="user"
     )
-    chat_logs: Mapped[list["ChatLog"]] = relationship(
-        "ChatLog", back_populates="user"
-    )
+    chat_logs: Mapped[list["ChatLog"]] = relationship("ChatLog", back_populates="user")
     notifications: Mapped[list["Notification"]] = relationship(
         "Notification", back_populates="user"
     )
@@ -169,9 +180,7 @@ class Admin(Base):
     login_id: Mapped[str] = mapped_column(
         String(50), nullable=False, unique=True, comment="관리자 로그인 ID"
     )
-    password: Mapped[str] = mapped_column(
-        Text, nullable=False, comment="비밀번호 해시"
-    )
+    password: Mapped[str] = mapped_column(Text, nullable=False, comment="비밀번호 해시")
     role: Mapped[AdminRole] = mapped_column(
         sqlalchemy_Enum(AdminRole, name="adminrole"),
         nullable=False,
