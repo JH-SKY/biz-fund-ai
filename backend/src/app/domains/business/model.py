@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from src.app.domains.chat.model import ChatRoom
     from src.app.domains.diagnosis.model import MatchLog, SimulationLog
     from src.app.domains.notification.model import Notification
-    from src.app.domains.policy.model import Policy
+    from src.app.domains.policy.model import Policy, PolicyBookmark
     from src.app.domains.system.model import LeadRequest
 
 from sqlalchemy import (
@@ -122,6 +122,9 @@ class Business(Base):
     )
     notifications: Mapped[list["Notification"]] = relationship(
         "Notification", back_populates="business"
+    )
+    policy_bookmarks: Mapped[list["PolicyBookmark"]] = relationship(
+        "PolicyBookmark", back_populates="business", cascade="all, delete-orphan"
     )
 
 
