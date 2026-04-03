@@ -2,6 +2,7 @@
 from typing import Annotated
 
 from fastapi import Depends, FastAPI
+from fastapi.exceptions import RequestValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,12 +17,17 @@ import src.app.domains.notification.model  # noqa: F401
 import src.app.domains.system.model  # noqa: F401
 
 from src.app.api.v1.router import api_router
+from src.app.core.exceptions import request_validation_exception_handler
 from src.app.database.postgres.database import get_db
 
 app = FastAPI(
     title="Biz-Fund-AI API",
     description="소상공인 맞춤형 정책 매칭 및 AI 에이전트 서비스",
     version="0.1.0",
+)
+app.add_exception_handler(
+    RequestValidationError,
+    request_validation_exception_handler,
 )
 app.include_router(api_router)
 

@@ -25,6 +25,7 @@ from sqlalchemy import (
     String,
     Text,
     TIMESTAMP,
+    UniqueConstraint,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -125,9 +126,24 @@ class Business(Base):
 
 
 class BusinessFinancialSnapshot(Base):
-    """business_financial_snapshots 테이블 — 연도별 재무 스냅샷."""
+    """business_financial_snapshots 테이블 — 연도별 재무 스냅샷.
+
+    제약 조건:
+      - (business_id, snapshot_year) UNIQUE: 동일 사업장의 연도 중복 등록 방지.
+        Service 레이어 체크(finance_already_exists)와 DB 레이어 양쪽에서 무결성 보장.
+    삭제 정책:
+      - [도메인 규칙 0: Data Persistence] Soft Delete — is_active=False 처리.
+        실수 입력 데이터도 감사(Audit) 목적으로 보존한다.
+    """
 
     __tablename__ = "business_financial_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "business_id",
+            "snapshot_year",
+            name="uq_biz_financial_snapshot_year",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -151,22 +167,32 @@ class BusinessFinancialSnapshot(Base):
         String(10), nullable=False, comment="공시 주기 (연간·분기 등)"
     )
     annual_revenue: Mapped[Optional[int]] = mapped_column(
-        BigInteger, nullable=True, comment="연매출액"
+        BigInteger, nullable=True, comment="연매출액 (원)"
+    )
+    operating_profit: Mapped[Optional[int]] = mapped_column(
+        BigInteger, nullable=True, comment="영업이익 (원, 음수 가능) — API 명세서 #4·#5 대응"
     )
     net_income: Mapped[Optional[int]] = mapped_column(
-        BigInteger, nullable=True, comment="당기순이익"
+        BigInteger, nullable=True, comment="당기순이익 (원, 음수 가능)"
     )
     total_debt: Mapped[Optional[int]] = mapped_column(
-        BigInteger, nullable=True, comment="총 부채액"
+        BigInteger, nullable=True, comment="총 부채액 (원)"
+    )
+    capital: Mapped[Optional[int]] = mapped_column(
+        BigInteger, nullable=True, comment="자본금 (원) — API 명세서 #4·#5 대응"
     )
     debt_ratio: Mapped[Optional[float]] = mapped_column(
-        Numeric(5, 2), nullable=True, comment="부채 비율 (%)"
+        Numeric(5, 2), nullable=True, comment="부채 비율 (%) — 자동 계산"
     )
     employee_count: Mapped[Optional[int]] = mapped_column(
         Integer, nullable=True, comment="직원 수"
     )
     tax_arrears_yn: Mapped[bool] = mapped_column(
-        Boolean, default=False, nullable=False, comment="세금 체납 여부"
+        Boolean,
+        default=False,
+        server_default=text("false"),
+        nullable=False,
+        comment="세금 체납 여부",
     )
     ai_analysis_report: Mapped[Optional[Any]] = mapped_column(
         JSONB, nullable=True, comment="비즈몽 재무 진단 결과 (JSON)"
@@ -174,14 +200,25 @@ class BusinessFinancialSnapshot(Base):
     ocr_status: Mapped[str] = mapped_column(
         String(20), nullable=False, comment="OCR·분석 진행 상태 (대기·완료 등)"
     )
+    is_verified: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=text("false"),
+        nullable=False,
+        comment="공식 서류 기반 검증 여부",
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        server_default=text("true"),
+        nullable=False,
+        comment="[Soft Delete] 활성 여부 — False 이면 삭제 처리된 레코드",
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP,
         server_default=text("CURRENT_TIMESTAMP"),
         nullable=False,
         comment="스냅샷 생성 일시",
-    )
-    is_verified: Mapped[bool] = mapped_column(
-        Boolean, default=False, nullable=False, comment="공식 서류 기반 검증 여부"
     )
 
     business: Mapped["Business"] = relationship(
@@ -235,7 +272,12 @@ class Application(Base):
 
 
 class Document(Base):
-    """documents 테이블 — 사업자등록증 등 서류 파일 관리."""
+    """documents 테이블 — 사업자등록증 등 서류 파일 관리.
+
+    삭제 정책:
+      - [도메인 규칙 0: Data Persistence] Soft Delete — is_active=False 처리.
+        법적 보존 의무 및 재활용 가능성을 위해 파일 레코드를 유지한다.
+    """
 
     __tablename__ = "documents"
 
@@ -256,6 +298,29 @@ class Document(Base):
     )
     file_url: Mapped[str] = mapped_column(
         Text, nullable=False, comment="저장소(S3 등) 파일 경로"
+    )
+    ocr_status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="PENDING",
+        server_default=text("'PENDING'"),
+        comment="OCR 분석 진행 상태 (PENDING | COMPLETED | FAILED)",
+    )
+    ocr_result: Mapped[Optional[Any]] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment=(
+            "OCR 추출 원본 데이터 (JSON). "
+            "비동기 분석 완료 시 update_document_status()로 채워진다. "
+            "API 명세서 #11 ocr_data 필드에 대응."
+        ),
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        server_default=text("true"),
+        nullable=False,
+        comment="[Soft Delete] 활성 여부 — False 이면 삭제 처리된 레코드",
     )
     issued_at: Mapped[Optional[date]] = mapped_column(
         Date, nullable=True, comment="서류 발급 일자"
