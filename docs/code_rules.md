@@ -51,13 +51,6 @@ app/
 - **DI 방식:** 모든 계층 간 호출은 FastAPI의 `Depends`를 활용한다.
 - **객체 관리:** Service와 Repository는 클래스(Class) 형태로 정의하며, 필요한 의존성을 생성자(`__init__`)나 `Depends`를 통해 주입받는다.
 
-
-### 1.4 엔진 확장성 (Future-Proof for RAG/Agent)
-- **Decoupling AI Logic**: 채팅(Chat) 및 진단(Diagnosis) 도메인의 Service 레이어는 실제 AI 추론 로직(LLM, RAG)과 철저히 분리한다.
-- **Interface Driven**: Service는 Engine 인터페이스(추상화)를 호출하며, 현재는 Mock 데이터를 반환하도록 구현한다. (나중에 엔진 내부만 교체해도 기존 서비스 코드가 깨지지 않아야 함)
-- **Async Handling**: AI 연산은 고부하/장시간 작업이므로, 모든 관련 흐름은 async/await 기반의 비동기 파이프라인으로 설계한다.
-- **Selective Extension**: AI 피드백, 외부 데이터 연동, 또는 업종별 가변 데이터가 발생하는 핵심 도메인(User, Business, Policy, Chat, Diagnosis, Match) 모델에 한하여 metadata (JSONB) 필드를 포함한다. 단순 로그성 테이블은 정규화된 컬럼만 사용한다.
-
 ---
 
 ## 2. 파일 생성 및 참조 규칙
@@ -140,3 +133,17 @@ API 도메인 생성 시 반드시 다음 파일 세트를 확인/생성한다:
 
 - 문서에 없는 내용은 반드시 질문하거나 `ASSUMPTION` 섹션에 명시한다.
 - 예: "Refresh Token 저장 위치를 알 수 없어 DB Table에 저장하는 것으로 가정함."
+
+---
+
+## 7.  비즈니스 로직 규칙 (Special Rules)
+
+### 7.1 도메인 규칙서 v2.2 준수
+- 모든 기능 구현은 별도 제공된 `./docs/도메인규칙.md`의 정책을 최우선으로 따른다.
+
+### 7.2 데이터 격리 및 파기 (Soft Delete)
+- Repository의 조회 메서드는 `is_active=True` 필터링을 기본값으로 한다.
+- 유저 탈퇴 처리 시 `deleted_at` 타임스탬프를 반드시 기록하여 5년 후 물리 파기 근거를 남긴다.
+
+### 7.3 주석 가이드 (Learning-Friendly)
+- 코드리뷰를 고려하여 실무급 주석원칙을 따른다.
