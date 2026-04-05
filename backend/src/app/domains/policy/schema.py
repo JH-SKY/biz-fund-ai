@@ -78,7 +78,10 @@ class PolicyRecommendResponse(BaseModel):
 
 
 class PolicyDetailResponse(BaseModel):
-    """정책 상세 응답 (명세서 §3)."""
+    """정책 상세 응답 (명세서 §3).
+    
+    기존 필드에 실시간 조회수(view_count)를 추가하여 사용자에게 정책의 인기도를 전달합니다.
+    """
 
     policy_id: UUID
     title: str
@@ -91,6 +94,7 @@ class PolicyDetailResponse(BaseModel):
     category: Optional[str] = None
     agency_name: str
     closed_at: date
+    view_count: int = Field(0, description="정책 상세 조회수") # [추가] 실시간 조회수 지표
     is_bookmarked: bool = False
 
     class Config:

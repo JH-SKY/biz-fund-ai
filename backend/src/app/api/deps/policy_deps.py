@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.database.postgres.database import get_db
 from src.app.domains.policy.repository import PolicyRepository
 from src.app.domains.policy.service import PolicyService
+from src.app.domains.policy.interfaces import MockMatchEngine, RDBPolicySearcher
 
 
 # ── Repository & Service DI ────────────────────────────────────────────────
@@ -34,7 +35,9 @@ async def get_policy_service(
     db: Annotated[AsyncSession, Depends(get_db)],
     repo: Annotated[PolicyRepository, Depends(get_policy_repo)],
 ) -> PolicyService:
-    return PolicyService(session=db, repo=repo)
+    searcher = RDBPolicySearcher(repo)
+    match_engine = MockMatchEngine()
+    return PolicyService(session=db, repo=repo, searcher=searcher, match_engine=match_engine)
 
 
 # ── X-Business-Id 헤더 파싱 ────────────────────────────────────────────────

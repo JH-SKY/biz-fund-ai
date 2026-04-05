@@ -13,8 +13,8 @@
       GET  /policies/bookmarks         — 북마크 목록 조회
 
 경로 충돌 주의:
-  `recommend` / `bookmarks`는 `{id}` 라우트보다 먼저 선언해야
-  FastAPI가 리터럴 경로로 먼저 매칭한다.
+  - `recommend` / `bookmarks` / `search`는 `{policy_id}` 라우트보다 반드시 먼저 선언해야 함.
+  - FastAPI는 등록된 순서대로 경로 매칭을 시도함.
 """
 
 from __future__ import annotations
@@ -23,7 +23,6 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.api.deps.policy_deps import (
     OptionalBusinessId,
@@ -32,9 +31,7 @@ from src.app.api.deps.policy_deps import (
 )
 from src.app.api.deps.user_auth import CurrentUser
 from src.app.core.response import api_json
-from src.app.database.postgres.database import get_db
-from src.app.domains.business.exception import business_not_found
-from src.app.domains.business.repository import BusinessRepository
+from src.app.api.deps.business_deps import ActiveBusiness
 
 router = APIRouter(prefix="/policies", tags=["policies"])
 
@@ -52,7 +49,9 @@ async def get_all_policies(
 ):
     """시스템에 등록된 전체 정책 목록 (최신순, 페이징).
 
-    X-Business-Id 헤더가 있으면 북마크 여부를 함께 반환한다.
+    설계 의도:
+      - [도메인 규칙 0] 비로그인 사용자도 조회 가능해야 함.
+      - business_id 존재 시 각 아이템의 북마크 여부를 포함하여 반환.
     """
     data = await svc.get_active_policies(
         page=page, size=size, business_id=business_id
@@ -65,28 +64,31 @@ async def get_all_policies(
 
 
 # ── 2. 맞춤형 정책 추천 목록 ────────────────────────────────────────────────
-# ⚠️ /recommend 는 /{id} 보다 앞에 선언 (경로 충돌 방지)
+# ⚠️ /recommend 는 /{policy_id} 보다 앞에 선언 (경로 충돌 방지)
 
 
 @router.get("/recommend")
 async def get_recommended_policies(
     svc: PolicyServiceDep,
     business_id: RequiredBusinessId,
-    _current_user: CurrentUser,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    biz: ActiveBusiness,
     page: int = Query(1, ge=1),
     size: int = Query(10, ge=1, le=100),
 ):
     """사업장 맞춤 추천 — 신호등 로직(RED/YELLOW/GREEN) 적용.
 
-    [도메인 규칙 2.2] X-Business-Id 필수.
+    수정 사항: 
+      - [A5 권한 격리] biz.id와 business_id 일치 여부 검증 로직을 
+        Router가 아닌 Service 계층으로 위임하여 '비즈니스 판단'의 응집도를 높임.
     """
-    repo = BusinessRepository(db)
-    biz = await repo.get_active_business_by_user_id(_current_user.id)
-    if biz is None or biz.id != business_id:
-        raise business_not_found()
-
-    data = await svc.get_recommended_policies(biz, page=page, size=size)
+    # 💡 설계 의도: business_id와 biz 객체 간의 정합성 검증은 Service 내부에서 수행하여 
+    #    라우터는 요청 전달과 응답 반환에만 집중하게 함.
+    data = await svc.get_recommended_policies(
+        biz=biz, 
+        requested_business_id=business_id, 
+        page=page, 
+        size=size
+    )
     return api_json(
         http_status=status.HTTP_200_OK,
         data=data.model_dump(),
@@ -94,8 +96,8 @@ async def get_recommended_policies(
     )
 
 
-# ── 6. 찜한 정책 목록 조회 ─────────────────────────────────────────────────
-# ⚠️ /bookmarks 는 /{id} 보다 앞에 선언 (경로 충돌 방지)
+# ── 3. 찜한 정책 목록 조회 ─────────────────────────────────────────────────
+# ⚠️ /bookmarks 는 /{policy_id} 보다 앞에 선언 (경로 충돌 방지)
 
 
 @router.get("/bookmarks")
@@ -108,7 +110,8 @@ async def get_bookmarked_policies(
 ):
     """사업장 기준 북마크된 정책 목록.
 
-    [도메인 규칙 2.2] X-Business-Id 필수.
+    설계 의도: 
+      - [도메인 규칙 2.2] 특정 사업장에 귀속된 북마크만 격리 조회.
     """
     data = await svc.get_bookmarked_policies(
         business_id, page=page, size=size
@@ -121,7 +124,7 @@ async def get_bookmarked_policies(
 
 
 # ── 4. 정책 키워드 검색 ────────────────────────────────────────────────────
-# ⚠️ /search 는 /{id} 보다 앞에 선언 (경로 충돌 방지)
+# ⚠️ /search 는 /{policy_id} 보다 앞에 선언 (경로 충돌 방지)
 
 
 @router.get("/search")
@@ -134,10 +137,7 @@ async def search_policies(
     page: int = Query(1, ge=1),
     size: int = Query(10, ge=1, le=100),
 ):
-    """제목·내용 키워드 / 지역 / 카테고리 복합 검색.
-
-    응답 규격: 전체 목록 조회와 동일 (PolicyListResponse).
-    """
+    """제목·내용 키워드 / 지역 / 카테고리 복합 검색."""
     data = await svc.search_policies(
         keyword=keyword,
         region=region,
@@ -153,7 +153,7 @@ async def search_policies(
     )
 
 
-# ── 3. 정책 상세 정보 조회 ─────────────────────────────────────────────────
+# ── 5. 정책 상세 정보 조회 ─────────────────────────────────────────────────
 
 
 @router.get("/{policy_id}")
@@ -164,7 +164,9 @@ async def get_policy_detail(
 ):
     """특정 정책 상세 공고 + 북마크 여부 반환.
 
-    X-Business-Id 헤더가 있으면 북마크 상태를 함께 반환한다.
+    설계 의도:
+      - 상세 조회 시 조회수가 카운팅되며(비즈니스 로직), 
+      - 반환 전 데이터 만료(Expired) 방지를 위해 Service에서 DTO 변환이 선행됨.
     """
     data = await svc.get_policy_detail(policy_id, business_id=business_id)
     return api_json(
@@ -174,7 +176,7 @@ async def get_policy_detail(
     )
 
 
-# ── 5. 관심 정책 북마크 토글 ────────────────────────────────────────────────
+# ── 6. 관심 정책 북마크 토글 ────────────────────────────────────────────────
 
 
 @router.post("/{policy_id}/bookmark")
@@ -186,7 +188,8 @@ async def toggle_bookmark(
 ):
     """정책 북마크 토글 — 이미 있으면 삭제, 없으면 추가.
 
-    [도메인 규칙 2.2] X-Business-Id 필수.
+    수정 사항:
+      - [A4 물리 삭제] 취소 시 즉시 반영되며, 응답 규격을 명세서와 일치시킴.
     """
     data = await svc.toggle_bookmark(policy_id, business_id)
     return api_json(

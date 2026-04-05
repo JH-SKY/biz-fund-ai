@@ -2,30 +2,34 @@
 """정책 도메인 DB 접근 계층.
 
 원칙:
-  - 비즈니스 판단(예외 발생, 조건 분기)은 Service에서, I/O만 여기에.
-  - [도메인 규칙 0] is_active=True 필터를 모든 공개 조회에 적용(Soft Delete).
-  - [도메인 규칙 2.2] 북마크 조회는 business_id 기준으로 격리.
+  - 비즈니스 판단(예외 발생, 조건 분기)은 Service에서, I/O(쿼리 실행)만 여기에 담습니다.
+  - [도메인 규칙 0] 모든 일반 사용자용 조회에는 is_active=True 필터를 강제합니다. (Soft Delete 대응)
+  - [도메인 규칙 2.2] 북마크 조회는 반드시 business_id를 기준으로 격리하여 보안을 유지합니다.
 """
 
 from __future__ import annotations
 
 import math
 import uuid
+from datetime import date
 from typing import Optional
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.domains.policy.model import Policy, PolicyBookmark
 
 
 class PolicyRepository:
-    """정책 도메인 Repository."""
+    """정책 도메인의 '창고 관리자'입니다. 
+    
+    데이터를 넣고(C), 찾고(R), 고치고(U), 치우는(D) 일만 수행합니다.
+    """
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    # ── Policy 목록 ────────────────────────────────────────────────────────
+    # ── 1. Policy 조회 (사용자용) ──────────────────────────────────────────────
 
     async def get_active_policies(
         self,
@@ -33,21 +37,17 @@ class PolicyRepository:
         page: int = 1,
         size: int = 10,
     ) -> tuple[list[Policy], int, int]:
-        """is_active=True 정책 전체 — 최신순 페이징.
-
-        Returns:
-            (items, total_count, total_pages)
-        """
+        """활성 상태인 정책 목록을 '최신 등록순'으로 가져옵니다. (배달 전 포장 작업)"""
+        # 1. 기본 필터링 (활성 상태만)
         base = select(Policy).where(Policy.is_active.is_(True))
 
-        count_stmt = select(func.count()).select_from(
-            base.subquery()
-        )
-        total_count_result = await self._session.execute(count_stmt)
-        total_count: int = total_count_result.scalar_one()
+        # 2. 전체 개수 파악 (전체 페이지 계산용)
+        count_stmt = select(func.count()).select_from(base.subquery())
+        total_count: int = (await self._session.execute(count_stmt)).scalar_one()
 
         total_pages = max(1, math.ceil(total_count / size))
 
+        # 3. 데이터 페이징 조회
         stmt = (
             base.order_by(Policy.created_at.desc())
             .offset((page - 1) * size)
@@ -59,10 +59,25 @@ class PolicyRepository:
         return items, total_count, total_pages
 
     async def get_policy_by_id(self, policy_id: uuid.UUID) -> Policy | None:
-        """단건 조회 — is_active 무관(Service에서 판단)."""
+        """아이디로 정책 하나를 찾습니다. (비유: 특정 학번 학생 찾기)"""
         stmt = select(Policy).where(Policy.id == policy_id)
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def increase_view_count(self, policy_id: uuid.UUID) -> None:
+        """조회수를 안전하게 1 올립니다. 
+        
+        설계 의도: 
+          - 여러 명의 사용자가 동시에 조회할 때 데이터가 씹히지 않도록 
+            DB가 직접 '+ 1'을 수행하게 합니다. (Atomic Update)
+        """
+        stmt = (
+            update(Policy)
+            .where(Policy.id == policy_id)
+            .values(view_count=Policy.view_count + 1)
+        )
+        await self._session.execute(stmt)
+        await self._session.flush()
 
     async def search_policies(
         self,
@@ -73,14 +88,10 @@ class PolicyRepository:
         page: int = 1,
         size: int = 10,
     ) -> tuple[list[Policy], int, int]:
-        """키워드·지역·카테고리 복합 검색 (is_active=True 전제).
-
-        - keyword: title 또는 content_raw ILIKE 검색
-        - region: Policy.region ILIKE 검색
-        - category: 정확 일치
-        """
+        """제목, 지역, 카테고리 등 여러 조건으로 정책을 검색합니다."""
         conditions = [Policy.is_active.is_(True)]
 
+        # 1. 키워드 검색 (제목 또는 원문 포함 여부)
         if keyword:
             pattern = f"%{keyword}%"
             conditions.append(
@@ -89,6 +100,8 @@ class PolicyRepository:
                     Policy.content_raw.ilike(pattern),
                 )
             )
+        
+        # 2. 필터링 조건 추가 (지역, 카테고리)
         if region:
             conditions.append(Policy.region.ilike(f"%{region}%"))
         if category:
@@ -96,6 +109,7 @@ class PolicyRepository:
 
         base = select(Policy).where(*conditions)
 
+        # 3. 페이징 및 결과 반환
         count_stmt = select(func.count()).select_from(base.subquery())
         total_count: int = (await self._session.execute(count_stmt)).scalar_one()
         total_pages = max(1, math.ceil(total_count / size))
@@ -108,7 +122,7 @@ class PolicyRepository:
         result = await self._session.execute(stmt)
         return list(result.scalars().all()), total_count, total_pages
 
-    # ── PolicyBookmark ──────────────────────────────────────────────────────
+    # ── 2. PolicyBookmark (찜하기 로직) ──────────────────────────────────────────
 
     async def get_bookmark(
         self,
@@ -116,7 +130,7 @@ class PolicyRepository:
         business_id: uuid.UUID,
         policy_id: uuid.UUID,
     ) -> PolicyBookmark | None:
-        """단건 북마크 조회."""
+        """특정 사업장이 이 정책을 찜했는지 확인합니다."""
         stmt = select(PolicyBookmark).where(
             PolicyBookmark.business_id == business_id,
             PolicyBookmark.policy_id == policy_id,
@@ -130,12 +144,10 @@ class PolicyRepository:
         business_id: uuid.UUID,
         policy_ids: list[uuid.UUID],
     ) -> set[uuid.UUID]:
-        """주어진 policy_ids 중 해당 사업장이 북마크한 ID 집합 반환.
-
-        목록 조회 시 is_bookmarked 여부를 O(1) 판별용으로 사용.
-        """
+        """주어진 정책들 중 찜한 것들만 골라냅니다. (목록에서 '빨간 하트' 표시용)"""
         if not policy_ids:
             return set()
+        
         stmt = select(PolicyBookmark.policy_id).where(
             PolicyBookmark.business_id == business_id,
             PolicyBookmark.policy_id.in_(policy_ids),
@@ -150,7 +162,12 @@ class PolicyRepository:
         page: int = 1,
         size: int = 10,
     ) -> tuple[list[Policy], int, int]:
-        """해당 사업장이 북마크한 활성 정책 목록 — 최신 북마크 순."""
+        """해당 사업장의 북마크 목록을 가져옵니다. 
+        
+        설계 의도:
+          - 정책 데이터(Policy)와 북마크(PolicyBookmark)를 합쳐서(Join) 조회하며,
+            사용자가 '최근에 찜한 순서'대로 정렬합니다.
+        """
         base = (
             select(Policy)
             .join(
@@ -179,18 +196,18 @@ class PolicyRepository:
         business_id: uuid.UUID,
         policy_id: uuid.UUID,
     ) -> PolicyBookmark:
-        """북마크 생성."""
+        """북마크 정보를 창고에 새로 등록합니다."""
         bookmark = PolicyBookmark(
             business_id=business_id,
             policy_id=policy_id,
         )
         self._session.add(bookmark)
-        await self._session.flush()
+        await self._session.flush() # ID를 즉시 생성하기 위해 flush
         await self._session.refresh(bookmark)
         return bookmark
 
     async def delete_bookmark(self, bookmark: PolicyBookmark) -> None:
-        """북마크 물리 삭제 (북마크는 Soft Delete 불필요 — 이력 가치 없음)."""
+        """북마크를 영구히 삭제합니다. (도메인 규칙 A4: 하드 딜리트)"""
         stmt = delete(PolicyBookmark).where(PolicyBookmark.id == bookmark.id)
         await self._session.execute(stmt)
         await self._session.flush()
@@ -201,18 +218,14 @@ class PolicyRepository:
         business_id: uuid.UUID,
         policy_id: uuid.UUID,
     ) -> bool:
-        """북마크 토글 — 있으면 삭제, 없으면 생성.
-
-        Returns:
-            True: 북마크 추가됨, False: 북마크 취소됨
-        """
-        existing = await self.get_bookmark(
+        """찜하기 스위치를 끄거나 켭니다. (이미 있으면 삭제, 없으면 추가)"""
+        bookmark = await self.get_bookmark(
             business_id=business_id, policy_id=policy_id
         )
-        if existing is not None:
-            await self.delete_bookmark(existing)
+        if bookmark:
+            await self.delete_bookmark(bookmark)
             return False
-        await self.create_bookmark(
-            business_id=business_id, policy_id=policy_id
-        )
+
+        await self.create_bookmark(business_id=business_id, policy_id=policy_id)
         return True
+
