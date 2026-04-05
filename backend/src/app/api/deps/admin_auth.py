@@ -18,6 +18,18 @@ from src.app.domains.admin.service import AdminService
 from src.app.core.security import decode_admin_token
 from src.app.domains.auth.model import Admin
 
+from src.app.api.deps.user_auth import get_auth_service
+from src.app.api.deps.chat_deps import get_chat_service
+from src.app.api.deps.policy_deps import get_policy_service
+from src.app.api.deps.biz_pick_deps import get_biz_pick_service
+from src.app.api.deps.system_deps import get_system_service
+
+from src.app.domains.auth.service import AuthService
+from src.app.domains.chat.service import ChatService
+from src.app.domains.policy.service import PolicyService
+from src.app.domains.biz_pick.service import BizPickService
+from src.app.domains.system.service import SystemService
+
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
@@ -30,8 +42,21 @@ async def get_admin_repo(
 async def get_admin_service(
     db: Annotated[AsyncSession, Depends(get_db)],
     repo: Annotated[AdminRepository, Depends(get_admin_repo)],
+    auth_service: Annotated[AuthService, Depends(get_auth_service)],
+    chat_service: Annotated[ChatService, Depends(get_chat_service)],
+    policy_service: Annotated[PolicyService, Depends(get_policy_service)],
+    biz_pick_service: Annotated[BizPickService, Depends(get_biz_pick_service)],
+    system_service: Annotated[SystemService, Depends(get_system_service)],
 ) -> AdminService:
-    return AdminService(db, repo)
+    return AdminService(
+        session=db,
+        repo=repo,
+        auth_service=auth_service,
+        chat_service=chat_service,
+        policy_service=policy_service,
+        biz_pick_service=biz_pick_service,
+        system_service=system_service,
+    )
 
 
 async def get_current_admin(

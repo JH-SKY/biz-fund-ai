@@ -7,13 +7,11 @@ import uuid
 from datetime import date, datetime, time, timezone
 from typing import Any, Sequence
 
+from backend.src.app.domains.policy.model import Policy
 from sqlalchemy import desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.domains.auth.model import Admin, AdminAuditLog, User
-from src.app.domains.chat.model import ChatLog
-from src.app.domains.policy.model import BizPick, Policy, PolicyStatus
-from src.app.domains.system.model import BatchLog
 
 
 class AdminRepository:
@@ -35,155 +33,6 @@ class AdminRepository:
         res = await self._session.execute(stmt)
         return res.scalar_one_or_none()
 
-    async def create_policy(
-        self,
-        *,
-        title: str,
-        agency_name: str,
-        support_type: str | None,
-        content_raw: str,
-        start_date: date | None,
-        end_date: date | None,
-        target_logic: dict[str, Any] | None,
-        status: PolicyStatus,
-    ) -> Policy:
-        row = Policy(
-            title=title,
-            agency_name=agency_name,
-            support_type=support_type,
-            content_raw=content_raw,
-            start_date=start_date,
-            end_date=end_date,
-            target_logic=target_logic,
-            status=status,
-        )
-        self._session.add(row)
-        await self._session.flush()
-        await self._session.refresh(row)
-        return row
-
-    async def get_policy_by_id(self, policy_id: uuid.UUID) -> Policy | None:
-        stmt = select(Policy).where(Policy.id == policy_id)
-        res = await self._session.execute(stmt)
-        return res.scalar_one_or_none()
-
-    async def patch_policy(
-        self,
-        policy: Policy,
-        *,
-        title: str | None,
-        apply_end_date: date | None,
-        content: str | None,
-    ) -> None:
-        if title is not None:
-            policy.title = title
-        if apply_end_date is not None:
-            policy.end_date = apply_end_date
-        if content is not None:
-            policy.content_raw = content
-        await self._session.flush()
-
-    async def create_biz_pick(
-        self,
-        *,
-        title: str,
-        category: str,
-        content_html: str,
-        thumbnail_url: str | None,
-        is_published: bool,
-    ) -> BizPick:
-        row = BizPick(
-            title=title,
-            category=category,
-            content_html=content_html,
-            thumbnail_url=thumbnail_url,
-            is_published=is_published,
-        )
-        self._session.add(row)
-        await self._session.flush()
-        await self._session.refresh(row)
-        return row
-
-    async def get_biz_pick_by_id(self, content_id: uuid.UUID) -> BizPick | None:
-        stmt = select(BizPick).where(BizPick.id == content_id)
-        res = await self._session.execute(stmt)
-        return res.scalar_one_or_none()
-
-    async def patch_biz_pick(
-        self,
-        row: BizPick,
-        *,
-        title: str | None,
-        body_html: str | None,
-        thumbnail_url: str | None,
-        is_published: bool | None,
-    ) -> None:
-        if title is not None:
-            row.title = title
-        if body_html is not None:
-            row.content_html = body_html
-        if thumbnail_url is not None:
-            row.thumbnail_url = thumbnail_url
-        if is_published is not None:
-            row.is_published = is_published
-        await self._session.flush()
-
-    async def find_first_assistant_after(
-        self,
-        *,
-        room_id: uuid.UUID,
-        after: datetime,
-    ) -> ChatLog | None:
-        stmt = (
-            select(ChatLog)
-            .where(
-                ChatLog.room_id == room_id,
-                ChatLog.role == "assistant",
-                ChatLog.created_at > after,
-            )
-            .order_by(ChatLog.created_at.asc())
-            .limit(1)
-        )
-        res = await self._session.execute(stmt)
-        return res.scalar_one_or_none()
-
-    async def list_user_chat_logs_page(
-        self,
-        *,
-        user_id: uuid.UUID | None,
-        page: int,
-        size: int,
-    ) -> Sequence[ChatLog]:
-        stmt = select(ChatLog).where(ChatLog.role == "user")
-        if user_id is not None:
-            stmt = stmt.where(ChatLog.user_id == user_id)
-        stmt = (
-            stmt.order_by(desc(ChatLog.created_at))
-            .offset((page - 1) * size)
-            .limit(size)
-        )
-        res = await self._session.execute(stmt)
-        return res.scalars().all()
-
-    async def count_new_users_since(self, since: datetime) -> int:
-        stmt = select(func.count()).select_from(User).where(User.created_at >= since)
-        res = await self._session.execute(stmt)
-        return int(res.scalar_one())
-
-    async def count_chat_logs_since(self, since: datetime) -> int:
-        stmt = select(func.count()).select_from(ChatLog).where(ChatLog.created_at >= since)
-        res = await self._session.execute(stmt)
-        return int(res.scalar_one())
-
-    async def list_top_policies_by_views(self, limit: int) -> Sequence[Policy]:
-        stmt = (
-            select(Policy)
-            .order_by(desc(Policy.view_count))
-            .limit(limit)
-        )
-        res = await self._session.execute(stmt)
-        return res.scalars().all()
-
     async def list_audit_logs(self, limit: int = 500) -> Sequence[AdminAuditLog]:
         stmt = (
             select(AdminAuditLog)
@@ -192,56 +41,6 @@ class AdminRepository:
         )
         res = await self._session.execute(stmt)
         return res.scalars().all()
-
-    async def list_latest_batch_per_job(self) -> Sequence[BatchLog]:
-        """PostgreSQL DISTINCT ON(job_name) — 최신 started_at 기준."""
-
-        sub = (
-            select(BatchLog)
-            .distinct(BatchLog.job_name)
-            .order_by(BatchLog.job_name, desc(BatchLog.started_at))
-        )
-        res = await self._session.execute(sub)
-        return res.scalars().all()
-
-    async def get_batch_log_by_id(self, job_id: uuid.UUID) -> BatchLog | None:
-        stmt = select(BatchLog).where(BatchLog.id == job_id)
-        res = await self._session.execute(stmt)
-        return res.scalar_one_or_none()
-
-    async def list_users(
-        self,
-        *,
-        page: int,
-        size: int,
-        search_keyword: str | None,
-        only_active: bool = True,
-    ) -> tuple[Sequence[User], int]:
-        filters = []
-        # [도메인 규칙 1.2] ① 격리 펜스 — 비유: 운영 목록은 '활성 구역'만 열람(탈퇴 유저는 펜스 밖).
-        if only_active:
-            filters.append(User.is_active.is_(True))
-        if search_keyword and search_keyword.strip():
-            kw = f"%{search_keyword.strip()}%"
-            filters.append(
-                or_(
-                    User.name.ilike(kw),
-                    User.email.ilike(kw),
-                )
-            )
-        count_stmt = select(func.count()).select_from(User)
-        stmt = select(User)
-        for f in filters:
-            count_stmt = count_stmt.where(f)
-            stmt = stmt.where(f)
-        total = int((await self._session.execute(count_stmt)).scalar_one())
-        stmt = (
-            stmt.order_by(desc(User.created_at))
-            .offset((page - 1) * size)
-            .limit(size)
-        )
-        rows = (await self._session.execute(stmt)).scalars().all()
-        return rows, total
 
     async def add_audit_log(
         self,
@@ -261,9 +60,97 @@ class AdminRepository:
         )
         self._session.add(log)
 
+    async def count_new_users_since(self, since: datetime) -> int:
+        from sqlalchemy import func
+        stmt = select(func.count()).select_from(User).where(User.created_at >= since)
+        res = await self._session.execute(stmt)
+        return int(res.scalar_one())
+
+    async def list_users_page(
+        self,
+        *,
+        page: int,
+        size: int,
+        search_keyword: str | None,
+        only_active: bool = True,
+    ) -> tuple[Sequence[User], int]:
+        from typing import Sequence
+        from sqlalchemy import func, or_, desc
+        filters = []
+        if only_active:
+            filters.append(User.is_active.is_(True))
+        if search_keyword and search_keyword.strip():
+            kw = f"%{search_keyword.strip()}%"
+            filters.append(or_(User.name.ilike(kw), User.email.ilike(kw)))
+        
+        count_stmt = select(func.count()).select_from(User)
+        stmt = select(User)
+        for f in filters:
+            count_stmt = count_stmt.where(f)
+            stmt = stmt.where(f)
+            
+        total = int((await self._session.execute(count_stmt)).scalar_one())
+        stmt = stmt.order_by(desc(User.created_at)).offset((page - 1) * size).limit(size)
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return rows, total
+
+
 
 def utc_start_of_today() -> datetime:
     """UTC 기준 당일 00:00 (대시보드 일일 집계)."""
 
     now = datetime.now(timezone.utc)
     return datetime.combine(now.date(), time.min, tzinfo=timezone.utc)
+
+
+    # ── 3. Admin & Internal (추후 분리 예정) ──────────────────────────────────────
+    
+async def create_policy_internal(
+    self,
+    *,
+    title: str,
+    agency_name: str,
+    support_type: str | None,
+    content_raw: str,
+    start_date: date | None,
+    end_date: date | None,
+    target_logic: dict | None,
+    status: str,
+) -> Policy:
+    """시스템 내부용 정책 등록 (관리자 도구 전용)"""
+    row = Policy(
+        title=title,
+        agency_name=agency_name,
+        support_type=support_type,
+        content_raw=content_raw,
+        start_date=start_date,
+        end_date=end_date,
+        target_logic=target_logic,
+        status=status,
+    )
+    self._session.add(row)
+    await self._session.flush()
+    await self._session.refresh(row)
+    return row
+
+async def patch_policy_internal(
+    self,
+    policy: Policy,
+    **kwargs,
+) -> None:
+    """정책 정보 수정 (넘겨받은 필드만 동적으로 업데이트)"""
+    for key, value in kwargs.items():
+        if hasattr(policy, key) and value is not None:
+            setattr(policy, key, value)
+    await self._session.flush()
+
+async def list_top_policies_by_views(self, limit: int) -> list[Policy]:
+    """인기 정책 TOP N을 조회합니다. (대시보드 노출용)"""
+    stmt = (
+        select(Policy)
+        .where(Policy.is_active.is_(True))
+        .order_by(Policy.view_count.desc())
+        .limit(limit)
+    )
+    res = await self._session.execute(stmt)
+    return list(res.scalars().all())

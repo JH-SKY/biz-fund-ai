@@ -111,13 +111,14 @@ async def admin_patch_content(
 
 @router.get("/chats/logs")
 async def admin_chat_logs(
-    _: CurrentAdmin,
+    request: Request,
+    admin: CurrentAdmin,
     svc: Annotated[AdminService, Depends(get_admin_service)],
     user_id: uuid.UUID | None = Query(None, description="특정 사용자 대화만"),
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=200),
 ):
-    data = await svc.list_chat_monitor(user_id=user_id, page=page, size=size)
+    data = await svc.list_chat_monitor(admin_id=admin.id,client_ip=_client_ip(request), user_id=user_id, page=page, size=size)
     return api_json(http_status=200, data=data.model_dump(), message="success")
 
 
@@ -132,10 +133,11 @@ async def admin_stats_dashboard(
 
 @router.get("/audit-logs")
 async def admin_audit_logs(
-    _: CurrentAdmin,
+    request: Request,
+    admin: CurrentAdmin,
     svc: Annotated[AdminService, Depends(get_admin_service)],
 ):
-    rows = await svc.list_audit_logs()
+    rows = await svc.list_audit_logs(admin_id=admin.id, client_ip=_client_ip(request))
     return api_json(
         http_status=200,
         data=[r.model_dump() for r in rows],
@@ -168,7 +170,8 @@ async def admin_batch_log_detail(
 
 @router.get("/users")
 async def admin_list_users(
-    _: CurrentAdmin,
+    request: Request,
+    admin: CurrentAdmin,
     svc: Annotated[AdminService, Depends(get_admin_service)],
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=200),
@@ -179,6 +182,8 @@ async def admin_list_users(
     ),
 ):
     data = await svc.list_users(
+        admin_id=admin.id,
+        client_ip=_client_ip(request),
         page=page,
         size=size,
         search_keyword=search_keyword,

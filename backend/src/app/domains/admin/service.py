@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 import uuid
 from datetime import timezone
 
@@ -34,12 +35,34 @@ from src.app.domains.auth.model import Admin
 from src.app.domains.policy.model import PolicyStatus
 
 
-class AdminService:
-    """관리자 유스케이스. Repository만 통해 DB에 접근한다."""
+from src.app.domains.auth.service import AuthService
+from src.app.domains.chat.service import ChatService
+from src.app.domains.policy.service import PolicyService
+from src.app.domains.biz_pick.service import BizPickService
+from src.app.domains.system.service import SystemService
+from src.app.domains.diagnosis.service import DiagnosisService
 
-    def __init__(self, session: AsyncSession, repo: AdminRepository) -> None:
+class AdminService:
+    """관리자 유스케이스. 타 도메인은 Service를 통해 통신한다."""
+
+    def __init__(
+        self,
+        session: AsyncSession,
+        repo: AdminRepository,
+        auth_service: AuthService,
+        chat_service: ChatService,
+        policy_service: PolicyService,
+        biz_pick_service: BizPickService,
+        system_service: SystemService,
+        diagnosis_service: DiagnosisService
+    ) -> None:
         self._session = session
         self._repo = repo
+        self._auth_service = auth_service
+        self._chat_service = chat_service
+        self._policy_service = policy_service
+        self._biz_pick_service = biz_pick_service
+        self._system_service = system_service
 
     async def login(self, body: AdminLoginRequest) -> dict:
         admin = await self._repo.get_admin_by_login_id(body.login_id)
@@ -58,7 +81,7 @@ class AdminService:
         client_ip: str | None,
     ) -> PolicyCreateResponseData:
         target_logic = {"target_region": body.target_region}
-        row = await self._repo.create_policy(
+        row = await self._policy_service.create_policy_internal(
             title=body.title,
             agency_name=ADMIN_POLICY_AGENCY_NAME,
             support_type=body.category,
@@ -90,10 +113,10 @@ class AdminService:
         admin: Admin,
         client_ip: str | None,
     ) -> None:
-        row = await self._repo.get_policy_by_id(policy_id)
+        row = await self._policy_service.get_policy_by_id_internal(policy_id)
         if row is None:
             raise HTTPException(status_code=404, detail="정책을 찾을 수 없습니다.")
-        await self._repo.patch_policy(
+        await self._policy_service.patch_policy_internal(
             row,
             title=body.title,
             apply_end_date=body.apply_end_date,
@@ -115,7 +138,7 @@ class AdminService:
         admin: Admin,
         client_ip: str | None,
     ) -> ContentPublishResponseData:
-        row = await self._repo.create_biz_pick(
+        row = await self._biz_pick_service.create_biz_pick_internal(
             title=body.title,
             category="GENERAL",
             content_html=body.body_html,
@@ -140,10 +163,10 @@ class AdminService:
         admin: Admin,
         client_ip: str | None,
     ) -> None:
-        row = await self._repo.get_biz_pick_by_id(content_id)
+        row = await self._biz_pick_service.get_biz_pick_by_id_internal(content_id)
         if row is None:
             raise HTTPException(status_code=404, detail="콘텐츠를 찾을 수 없습니다.")
-        await self._repo.patch_biz_pick(
+        await self._biz_pick_service.patch_biz_pick_internal(
             row,
             title=body.title,
             body_html=body.body_html,
@@ -163,17 +186,29 @@ class AdminService:
         self,
         *,
         user_id: uuid.UUID | None,
+        admin_id: uuid.UUID,      # [추가] 로그용
+        client_ip: str | None,
         page: int,
         size: int,
     ) -> ChatMonitorResponseData:
-        logs = await self._repo.list_user_chat_logs_page(
+        logs = await self._chat_service.list_user_chat_logs_page(
             user_id=user_id,
             page=page,
             size=size,
         )
+        await self._repo.add_audit_log(
+            admin_id=admin_id,
+            action_type="CHAT_MONITOR_VIEW",
+            target_id=user_id,
+            changes={"page": page, "size": size},
+            ip_address=client_ip,
+        )
+        # 중요: 조회의 경우 session.commit()은 필수는 아니나, 
+        # 로그 저장(INSERT)을 확정하기 위해 commit을 호출하는 것이 실무적 안전책입니다.
+        await self._session.commit()
         items: list[ChatMonitorItem] = []
         for ulog in logs:
-            assistant = await self._repo.find_first_assistant_after(
+            assistant = await self._chat_service.find_first_assistant_after(
                 room_id=ulog.room_id,
                 after=ulog.created_at,
             )
@@ -192,9 +227,9 @@ class AdminService:
 
     async def dashboard_stats(self) -> DashboardStatsData:
         start = utc_start_of_today()
-        new_users = await self._repo.count_new_users_since(start)
-        active_chats = await self._repo.count_chat_logs_since(start)
-        top = await self._repo.list_top_policies_by_views(5)
+        new_users = await self._auth_service.count_new_users_since(start)
+        active_chats = await self._chat_service.count_chat_logs_since(start)
+        top = await self._policy_service.list_top_policies_by_views(5)
         popular = [
             {"id": str(p.id), "hits": p.view_count}
             for p in top
@@ -205,7 +240,10 @@ class AdminService:
             popular_policies=popular,
         )
 
-    async def list_audit_logs(self) -> list[AuditLogItem]:
+    async def list_audit_logs(self
+                              ,*,
+                              admin_id: uuid.UUID,    # [추가] 로그용
+        client_ip: str | None) -> list[AuditLogItem]:
         rows = await self._repo.list_audit_logs()
         out: list[AuditLogItem] = []
         for r in rows:
@@ -223,7 +261,7 @@ class AdminService:
         return out
 
     async def batch_status(self) -> list[BatchStatusItem]:
-        rows = await self._repo.list_latest_batch_per_job()
+        rows = await self._system_service.list_latest_batch_per_job()
         items: list[BatchStatusItem] = []
         for r in rows:
             lr = r.started_at
@@ -240,7 +278,7 @@ class AdminService:
         return items
 
     async def batch_detail(self, job_id: uuid.UUID) -> BatchDetailData:
-        row = await self._repo.get_batch_log_by_id(job_id)
+        row = await self._system_service.get_batch_log_by_id(job_id)
         if row is None:
             raise HTTPException(status_code=404, detail="배치 로그를 찾을 수 없습니다.")
         raw = row.error_details
@@ -257,14 +295,24 @@ class AdminService:
         *,
         page: int,
         size: int,
+        admin_id: uuid.UUID,      # [필수] 로그를 위해 추가
+        ip_address: str | None,
         search_keyword: str | None,
         only_active: bool = True,
     ) -> AdminUserListData:
-        rows, total = await self._repo.list_users(
+        rows, total = await self._auth_service.list_users_page(
             page=page,
             size=size,
             search_keyword=search_keyword,
             only_active=only_active,
+        )
+
+        await self._repo.add_audit_log(
+            admin_id=admin_id,
+            action_type="USER_LIST_VIEW",
+            target_id=None,
+            changes={"page": page, "search": search_keyword},
+            ip_address=ip_address
         )
         total_pages = (total + size - 1) // size if size > 0 else 0
         items: list[AdminUserItem] = []
@@ -287,3 +335,73 @@ class AdminService:
             total_count=total,
             total_pages=total_pages,
         )
+
+    async def count_new_users_since(self, since: datetime) -> int:
+        return await self._repo.count_new_users_since(since)
+
+    async def list_users_page(
+        self,
+        *,
+        page: int,
+        size: int,
+        search_keyword: str | None,
+        only_active: bool = True,
+    ) -> tuple[list[User], int]:
+        rows, total = await self._repo.list_users_page(
+            page=page, size=size, search_keyword=search_keyword, only_active=only_active
+        )
+        return list(rows), total
+
+
+# ---------------------------------------------------------
+    # [신규] 진단 및 시뮬레이션 모니터링 (Diagnosis Domain 협력)
+    # ---------------------------------------------------------
+
+    async def list_diagnosis_monitor(
+        self,
+        *,
+        admin_id: uuid.UUID,
+        client_ip: str | None,
+        sim_type: str | None = "DIAGNOSIS",
+    ) -> list:
+        """
+        1. 기능: [관리자] 전수 진단/시뮬레이션 로그 모니터링.
+        2. 설계 의도: 시스템 전체에서 발생하는 AI 진단 비용과 결과의 적절성을 관리자가 감시합니다.
+        3. 메커니즘: DiagnosisService의 관리 전용 메서드를 호출하여 도메인 경계를 준수합니다.
+        """
+        # DiagnosisService에 관리자용 조회 로직이 구현되어 있어야 함
+        logs = await self._diagnosis_service.get_all_logs_for_admin(sim_type=sim_type)
+
+        await self._repo.add_audit_log(
+            admin_id=admin_id,
+            action_type="DIAGNOSIS_MONITOR_VIEW",
+            target_id=None,
+            changes={"sim_type": sim_type},
+            ip_address=client_ip,
+        )
+        await self._session.commit()
+
+        # 실무에서는 여기서 전용 Admin Schema로 변환하여 리턴합니다.
+        return logs
+
+    async def get_diagnosis_detail_admin(
+        self,
+        diagnosis_id: uuid.UUID,
+        admin_id: uuid.UUID,
+        client_ip: str | None,
+    ) -> Any:
+        """
+        1. 기능: 특정 진단 결과 상세 조회 (관리용).
+        2. 설계 의도: 사용자 권한 체크 없이 관리자가 기술적 문제나 CS 대응을 위해 상세 로그를 확인합니다.
+        """
+        log = await self._diagnosis_service.get_log_detail_for_admin(diagnosis_id)
+        
+        await self._repo.add_audit_log(
+            admin_id=admin_id,
+            action_type="DIAGNOSIS_DETAIL_VIEW",
+            target_id=diagnosis_id,
+            changes={},
+            ip_address=client_ip,
+        )
+        await self._session.commit()
+        return log
