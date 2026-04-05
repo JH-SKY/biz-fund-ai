@@ -276,10 +276,27 @@ class BusinessService:
         existing = await self._repo.get_financial_snapshot_by_year(
             biz.id, body.snapshot_year
         )
-        if existing is not None:
-            raise finance_already_exists(body.snapshot_year)
-
+        
         debt_ratio = _compute_debt_ratio(body.total_debt, body.annual_revenue)
+
+        if existing is not None:
+            if existing.annual_revenue is None and existing.is_verified is False:
+                await self._repo.update_financial_snapshot(
+                    existing,
+                    annual_revenue=body.annual_revenue,
+                    operating_profit=body.operating_profit,
+                    net_income=body.net_income,
+                    total_debt=body.total_debt,
+                    capital=body.capital,
+                    debt_ratio=debt_ratio,
+                    employee_count=body.employee_count if body.employee_count is not None else existing.employee_count,
+                    tax_arrears_yn=body.tax_arrears_yn,
+                )
+                await self._session.commit()
+                return _to_finance_response(existing)
+            else:
+                raise finance_already_exists(body.snapshot_year)
+
         snap = await self._repo.create_financial_snapshot(
             business_id=biz.id,
             snapshot_year=body.snapshot_year,

@@ -130,3 +130,10 @@ class AuthRepository:
             .values(is_revoked=True)
         )
         await self._session.execute(stmt)
+
+    async def get_by_email(self, email: str) -> Optional[User]:
+        """이메일로 사용자 조회."""
+        stmt = select(User).where(User.email == email, User.is_active == True)
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+

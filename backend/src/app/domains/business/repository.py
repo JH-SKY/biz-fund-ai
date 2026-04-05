@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
-from typing import Any, Optional
+from typing import Any, Optional, Type, TypeVar
 
-from sqlalchemy import select
+from sqlalchemy import select, Select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.domains.business.model import (
@@ -22,6 +22,8 @@ from src.app.domains.business.model import (
     Document,
 )
 
+# 제네릭 타입 설정 (Base Query 재사용 용도)
+T = TypeVar("T")
 
 class BusinessRepository:
     """사업장 도메인 Repository."""
@@ -29,22 +31,25 @@ class BusinessRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    def _base_query(self, model: Type[T]) -> Select:
+        """[실무 팁] 모든 조회의 기본 통로. 
+        
+        1. 활성 데이터 가드: is_active=True인 데이터만 가져오도록 강제하여 삭제된 데이터 유출 방지.
+        2. 유지보수 효율: 나중에 전역 필터 로직이 바뀌어도 이 곳만 수정하면 전체 쿼리에 반영됨.
+        """
+        return select(model).where(model.is_active.is_(True))
+
     # ── Business ───────────────────────────────────────────────────────────
 
     async def get_active_business_by_user_id(
         self, user_id: uuid.UUID
     ) -> Business | None:
-        """유저의 첫 번째 활성 사업장 반환 (단일 컨텍스트 기준).
-
-        [도메인 규칙 2.2]: X-Business-Id 헤더 기반 다중 사업장 지원은
-        향후 확장 포인트. 현재는 가장 먼저 등록된 활성 사업장을 기본으로 사용.
+        """1. 유저의 메인 사업장 찾기:
+        가장 먼저 등록된(created_at.asc) 활성 사업장을 '기본 사업장'으로 간주하여 반환해요.
         """
         stmt = (
-            select(Business)
-            .where(
-                Business.user_id == user_id,
-                Business.is_active.is_(True),
-            )
+            self._base_query(Business)
+            .where(Business.user_id == user_id)
             .order_by(Business.created_at.asc())
             .limit(1)
         )
@@ -52,11 +57,10 @@ class BusinessRepository:
         return result.scalar_one_or_none()
 
     async def get_business_by_biz_no(self, biz_no: str) -> Business | None:
-        """사업자번호 중복 등록 방지용 조회."""
-        stmt = select(Business).where(
-            Business.biz_no == biz_no,
-            Business.is_active.is_(True),
-        )
+        """2. 사업자번호 중복 검사:
+        이미 우리 서비스에 가입된 '살아있는' 사업자인지 확인하는 출입증 검사 로직이에요.
+        """
+        stmt = self._base_query(Business).where(Business.biz_no == biz_no)
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -77,6 +81,9 @@ class BusinessRepository:
         is_ventured: bool,
         profile_score: int,
     ) -> Business:
+        """3. 새 사업장 그릇 만들기:
+        사장님이 입력한 정보를 바탕으로 새로운 사업장 레코드를 생성하고 '활성(True)' 상태로 저장해요.
+        """
         biz = Business(
             user_id=user_id,
             biz_name=biz_name,
@@ -101,41 +108,14 @@ class BusinessRepository:
     async def update_business(
         self,
         biz: Business,
-        *,
-        biz_name: Optional[str] = None,
-        representative_name: Optional[str] = None,
-        region_sido: Optional[str] = None,
-        region_sigungu: Optional[str] = None,
-        establishment_date: Optional[date] = None,
-        ksic_code: Optional[str] = None,
-        sector_code: Optional[str] = None,
-        has_patent: Optional[bool] = None,
-        is_female_ent: Optional[bool] = None,
-        is_ventured: Optional[bool] = None,
-        profile_score: Optional[int] = None,
+        **kwargs
     ) -> None:
-        if biz_name is not None:
-            biz.biz_name = biz_name
-        if representative_name is not None:
-            biz.representative_name = representative_name
-        if region_sido is not None:
-            biz.region_sido = region_sido
-        if region_sigungu is not None:
-            biz.region_sigungu = region_sigungu
-        if establishment_date is not None:
-            biz.establishment_date = establishment_date
-        if ksic_code is not None:
-            biz.ksic_code = ksic_code
-        if sector_code is not None:
-            biz.sector_code = sector_code
-        if has_patent is not None:
-            biz.has_patent = has_patent
-        if is_female_ent is not None:
-            biz.is_female_ent = is_female_ent
-        if is_ventured is not None:
-            biz.is_ventured = is_ventured
-        if profile_score is not None:
-            biz.profile_score = profile_score
+        """4. 정보 수정 배달원:
+        변경된 정보만 골라서 업데이트해요. (Service에서 검증된 값들만 전달받음)
+        """
+        for key, value in kwargs.items():
+            if hasattr(biz, key) and value is not None:
+                setattr(biz, key, value)
         await self._session.flush()
 
     # ── BusinessFinancialSnapshot ──────────────────────────────────────────
@@ -145,11 +125,12 @@ class BusinessRepository:
         business_id: uuid.UUID,
         year: int,
     ) -> BusinessFinancialSnapshot | None:
-        """활성(is_active=True) 스냅샷만 조회 — Soft Delete 필터 적용."""
-        stmt = select(BusinessFinancialSnapshot).where(
+        """5. 연도별 장부 찾기:
+        특정 연도의 재무 상태 스냅샷을 가져와요. 삭제된 데이터는 자동으로 필터링됩니다.
+        """
+        stmt = self._base_query(BusinessFinancialSnapshot).where(
             BusinessFinancialSnapshot.business_id == business_id,
             BusinessFinancialSnapshot.snapshot_year == year,
-            BusinessFinancialSnapshot.is_active.is_(True),
         )
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
@@ -158,13 +139,12 @@ class BusinessRepository:
         self,
         business_id: uuid.UUID,
     ) -> list[BusinessFinancialSnapshot]:
-        """활성(is_active=True) 스냅샷 전체 — 연도 내림차순."""
+        """6. 재무 이력 정렬하기:
+        사장님의 과거 재무 기록을 최신순(year.desc)으로 나열하여 대시보드에 보여줄 준비를 해요.
+        """
         stmt = (
-            select(BusinessFinancialSnapshot)
-            .where(
-                BusinessFinancialSnapshot.business_id == business_id,
-                BusinessFinancialSnapshot.is_active.is_(True),
-            )
+            self._base_query(BusinessFinancialSnapshot)
+            .where(BusinessFinancialSnapshot.business_id == business_id)
             .order_by(BusinessFinancialSnapshot.snapshot_year.desc())
         )
         result = await self._session.execute(stmt)
@@ -186,6 +166,9 @@ class BusinessRepository:
         employee_count: Optional[int],
         tax_arrears_yn: bool,
     ) -> BusinessFinancialSnapshot:
+        """7. 재무 데이터 기록:
+        수기 입력이나 OCR로 파싱된 재무 지표를 DB에 영구 보관해요.
+        """
         snap = BusinessFinancialSnapshot(
             business_id=business_id,
             snapshot_year=snapshot_year,
@@ -208,44 +191,12 @@ class BusinessRepository:
         await self._session.refresh(snap)
         return snap
 
-    async def update_financial_snapshot(
-        self,
-        snap: BusinessFinancialSnapshot,
-        *,
-        annual_revenue: Optional[int] = None,
-        operating_profit: Optional[int] = None,
-        net_income: Optional[int] = None,
-        total_debt: Optional[int] = None,
-        capital: Optional[int] = None,
-        debt_ratio: Optional[float] = None,
-        employee_count: Optional[int] = None,
-        tax_arrears_yn: Optional[bool] = None,
-    ) -> None:
-        if annual_revenue is not None:
-            snap.annual_revenue = annual_revenue
-        if operating_profit is not None:
-            snap.operating_profit = operating_profit
-        if net_income is not None:
-            snap.net_income = net_income
-        if total_debt is not None:
-            snap.total_debt = total_debt
-        if capital is not None:
-            snap.capital = capital
-        if debt_ratio is not None:
-            snap.debt_ratio = debt_ratio
-        if employee_count is not None:
-            snap.employee_count = employee_count
-        if tax_arrears_yn is not None:
-            snap.tax_arrears_yn = tax_arrears_yn
-        await self._session.flush()
-
     async def soft_delete_financial_snapshot(
         self,
         snap: BusinessFinancialSnapshot,
     ) -> None:
-        """[도메인 규칙: 데이터 보존 정책 준수] Soft Delete.
-
-        is_active=False 처리 — 원장 데이터는 보존하여 감사(Audit) 추적을 유지한다.
+        """8. 데이터 숨기기 (Soft Delete):
+        사장님이 삭제를 눌러도 기록은 남겨둬요(나중에 사고 발생 시 확인용). 서비스에서는 안 보이게 처리합니다.
         """
         snap.is_active = False
         await self._session.flush()
@@ -256,13 +207,12 @@ class BusinessRepository:
         self,
         business_id: uuid.UUID,
     ) -> list[Document]:
-        """활성(is_active=True) 서류만 반환."""
+        """9. 서류함 조회:
+        우리 사업장에 등록된 활성 서류 목록을 최신순으로 가져와요.
+        """
         stmt = (
-            select(Document)
-            .where(
-                Document.business_id == business_id,
-                Document.is_active.is_(True),
-            )
+            self._base_query(Document)
+            .where(Document.business_id == business_id)
             .order_by(Document.created_at.desc())
         )
         result = await self._session.execute(stmt)
@@ -272,7 +222,9 @@ class BusinessRepository:
         self,
         document_id: uuid.UUID,
     ) -> Document | None:
-        """id 기준 단건 조회 — is_active 필터 없음(소유권 확인 후 Service에서 판단)."""
+        """10. 서류 단건 상세 조회:
+        특정 서류의 상세 정보(OCR 결과 등)를 조회해요. (보안을 위해 is_active 여부는 Service에서 최종 판단)
+        """
         stmt = select(Document).where(Document.id == document_id)
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
@@ -285,6 +237,9 @@ class BusinessRepository:
         file_url: str,
         ocr_status: str = "PENDING",
     ) -> Document:
+        """11. 업로드 서류 등록:
+        S3에 올라간 파일의 주소와 OCR 진행 상태를 기록하여 분석을 시작할 준비를 해요.
+        """
         doc = Document(
             business_id=business_id,
             doc_type=doc_type,
@@ -304,11 +259,8 @@ class BusinessRepository:
         ocr_status: str,
         ocr_result: Optional[dict[str, Any]] = None,
     ) -> None:
-        """비동기 OCR 작업 완료 콜백용 상태 + 결과 한 번에 업데이트.
-
-        사용 흐름:
-          PENDING → COMPLETED (ocr_result 채워짐)
-          PENDING → FAILED    (ocr_result=None 또는 에러 정보)
+        """12. OCR 작업 메모:
+        비동기로 돌아가던 AI 작업이 끝나면, 그 결과를 서류 레코드에 '나중에 할 일 메모'처럼 업데이트해요.
         """
         doc.ocr_status = ocr_status
         if ocr_result is not None:
@@ -316,10 +268,8 @@ class BusinessRepository:
         await self._session.flush()
 
     async def soft_delete_document(self, doc: Document) -> None:
-        """[도메인 규칙: 데이터 보존 정책 준수] Soft Delete.
-
-        is_active=False 처리 — S3 파일 경로(file_url)를 포함한 레코드를 보존한다.
-        법적 보존 기간(최대 5년) 만료 후 배치 작업에서 Hard Delete.
+        """13. 서류 파기(논리):
+        서류를 삭제 처리하지만, 법적 증빙을 위해 원본 데이터와 파일 경로는 DB에 남겨둡니다.
         """
         doc.is_active = False
         await self._session.flush()

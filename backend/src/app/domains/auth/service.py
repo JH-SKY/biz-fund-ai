@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Optional
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,7 +49,7 @@ class AuthService:
         name: str,
         profile_image_url: str | None,
     ) -> SocialLoginResponseData:
-        """소셜 정보로 기존 유저 로그인 또는 신규 유저 생성 후 토큰 발급.
+        """소셜 정보로 로그인 또는 가입 처리 후, 온보딩 대상 여부를 판단하여 토큰 발급.
 
         도메인 규칙: social_id + social_provider 유니크 키 사용.
         """
@@ -66,21 +67,29 @@ class AuthService:
             )
         elif not user.is_active:
             raise auth_unauthorized("탈퇴 처리된 계정입니다.")
+        
+        # 2. [실무 포인트] 온보딩 대상 여부 판단 로직
+        # 단순히 신규 생성이었거나, 기존 유저라도 필수 정보(예: 관심분야)가 없다면 신규 유저로 간주
+        # user.interest_sectors가 None이거나 빈 리스트([])인 경우 체크
+        is_profile_incomplete = not user.nickname 
+        should_redirect_to_onboarding = is_new or is_profile_incomplete
 
         access_token = create_user_access_token(user_id=user.id)
-        refresh_token = generate_refresh_token()
+        refresh_token = generate_refresh_token() 
         expires_at = refresh_token_expires_at()
+
         await self._repo.create_token(
             user_id=user.id,
             token=refresh_token,
             expires_at=expires_at,
         )
         await self._session.commit()
+
         return SocialLoginResponseData(
             access_token=access_token,
             refresh_token=refresh_token,
             user_id=str(user.id),
-            is_new_user=is_new,
+            is_new_user=should_redirect_to_onboarding
         )
 
     # ── 카카오 로그인 ──────────────────────────────────────
@@ -167,7 +176,7 @@ class AuthService:
 
     # ── 회원 탈퇴 ─────────────────────────────────────────
 
-    async def withdraw(self, user: User) -> None:
+    async def withdraw(self, user: User, reason: Optional[str] = None) -> None:
         """도메인 규칙: 물리 삭제 금지 → Soft Delete.
 
         회원 탈퇴 처리 (Soft Delete).
@@ -217,3 +226,4 @@ class AuthService:
         await self._session.commit()
         now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         return ProfilePatchResponseData(updated_at=now)
+
