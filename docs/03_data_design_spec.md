@@ -8,31 +8,32 @@
 
 ---
 
-### 1. users (사용자 계정) - UPDATED
+### 1. users (사용자 계정)
 
 - **존재 이유**: 서비스 이용자 식별, 소셜 로그인 연동 및 개인화 매칭(비전공/군필 등)을 위한 기초 데이터 관리
 - **관계성**: 1:N (user_tokens, businesses, chat_logs, chat_rooms, notifications, lead_requests)
 - **상세 명세**:
 
-| 구분 | 컬럼명 | 역할 | 타입/옵션 | 출처 | 비고 |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **PK** | id | 사용자 고유 식별자 | UUID, N | 시스템 | 기본값: uuid4 |
-| **일반** | email | 이메일 주소 | VARCHAR(255), N | 소셜 연동 | Unique Index 적용 |
-| **일반** | name | 실명 | VARCHAR(50), N | 소셜 연동 | - |
-| **일반** | phone | 전화번호 | VARCHAR(20), Y | 사용자 입력 | - |
-| **일반** | nickname | 활동명 | VARCHAR(50), Y | 사용자 입력 | - |
-| **일반** | status | 계정 상태 | VARCHAR(20), N | 시스템 | 기본값: 'active' |
-| **일반** | social_id | 소셜 고유 고정 ID | VARCHAR(255), N | 소셜 연동 | - |
-| **일반** | social_provider | 소셜 제공자 | ENUM, N | 소셜 연동 | KAKAO, NAVER |
-| **일반** | profile_image_url | 프로필 사진 URL | TEXT, Y | 소셜 연동 | - |
-| **일반** | is_active | 활성 계정 여부 | BOOLEAN, N | 시스템 | 기본값: True (Soft Delete 스위치) |
-| **일반** | deleted_at | 탈퇴 시각 | TIMESTAMP, Y | 시스템 |  5년 후 물리 삭제를 위한 기록용 |
-| **일반** | marketing_agreed_at | 마케팅 동의 일시 | TIMESTAMP, Y | 시스템 | - |
-| **일반** | interest_sectors | 관심 업종/분야 | JSONB, Y | 사용자 입력 |  관심 분야 리스트 (Array) |
-| **일반** | military_service | 군필 여부 | VARCHAR(30), Y | 사용자 입력 |  COMPLETED, EXEMPTED 등 |
-| **일반** | is_non_major | 비전공 창업자 여부 | BOOLEAN, Y | 사용자 입력 |  전공자/비전공자 구분 필터 |
-| **일반** | tech_stack | 기술 스택 | JSONB, Y | 사용자 입력 |  보유 기술 스택 리스트 |
-| **일반** | created_at | 가입 일시 | TIMESTAMP, N | 시스템 | Server Default: CURRENT_TIMESTAMP |
+| 구분     | 컬럼명              | 역할               | 타입/옵션       | 출처        | 비고                                      |
+| :------- | :------------------ | :----------------- | :-------------- | :---------- | :---------------------------------------- |
+| **PK**   | id                  | 사용자 고유 식별자 | UUID, N         | 시스템      | 기본값: uuid4                             |
+| **일반** | email               | 이메일 주소        | VARCHAR(255), N | 소셜 연동   | Unique Index 적용                         |
+| **일반** | name                | 실명               | VARCHAR(50), N  | 소셜 연동   | -                                         |
+| **일반** | phone               | 전화번호           | VARCHAR(20), Y  | 사용자 입력 | -                                         |
+| **일반** | nickname            | 활동명             | VARCHAR(50), Y  | 사용자 입력 | -                                         |
+| **일반** | status              | 계정 상태          | VARCHAR(20), N  | 시스템      | 기본값: 'active'                          |
+| **일반** | social_id           | 소셜 고유 고정 ID  | VARCHAR(255), N | 소셜 연동   | -                                         |
+| **일반** | social_provider     | 소셜 제공자        | ENUM, N         | 소셜 연동   | KAKAO, NAVER (SocialProvider 클래스 연동) |
+| **일반** | profile_image_url   | 프로필 사진 URL    | TEXT, Y         | 소셜 연동   | -                                         |
+| **일반** | is_active           | 활성 계정 여부     | BOOLEAN, N      | 시스템      | 기본값: True (Soft Delete 스위치)         |
+| **일반** | deleted_at          | 탈퇴 시각          | TIMESTAMP, Y    | 시스템      | 5년 후 물리 삭제를 위한 기록용 (UTC)      |
+| **일반** | marketing_agreed_at | 마케팅 동의 일시   | TIMESTAMP, Y    | 시스템      | -                                         |
+| **일반** | interest_sectors    | 관심 업종/분야     | JSONB, Y        | 사용자 입력 | 관심 업종/분야 리스트 (JSONB array)       |
+| **일반** | military_service    | 군필 여부          | VARCHAR(30), Y  | 사용자 입력 | COMPLETED, EXEMPTED, IN_PROGRESS, NA 등   |
+| **일반** | is_non_major        | 비전공 창업자 여부 | BOOLEAN, Y      | 사용자 입력 | 전공자/비전공자 구분 필터                 |
+| **일반** | tech_stack          | 기술 스택          | JSONB, Y        | 사용자 입력 | 기술 스택 리스트 (JSONB array)            |
+| **일반** | created_at          | 가입 일시          | TIMESTAMP, N    | 시스템      | Server Default: CURRENT_TIMESTAMP         |
+
 ---
 
 ### 1-2. user_tokens (인증 토큰 관리) - NEW
@@ -41,101 +42,109 @@
 - **관계성**: N:1 (users)
 - **상세 명세**:
 
-| 구분 | 컬럼명 | 역할 | 타입/옵션 | 출처 | 비고 |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **PK** | id | 토큰 레코드 식별자 | UUID, N | 시스템 | - |
-| **FK** | user_id | 소유 사용자 ID | UUID, N | 시스템 | users.id 외래키 |
-| **일반** | token | Refresh Token 값 | TEXT, N | 시스템 | Unique, opaque token 원본 |
-| **일반** | expires_at | 토큰 만료 일시 | TIMESTAMP, N | 시스템 | - |
-| **일반** | is_revoked | 무효화 여부 | BOOLEAN, N | 시스템 | 로그아웃 시 True 변경 (기본값: False) |
-| **일반** | created_at | 발급 일시 | TIMESTAMP, N | 시스템 | - |
+| 구분     | 컬럼명     | 역할               | 타입/옵션    | 출처   | 비고                                                                |
+| :------- | :--------- | :----------------- | :----------- | :----- | :------------------------------------------------------------------ |
+| **PK**   | id         | 토큰 레코드 식별자 | UUID, N      | 시스템 | 기본값: uuid4                                                       |
+| **FK**   | user_id    | 소유 사용자 ID     | UUID, N      | 시스템 | users.id 외래키                                                     |
+| **일반** | token      | Refresh Token 값   | TEXT, N      | 시스템 | Unique Index 적용, opaque Refresh Token 원본값                      |
+| **일반** | expires_at | 토큰 만료 일시     | TIMESTAMP, N | 시스템 | -                                                                   |
+| **일반** | is_revoked | 무효화 여부        | BOOLEAN, N   | 시스템 | 기본값: False, 로그아웃·탈퇴 시 무효화 여부 (Server Default: false) |
+| **일반** | created_at | 발급 일시          | TIMESTAMP, N | 시스템 | Server Default: CURRENT_TIMESTAMP                                   |
 
 ---
 
 ### 2. businesses (사업장 기본 정보)
 
 - **존재 이유**: 사장님의 업장 정보 관리 (1유저 다사업장 대응) 및 매칭 필터링의 핵심
-- **관계성**: N:1 (users), 1:N (financial_snapshots, match_logs, applications, documents, lead_requests, simulation_logs, chat_rooms, notifications)
+- **관계성**:
+  - **N:1**: users (사용자 계정)
+  - **1:N**: financial_snapshots, match_logs, applications, documents, lead_requests, simulation_logs, chat_rooms, notifications, policy_bookmarks
 - **상세 명세**:
 
-| 구분 | 컬럼명 | 역할 | 타입/옵션 | 출처 | 비고 |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **PK** | id | 사업장 식별자 | UUID, N | 시스템 | 특정 사업장을 구분하는 고유 식별 키 |
-| **FK** | user_id | 소유주 ID | UUID, N | 시스템 | 어떤 사용자가 소유한 사업장인지 연결하는 연결 고리 |
-| **일반** | biz_name | 상호명 | VARCHAR(100), N | 사용자 입력 | 사장님의 업체 이름으로 서비스 전반에 노출됨 |
-| **일반** | representative_name | 대표자명 | VARCHAR(50), Y | 사용자 입력 | 정책 자금 신청 서류 작성 시 필수 기입 정보 |
-| **일반** | biz_no | 사업자등록번호 | VARCHAR(12), Y | **OCR/입력** | 기업 실체 확인 및 중복 등록을 방지하는 핵심 키 |
-| **일반** | ksic_code | 표준산업분류코드 | VARCHAR(20), Y | **자동 추출** | 산업 분류에 따른 정책 가용성 판단의 필수 기준 |
-| **일반** | sector_code | 업종 코드 | VARCHAR(20), Y | **자동 추출** | 세부 업종별 맞춤형 정책 필터링을 위한 보조 코드 |
-| **일반** | region_sido | 시/도 (표시용) | VARCHAR(50), Y | **자동 추출** | 광역 지자체 단위의 정책 자금 매칭 기준 |
-| **일반** | region_sigungu | 시/군/구 (표시용) | VARCHAR(50), Y | **자동 추출** | 시/군/구 단위의 세부 지역 자금 매칭 기준 |
-| **일반** | region_code | 법정동 코드 (계산용) | VARCHAR(10), Y | **자동 추출** | 시스템 내부적으로 지역을 정확하게 필터링하기 위한 코드 |
-| **일반** | establishment_date | 설립 일자 | DATE, Y | **OCR/입력** | 업력(3년/7년 이내 등)에 따른 지원 자격 판단 기준 |
-| **일반** | has_patent | 특허 보유 여부 | BOOLEAN, N | 사용자 입력 | 기술성 가산점 및 특허 관련 정책 매칭을 위한 지표 |
-| **일반** | is_female_ent | 여성 기업 여부 | BOOLEAN, N | 사용자 입력 | 여성 기업 우대 정책 매칭을 위한 필수 필터값 |
-| **일반** | is_ventured | 벤처 기업 여부 | BOOLEAN, N | 사용자 입력 | 벤처 인증 기업 대상 고액 융자/지원금 매칭 기준 |
-| **일반** | is_active | 업장 활성 여부 | BOOLEAN, N | 시스템 | 폐업 여부나 삭제 처리를 관리하는 물리적 스위치 |
-| **일반** | profile_score | 정보 입력 완성도 | INTEGER, DEFAULT 0 | 시스템 | 0~100점 사이의 점수로, 맞춤 정책 추천 정밀도의 기준이 됨 |
-| **일반** | policy_bookmarks | 관계 설정 | Relationship | 시스템 |  1:N 북마크 데이터 연결 (Cascade 삭제 포함) |
-| **일반** | created_at | 등록 일시 | TIMESTAMP, N | 시스템 | 사업장 정보가 시스템에 최초 등록된 시각 |
+| 구분     | 컬럼명              | 역할                 | 타입/옵션          | 출처          | 비고                                                     |
+| :------- | :------------------ | :------------------- | :----------------- | :------------ | :------------------------------------------------------- |
+| **PK**   | id                  | 사업장 식별자        | UUID, N            | 시스템        | 특정 사업장을 구분하는 고유 식별 키                      |
+| **FK**   | user_id             | 소유주 ID            | UUID, N            | 시스템        | 어떤 사용자가 소유한 사업장인지 연결하는 연결 고리       |
+| **일반** | biz_name            | 상호명               | VARCHAR(100), N    | 사용자 입력   | 사장님의 업체 이름으로 서비스 전반에 노출됨              |
+| **일반** | representative_name | 대표자명             | VARCHAR(50), Y     | 사용자 입력   | 정책 자금 신청 서류 작성 시 필수 기입 정보               |
+| **일반** | biz_no              | 사업자등록번호       | VARCHAR(12), Y     | **OCR/입력**  | 기업 실체 확인 및 중복 등록을 방지하는 핵심 키           |
+| **일반** | ksic_code           | 표준산업분류코드     | VARCHAR(20), Y     | **자동 추출** | 산업 분류에 따른 정책 가용성 판단의 필수 기준            |
+| **일반** | sector_code         | 업종 코드            | VARCHAR(20), Y     | **자동 추출** | 세부 업종별 맞춤형 정책 필터링을 위한 보조 코드          |
+| **일반** | region_sido         | 시/도 (표시용)       | VARCHAR(50), Y     | **자동 추출** | 광역 지자체 단위의 정책 자금 매칭 기준                   |
+| **일반** | region_sigungu      | 시/군/구 (표시용)    | VARCHAR(50), Y     | **자동 추출** | 시/군/구 단위의 세부 지역 자금 매칭 기준                 |
+| **일반** | region_code         | 법정동 코드 (계산용) | VARCHAR(10), Y     | **자동 추출** | 시스템 내부적으로 지역을 정확하게 필터링하기 위한 코드   |
+| **일반** | establishment_date  | 설립 일자            | DATE, Y            | **OCR/입력**  | 업력(3년/7년 이내 등)에 따른 지원 자격 판단 기준         |
+| **일반** | has_patent          | 특허 보유 여부       | BOOLEAN, N         | 사용자 입력   | 기술성 가산점 및 특허 관련 정책 매칭을 위한 지표         |
+| **일반** | is_female_ent       | 여성 기업 여부       | BOOLEAN, N         | 사용자 입력   | 여성 기업 우대 정책 매칭을 위한 필수 필터값              |
+| **일반** | is_ventured         | 벤처 기업 여부       | BOOLEAN, N         | 사용자 입력   | 벤처 인증 기업 대상 고액 융자/지원금 매칭 기준           |
+| **일반** | is_active           | 업장 활성 여부       | BOOLEAN, N         | 시스템        | 폐업 여부나 삭제 처리를 관리하는 물리적 스위치           |
+| **일반** | profile_score       | 정보 입력 완성도     | INTEGER, DEFAULT 0 | 시스템        | 0~100점 사이의 점수로, 맞춤 정책 추천 정밀도의 기준이 됨 |
+| **일반** | created_at          | 등록 일시            | TIMESTAMP, N       | 시스템        | 사업장 정보가 시스템에 최초 등록된 시각                  |
 
 ---
 
 ### 3. business_financial_snapshots (재무 상태 스냅샷)
 
-- **존재 이유**: 시점별 재무 지표 기록 및 비즈몽의 AI 재무 진단 근거
+- **존재 이유**: 사업장의 연도별/분기별 재무 상태를 기록하여 정책자금 지원 자격(매출, 부채비율, 영업이익 등)을 정밀하게 진단하고 AI 분석 리포트를 생성하기 위한 기초 자료로 활용함
 - **관계성**: N:1 (businesses)
 - **상세 명세**:
 
-| 구분 | 컬럼명 | 역할 | 타입/옵션 | 출처 | 비고 |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **PK** | id | 스냅샷 식별자 | UUID, N | 시스템 | 특정 시점의 재무 상태 기록을 식별하는 고유 키 |
-| **FK** | business_id | 사업장 ID | UUID, N | 시스템 | 어느 사업장의 재무 정보인지 연결 |
-| **일반** | snapshot_year | 기준 연도 | INT, N | **OCR/입력** | 재무제표의 기준 연도로 과거 대비 성장성 분석에 활용 |
-| **일반** | snapshot_period | 기준 시기(1Q, 2Q 등) | VARCHAR(10), N | **OCR/입력** | 연말 결산 외 분기별 재무 상태 추적을 위한 구분 |
-| **일반** | term_type | 공시 주기(연간/분기) | VARCHAR(10), N | **OCR/입력** | 정기/수시 결산 여부를 판단하기 위한 주기 타입 |
-| **일반** | annual_revenue | 연매출액 | BIGINT, Y | **OCR/입력** | 정책 자금 신청 한도 및 기업 규모 판단의 핵심 지표 |
-| **일반** | net_income | 당기순이익 | BIGINT, Y | **OCR/입력** | 기업의 수익성 및 원리금 상환 능력을 평가하는 기준 |
-| **일반** | total_debt | 총 부채액 | BIGINT, Y | **OCR/입력** | 재무 건전성 판단 및 부채 비율 산출을 위한 데이터 |
-| **일반** | debt_ratio | 부채 비율 | DECIMAL(5,2), Y | **자동 계산** | 자본 대비 부채 비중으로 자금 지원의 안정성 평가 |
-| **일반** | employee_count | 직원 수 | INT, Y | **OCR/입력** | 고용 유지 정책 및 인건비 지원 사업 자격 여부 판단 |
-| **일반** | tax_arrears_yn | 체납 여부 | BOOLEAN, N | **OCR/입력** | 국세/지방세 체납 시 지원이 제한되므로 필수 확인 항목 |
-| **일반** | ai_analysis_report | 비즈몽 재무 진단 | JSONB, Y | **AI 생성** | AI가 분석한 재무 인사이트와 점수를 구조화하여 저장 |
-| **일반** | ocr_status | 분석 상태(대기/완료) | VARCHAR(20), N | 시스템 | 업로드된 재무 서류의 OCR 분석 진행 현황 관리 |
-| **일반** | created_at | 기록 일시 | TIMESTAMP, N | 시스템 | 해당 재무 스냅샷이 생성된 시점 |
-| **일반** | is_verified | 데이터 검증 여부 | BOOLEAN, N | 시스템 | 공식 서류(OCR)를 통해 확인된 신뢰 데이터인지 구분 |
-| **일반** | operating_profit | 영업이익 | BIGINT, Y | OCR/입력 | API 명세서 대응 (음수 가능) |
-| **일반** | capital | 자본금 | BIGINT, Y | OCR/입력 | API 명세서 대응 |
-| **일반** | is_active | 활성 여부 | BOOLEAN, N | 시스템 |  Soft Delete 스위치 (Default: True) |
+| 구분     | 컬럼명             | 역할                    | 타입/옵션       | 출처        | 비고                                            |
+| :------- | :----------------- | :---------------------- | :-------------- | :---------- | :---------------------------------------------- |
+| **PK**   | id                 | 재무 스냅샷 고유 식별자 | UUID, N         | 시스템      | 기본값: uuid4                                   |
+| **FK**   | business_id        | 대상 사업장 ID          | UUID, N         | 시스템      | businesses.id 외래키 (UniqueConstraint 포함)    |
+| **일반** | snapshot_year      | 재무제표 기준 연도      | INTEGER, N      | 사용자 입력 | business_id와 함께 복합 유니크 제약 적용        |
+| **일반** | snapshot_period    | 기준 시기               | VARCHAR(10), N  | 사용자 입력 | 예: 1Q, 2Q, 상반기, 하반기 등                   |
+| **일반** | term_type          | 공시 주기               | VARCHAR(10), N  | 사용자 입력 | 예: 연간, 분기 등                               |
+| **일반** | annual_revenue     | 연매출액                | BIGINT, Y       | 사용자/OCR  | 단위: 원                                        |
+| **일반** | operating_profit   | 영업이익                | BIGINT, Y       | 사용자/OCR  | 단위: 원 (음수 가능)                            |
+| **일반** | net_income         | 당기순이익              | BIGINT, Y       | 사용자/OCR  | 단위: 원 (음수 가능)                            |
+| **일반** | total_debt         | 총 부채액               | BIGINT, Y       | 사용자/OCR  | 단위: 원                                        |
+| **일반** | capital            | 자본금                  | BIGINT, Y       | 사용자/OCR  | 단위: 원                                        |
+| **일반** | debt_ratio         | 부채 비율               | NUMERIC(5,2), Y | 시스템      | 자동 계산 결과 (%)                              |
+| **일반** | employee_count     | 직원 수                 | INTEGER, Y      | 사용자 입력 | -                                               |
+| **일반** | tax_arrears_yn     | 세금 체납 여부          | BOOLEAN, N      | 사용자 입력 | 기본값: False (Server Default: false)           |
+| **일반** | ai_analysis_report | AI 진단 결과            | JSONB, Y        | 시스템      | 비즈몽 재무 진단 상세 데이터 (JSON)             |
+| **일반** | ocr_status         | 분석 진행 상태          | VARCHAR(20), N  | 시스템      | 대기, 완료 등 진행 상태 관리                    |
+| **일반** | is_verified        | 서류 검증 여부          | BOOLEAN, N      | 시스템      | 기본값: False (공식 서류 대조 완료 여부)        |
+| **일반** | is_active          | 활성 여부               | BOOLEAN, N      | 시스템      | 기본값: True (Soft Delete 적용, 감사 목적 보존) |
+| **일반** | created_at         | 스냅샷 생성 일시        | TIMESTAMP, N    | 시스템      | Server Default: CURRENT_TIMESTAMP               |
 
-* **데이터 무결성 제약 추가**: (business_id, snapshot_year) UNIQUE 제약 조건 적용
+- **데이터 무결성 제약 추가**: (business_id, snapshot_year) UNIQUE 제약 조건 적용
 
 ---
 
 ### 4. policies (정책 공고 데이터)
 
-- **존재 이유**: 수집된 정책 자금 공고의 마스터 데이터
-- **관계성**: 1:N (match_logs, applications, chat_logs)
+- **존재 이유**: 정부 및 지자체에서 공고하는 정책자금 데이터를 통합 관리하며, RAG 기반 AI 분석(요약, 해설)과 사업장 매칭 로직을 위한 원천 데이터를 제공함
+- **관계성**: 1:N (match_logs, applications, chat_logs, bookmarks)
 - **상세 명세**:
 
-| 구분 | 컬럼명 | 역할 | 타입/옵션 | 출처 | 비고 |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **PK** | id | 정책 식별자 | UUID, N | 시스템 | 개별 정책 공고를 식별하는 고유 키 |
-| **일반** | title | 공고 제목 | VARCHAR(255), N | 크롤링/관리자 | 사용자가 인식할 수 있는 공고의 정식 명칭 |
-| **일반** | agency_name | 공고 기관명 | VARCHAR(100), N | 크롤링/관리자 | 중기부, 지자체 등 자금을 지원하는 주관 기관 정보 |
-| **일반** | support_type | 지원 유형 | VARCHAR(50), Y | 크롤링/관리자 | 융자, 출연금, 보조금 등 자금의 성격을 구분 |
-| **일반** | ai_summary | 리스트용 3줄 요약 | TEXT, Y | **AI 생성** | 복잡한 공고를 AI가 핵심만 요약하여 리스트에서 제공 |
-| **일반** | ai_full_explanation | 상세용 쉬운 풀이 | TEXT, Y | **AI 생성** | 어려운 법적 용어를 사장님들이 이해하기 쉽게 풀어쓴 내용 |
-| **일반** | content_raw | 공고 원문 내용 | TEXT, N | 크롤링/관리자 | AI 분석 및 RAG 검색을 위한 공고의 전체 텍스트 데이터 |
-| **일반** | max_support | 최대 지원 금액 | BIGINT, Y | **크롤링/관리자** | 업체당 받을 수 있는 최대 금액으로 필터링에 활용 |
-| **일반** | start_date | 접수 시작일 | DATE, Y | 크롤링/관리자 | 해당 정책의 신청이 시작되는 일자 |
-| **일반** | end_date | 접수 종료일 | DATE, Y | 크롤링/관리자 | 신청 마감 기한으로 서비스 내 카운트다운 기능에 활용 |
-| **일반** | status | 공고 상태 | ENUM, N | 관리자 | PREPARING(예정), RECRUITING(접수중), CLOSED(마감), END_OF_BUDGET(예산소진) |
-| **일반** | apply_url | 원문 신청 링크 | TEXT, Y | 크롤링/관리자 | 사용자가 실제 신청 사이트로 이동할 수 있는 경로 |
-| **일반** | target_logic | 매칭 필터링 로직 | JSONB, Y | 시스템 | 사업장 데이터와 대조할 필터링 조건(업종, 업력 등)의 규칙 |
-| **일반** | bonus_logic | 가산점 계산 로직 | JSONB, Y | 시스템 | 특허, 인증 등으로 받을 수 있는 우대 사항 계산 규칙 |
-| **일반** | scrap_source_url | 수집 원본 주소 | TEXT, Y | 크롤링 | 공고가 처음 게시된 원문 페이지 주소. 데이터 관리용 |
-| **일반** | view_count | 누적 조회수 | INTEGER, D:0 | 시스템 | 공고 상세 페이지 클릭 시 +1 증가 (인기순 정렬용) |
+| 구분     | 컬럼명              | 역할               | 타입/옵션       | 출처      | 비고                                          |
+| :------- | :------------------ | :----------------- | :-------------- | :-------- | :-------------------------------------------- |
+| **PK**   | id                  | 정책 고유 식별자   | UUID, N         | 시스템    | 기본값: uuid4                                 |
+| **일반** | title               | 공고 제목          | VARCHAR(255), N | 원문      | 검색 최적화 인덱스 적용                       |
+| **일반** | agency_name         | 공고 기관명        | VARCHAR(100), N | 원문      | 주관 부처 검색용 인덱스 적용                  |
+| **일반** | category            | 정책 카테고리      | VARCHAR(50), Y  | 시스템/AI | 금융, 바우처, R&D 등 분류                     |
+| **일반** | support_type        | 지원 유형          | VARCHAR(50), Y  | 시스템/AI | 융자, 출연금, 보조금 등 구분                  |
+| **일반** | region              | 지원 대상 지역     | VARCHAR(100), Y | 원문      | 전국, 서울 등 지역 필터용 인덱스              |
+| **일반** | ai_summary          | 리스트용 요약      | TEXT, Y         | AI 가공   | AI가 생성한 3줄 요약 데이터                   |
+| **일반** | ai_full_explanation | 상세용 쉬운 풀이   | TEXT, Y         | AI 가공   | 비전공자를 위한 AI 해설 텍스트                |
+| **일반** | ai_metadata         | AI 추천 메타데이터 | JSONB, Y        | AI 가공   | 벡터 DB 참조 ID 및 추천 가중치 저장           |
+| **일반** | content_raw         | 공고 원문 전체     | TEXT, N         | 원문      | RAG 엔진 분석용 원천 데이터                   |
+| **일반** | max_support         | 최대 지원 금액     | BIGINT, Y       | 원문/AI   | 원 단위, 통계 및 정렬용 수치                  |
+| **일반** | support_amount_desc | 지원 금액 텍스트   | VARCHAR(100), Y | 원문      | 사용자 노출용 문자열                          |
+| **일반** | required_documents  | 신청 필수 서류     | JSONB, Y        | AI 가공   | AI가 원문에서 추출한 서류 리스트              |
+| **일반** | start_date          | 접수 시작일        | DATE, Y         | 원문      | -                                             |
+| **일반** | end_date            | 접수 종료일        | DATE, Y         | 원문      | 하위 호환성 유지용                            |
+| **일반** | closed_at           | 최종 마감일        | DATE, N         | 시스템    | 기본값: 9999-12-31 (상시접수 대응), 정렬 핵심 |
+| **일반** | status              | 공고 상태          | ENUM, N         | 시스템    | 예정, 접수중, 마감 등 (PolicyStatus 연동)     |
+| **일반** | apply_url           | 원문 신청 URL      | TEXT, Y         | 원문      | 외부 신청 페이지 링크                         |
+| **일반** | target_logic        | 매칭 필터 규칙     | JSONB, Y        | AI 가공   | 사업장 매칭을 위한 AI 판단 기준점             |
+| **일반** | bonus_logic         | 가산점 계산 규칙   | JSONB, Y        | AI 가공   | 우대 사항 점수화 로직                         |
+| **일반** | view_count          | 상세 조회 수       | INTEGER, N      | 시스템    | 기본값: 0, 인기 정책 산출용                   |
+| **일반** | is_active           | 활성 여부          | BOOLEAN, N      | 시스템    | 기본값: True (Soft Delete 적용)               |
+| **일반** | created_at          | 데이터 생성 시점   | TIMESTAMP, N    | 시스템    | Server Default: CURRENT_TIMESTAMP             |
 
 ---
 
@@ -145,40 +154,40 @@
 - **관계성**: N:1 (businesses, policies)
 - **상세 명세**:
 
-| 구분 | 컬럼명 | 역할 | 타입/옵션 | 출처 | 비고 |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **PK** | id | 매칭 식별자 | UUID, N | 시스템 | 특정 매칭 결과에 대한 고유 식별 키 |
-| **FK** | business_id | 사업장 ID | UUID, N | 시스템 | 매칭 대상이 된 사장님의 사업장 연결 |
-| **FK** | policy_id | 정책 ID | UUID, N | 시스템 | 매칭 대상이 된 특정 정책 공고 연결 |
-| **일반** | match_score | 매칭 점수 (0~100) | INT, N | 시스템 | 정책 자격 부합도 및 가산점을 합산한 정량적 수치 |
-| **일반** | match_status | 신호등(G/Y/R) | VARCHAR(10), N | 시스템 | 가능성 높음/보통/낮음을 직관적으로 보여주는 상태 |
-| **일반** | reason_json | 점수 산정 근거 | JSONB, Y | **AI 생성** | 왜 이 점수가 나왔는지 구체적인 항목별 근거 저장 |
-| **일반** | created_at | 판정 일시 | TIMESTAMP, N | 시스템 | 매칭이 수행된 시점으로 최신 데이터 기준 판단 여부 확인 |
+| 구분     | 컬럼명       | 역할                  | 타입/옵션      | 출처   | 비고                                       |
+| :------- | :----------- | :-------------------- | :------------- | :----- | :----------------------------------------- |
+| **PK**   | id           | 매칭 결과 고유 식별자 | UUID, N        | 시스템 | 기본값: uuid4                              |
+| **FK**   | business_id  | 매칭 대상 사업장 ID   | UUID, N        | 시스템 | businesses.id 외래키                       |
+| **FK**   | policy_id    | 매칭 대상 정책 ID     | UUID, N        | 시스템 | policies.id 외래키                         |
+| **일반** | match_score  | 매칭 점수             | INTEGER, N     | 시스템 | 0~100 사이의 적합도 점수                   |
+| **일반** | match_status | 신호등 상태           | VARCHAR(10), N | 시스템 | G(Green), Y(Yellow), R(Red) 등 가독성 지표 |
+| **일반** | reason_json  | 점수 산정 근거        | JSONB, Y       | 시스템 | 매칭/불일치 사유에 대한 상세 데이터 (JSON) |
+| **일반** | created_at   | 매칭 판정 일시        | TIMESTAMP, N   | 시스템 | Server Default: CURRENT_TIMESTAMP          |
 
 ---
 
 ### 6. chat_logs (비즈몽 대화 기록)
 
-- **존재 이유**: AI 상담 히스토리 관리 및 개인화된 RAG 성능 향상
-- **관계성**: N:1 (users, policies)
+- **존재 이유**: 대화방 내에서 발생하는 개별 메시지를 기록하며, RAG(검색 증강 생성)에 사용된 참조 데이터와 LLM 추적(Tracing), 비용(Cost) 및 사용자 피드백을 상세히 관리함
+- **관계성**: N:1 (users,chat_rooms, policies)
 - **상세 명세**:
 
-| 구분 | 컬럼명 | 역할 | 타입/옵션 | 출처 | 비고 |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **PK** | id | 대화 식별자 | UUID, N | 시스템 | 개별 채팅 메시지를 구분하는 고유 식별 키 |
-| **FK** | user_id | 사용자 ID | UUID, N | 시스템 | 어떤 사용자와의 대화인지 연결 |
-| **FK** | ref_policy_id | 참조한 정책 ID | UUID, Y | 시스템 | 특정 정책에 대해 물어봤을 경우 해당 정책 연결 |
-| **FK** | room_id | 대화방 ID | UUID, N | 시스템 | 해당 메시지가 속한 상담방 연결. 답변 속도 최적화의 핵심 |
-| **일반** | role | 화자 (user/assistant) | VARCHAR(20), N | 시스템 | 메시지의 주체가 사용자인지 AI봇인지 구분 |
-| **일반** | content | 대화 내용 | TEXT, N | 사용자/AI | 실제 주고받은 채팅의 텍스트 본문 데이터 |
-| **일반** | context_type | 발생 위치(위젯/페이지) | VARCHAR(20), Y | 시스템 | 유입 경로에 따른 맞춤형 응대를 위한 위치 기록 |
-| **일반** | created_at | 대화 일시 | TIMESTAMP, N | 시스템 | 대화 순서 및 상담 히스토리 관리를 위한 시점 |
-| **일반** | trace_id | 랭스미스 추적 ID | VARCHAR(100), Y | 시스템 | 문제 발생 시 LLM 내부 로직을 추적하기 위한 CCTV ID |
-| **일반** | total_cost | 소모 비용 ($) | NUMERIC(12, 8), Y | 시스템 | 해당 질문에 소요된 API 토큰 비용을 기록하여 수익성 분석 |
-| **일반** | referenced_chunks | RAG 참조 데이터 | JSONB, Y | **AI 생성** | 답변의 근거가 된 공고문의 특정 문단(텍스트 조각)들을 저장 |
-| **일반** | is_disliked | 비추천 여부(👎) | BOOLEAN, D:F | 사용자 | 유저가 싫어요를 누르면 True로 변경 (디버깅 대상) |
-| **일반** | feedback_code | 피드백 사유 코드 | VARCHAR(20), Y | 사용자 | INCORRECT(정보오류), UNKIND(불친절), COMPLEX(어려움) 등 |
-| **일반** | feedback_text | 상세 불만 내용 | TEXT, Y | 사용자 | 유저가 직접 입력한 구체적인 피드백 본문 데이터 |
+| 구분     | 컬럼명            | 역할               | 타입/옵션        | 출처        | 비고                                   |
+| :------- | :---------------- | :----------------- | :--------------- | :---------- | :------------------------------------- |
+| **PK**   | id                | 메시지 고유 식별자 | UUID, N          | 시스템      | 기본값: uuid4                          |
+| **FK**   | user_id           | 대화 사용자 ID     | UUID, N          | 시스템      | users.id 외래키                        |
+| **FK**   | ref_policy_id     | 참조 정책 ID       | UUID, Y          | 시스템      | policies.id 외래키 (일반 상담 시 NULL) |
+| **FK**   | room_id           | 소속 대화방 ID     | UUID, N          | 시스템      | chat_rooms.id 외래키                   |
+| **일반** | role              | 화자 구분          | VARCHAR(20), N   | 시스템      | user 또는 assistant                    |
+| **일반** | content           | 메시지 본문        | TEXT, N          | 사용자/AI   | 실제 대화 내용                         |
+| **일반** | context_type      | 발생 위치          | VARCHAR(20), Y   | 시스템      | 위젯, 특정 페이지 등 유입 경로         |
+| **일반** | trace_id          | LLM 추적 ID        | VARCHAR(100), Y  | 시스템      | LangSmith 등 외부 모니터링 연동 ID     |
+| **일반** | total_cost        | API 사용 비용      | NUMERIC(12,8), Y | 시스템      | 해당 메시지 생성에 소모된 USD 비용     |
+| **일반** | referenced_chunks | RAG 참조 데이터    | JSONB, Y         | 시스템      | 답변 생성 시 참고한 문서 청크 (JSON)   |
+| **일반** | is_disliked       | 싫어요 여부        | BOOLEAN, N       | 사용자 입력 | 기본값: False (Server Default: false)  |
+| **일반** | feedback_code     | 피드백 코드        | VARCHAR(20), Y   | 사용자 입력 | 불만족 사유 분류 코드                  |
+| **일반** | feedback_text     | 피드백 상세        | TEXT, Y          | 사용자 입력 | 사용자가 직접 작성한 피드백 내용       |
+| **일반** | created_at        | 메시지 생성 일시   | TIMESTAMP, N     | 시스템      | Server Default: CURRENT_TIMESTAMP      |
 
 ---
 
@@ -188,15 +197,15 @@
 - **관계성**: N:1 (businesses, policies)
 - **상세 명세**:
 
-| 구분 | 컬럼명 | 역할 | 타입/옵션 | 출처 | 비고 |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **PK** | id | 신청 기록 식별자 | UUID, N | 시스템 | 개별 신청/관심 기록을 식별하는 고유 키 |
-| **FK** | business_id | 사업장 ID | UUID, N | 시스템 | 어떤 사업장이 신청했는지 연결 |
-| **FK** | policy_id | 정책 ID | UUID, N | 시스템 | 신청 대상이 된 정책 정보 연결 |
-| **일반** | status | 상태(관심/제출/승인) | VARCHAR(20), N | 사용자/시스템 | 준비중, 신청완료 등 신청 프로세스상의 단계 관리 |
-| **일반** | applied_at | 신청 일시 | TIMESTAMP, Y | 사용자 입력 | 실제 서류를 제출한 시점을 기록하여 이력 관리 |
-| **일반** | updated_at | 상태 변경 일시 | TIMESTAMP, N | 시스템 | 신청 상태가 마지막으로 업데이트된 시점 |
-| **일반** | memo | 사용자 개인 메모 | TEXT, Y | 사용자 입력 | 해당 정책과 관련하여 사장님이 남기고 싶은 기록 |
+| 구분     | 컬럼명      | 역할                  | 타입/옵션      | 출처          | 비고                                |
+| :------- | :---------- | :-------------------- | :------------- | :------------ | :---------------------------------- |
+| **PK**   | id          | 신청 기록 고유 식별자 | UUID, N        | 시스템        | 기본값: uuid4                       |
+| **FK**   | business_id | 신청 사업장 ID        | UUID, N        | 시스템        | businesses.id 외래키                |
+| **FK**   | policy_id   | 대상 정책 ID          | UUID, N        | 시스템        | policies.id 외래키                  |
+| **일반** | status      | 신청 단계             | VARCHAR(20), N | 시스템/사용자 | 관심, 제출, 승인, 반려 등 상태 관리 |
+| **일반** | applied_at  | 실제 신청 일시        | TIMESTAMP, Y   | 시스템        | 실제 '제출' 버튼을 누른 시점 기록   |
+| **일반** | updated_at  | 상태 변경 일시        | TIMESTAMP, N   | 시스템        | Server Default: CURRENT_TIMESTAMP   |
+| **일반** | memo        | 사용자 메모           | TEXT, Y        | 사용자 입력   | 신청 관련 특이사항 기록             |
 
 ---
 
@@ -206,17 +215,17 @@
 - **관계성**: N:1 (businesses)
 - **상세 명세**:
 
-| 구분 | 컬럼명 | 역할 | 타입/옵션 | 출처 | 비고 |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **PK** | id | 서류 식별자 | UUID, N | 시스템 | 업로드된 개별 서류를 식별하는 고유 키 |
-| **FK** | business_id | 사업장 ID | UUID, N | 시스템 | 해당 서류가 속한 사업장 정보 연결 |
-| **일반** | doc_type | 서류 종류 | VARCHAR(50), N | 사용자 선택 | 사업자등록증, 부가세증명원 등 서류의 분류 관리 |
-| **일반** | file_url | S3 저장 경로 | TEXT, N | 시스템 | 실제 파일이 저장된 클라우드 스토리지 주소 |
-| **일반** | issued_at | 서류 발급 일자 | DATE, Y | **OCR/입력** | 서류의 유효기간이나 최신성 여부를 판단하기 위한 정보 |
-| **일반** | created_at | 업로드 일시 | TIMESTAMP, N | 시스템 | 사용자가 서류를 시스템에 올린 시점 |
-| **일반** | ocr_status | OCR 분석 상태 | VARCHAR(20), N | 시스템 | PENDING, COMPLETED, FAILED 관리 |
-| **일반** | ocr_result | OCR 추출 원본 | JSONB, Y | 시스템 | API 명세서 #11 ocr_data 필드 대응 데이터 |
-| **일반** | is_active | 활성 여부 | BOOLEAN, N | 시스템 | Soft Delete 스위치 (Default: True) |
+| 구분     | 컬럼명      | 역할             | 타입/옵션      | 출처        | 비고                                          |
+| :------- | :---------- | :--------------- | :------------- | :---------- | :-------------------------------------------- |
+| **PK**   | id          | 서류 고유 식별자 | UUID, N        | 시스템      | 기본값: uuid4                                 |
+| **FK**   | business_id | 소속 사업장 ID   | UUID, N        | 시스템      | businesses.id 외래키                          |
+| **일반** | doc_type    | 서류 종류        | VARCHAR(50), N | 사용자 입력 | 예: 사업자등록증, 부가가치세과세표준증명 등   |
+| **일반** | file_url    | 파일 저장 경로   | TEXT, N        | 시스템      | S3 등 외부 저장소 URL                         |
+| **일반** | ocr_status  | OCR 분석 상태    | VARCHAR(20), N | 시스템      | PENDING(기본값), COMPLETED, FAILED            |
+| **일반** | ocr_result  | OCR 추출 데이터  | JSONB, Y       | 시스템      | 비동기 분석 완료 시 추출된 원본 데이터 (JSON) |
+| **일반** | is_active   | 활성 여부        | BOOLEAN, N     | 시스템      | 기본값: True (Soft Delete 적용, 법적 보존용)  |
+| **일반** | issued_at   | 서류 발급 일자   | DATE, Y        | OCR/사용자  | 서류상의 공식 발급 날짜                       |
+| **일반** | created_at  | 업로드 일시      | TIMESTAMP, N   | 시스템      | Server Default: CURRENT_TIMESTAMP             |
 
 ---
 
@@ -226,33 +235,37 @@
 - **관계성**: 독립 (JSON 내 policy_ids 참조)
 - **상세 명세**:
 
-| 구분 | 컬럼명 | 역할 | 타입/옵션 | 출처 | 비고 |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **PK** | id | 콘텐츠 식별자 | UUID, N | 시스템 | 비즈픽 콘텐츠를 식별하는 고유 키 |
-| **일반** | title | 콘텐츠 제목 | VARCHAR(255), N | 관리자 | 메인 화면에 노출될 매력적인 콘텐츠 헤드라인 |
-| **일반** | category | 카테고리 | VARCHAR(50), N | 관리자 | 세무, 노무, 정책자금 등 콘텐츠 주제 분류 |
-| **일반** | content_md | 마크다운 본문 | TEXT, N | 관리자 | 리치 텍스트 서식을 지원하는 콘텐츠 상세 내용 |
-| **일반** | created_at | 작성 일시 | TIMESTAMP, N | 시스템 | 콘텐츠가 발행된 시점으로 최신순 정렬에 활용 |
+| 구분     | 컬럼명        | 역할               | 타입/옵션       | 출처        | 비고                                                            |
+| :------- | :------------ | :----------------- | :-------------- | :---------- | :-------------------------------------------------------------- |
+| **PK**   | id            | 콘텐츠 고유 ID     | UUID, N         | 시스템      | 기본값: uuid4                                                   |
+| **일반** | title         | 콘텐츠 제목        | VARCHAR(255), N | 관리자 입력 | -                                                               |
+| **일반** | category      | 콘텐츠 카테고리    | VARCHAR(50), N  | 관리자 입력 | 세무, 정책자금 등 분류 (Index 적용)                             |
+| **일반** | content_html  | HTML 본문          | TEXT, N         | 관리자 입력 | 관리자 도구에서 작성된 원본 HTML 데이터                         |
+| **일반** | thumbnail_url | 썸네일 이미지 주소 | TEXT, Y         | 관리자 입력 | 콘텐츠 목록에 노출될 이미지 경로                                |
+| **일반** | is_published  | 공개 여부          | BOOLEAN, N      | 관리자 설정 | 기본값: True (준비 중인 콘텐츠 숨김 처리, Server Default: true) |
+| **일반** | view_count    | 조회수             | INTEGER, N      | 시스템      | 기본값: 0 (Server Default: 0)                                   |
+| **일반** | like_count    | 좋아요 수          | INTEGER, N      | 시스템      | 기본값: 0 (인기 콘텐츠 정렬 기준, Server Default: 0)            |
+| **일반** | created_at    | 발행 시점          | TIMESTAMP, N    | 시스템      | Server Default: CURRENT_TIMESTAMP                               |
 
 ---
 
 ### 10. notifications (알림 기록)
 
-- **존재 이유**: 사용자별 푸시/앱 내 알림 히스토리 관리
+- **존재 이유**: 정책 매칭, 채팅 답변 등 서비스 내 주요 이벤트를 사용자에게 실시간/비동기로 안내하며, 읽음 상태 관리를 통해 앱 내 알림 센터 및 뱃지 UI의 기초 데이터로 활용함
 - **관계성**: N:1 (users, businesses)
 - **상세 명세**:
 
-| 구분 | 컬럼명 | 역할 | 타입/옵션 | 출처 | 비고 |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **PK** | id | 알림 식별자 | UUID, N | 시스템 | 개별 알림 메시지를 식별하는 고유 키 |
-| **FK** | user_id | 대상 사용자 ID | UUID, N | 시스템 | 알림을 받을 수신자 정보 연결 |
-| **FK** | business_id | 대상 사업장 ID | UUID, Y | 시스템 | 어떤 사업장과 관련된 알림인지 연결 (가게별 알림 필터링용) |
-| **일반** | type | 알림 유형(매칭/공지) | VARCHAR(20), N | 시스템 | 새 정책 발견, 신청 마감 임박 등 알림 성격 구분 |
-| **일반** | message | 알림 본문 | TEXT, N | 시스템 | 사용자에게 보여줄 실제 알림 문구 |
-| **일반** | is_read | 읽음 여부 | BOOLEAN, N | 시스템 | 사용자가 알림을 확인했는지 여부 (뱃지 카운트용) |
-| **일반** | link_url | 이동할 링크 URL | TEXT, Y | 시스템 | 알림 클릭 시 특정 공고나 페이지로 이동시키기 위한 경로 |
-| **일반** | created_at | 발송 일시 | TIMESTAMP, N | 시스템 | 알림이 생성되어 사용자에게 전달된 시점 |
-
+| 구분     | 컬럼명      | 역할             | 타입/옵션       | 출처        | 비고                                                  |
+| :------- | :---------- | :--------------- | :-------------- | :---------- | :---------------------------------------------------- |
+| **PK**   | id          | 알림 고유 식별자 | UUID, N         | 시스템      | 기본값: uuid4 (충돌 방지 우편물 번호)                 |
+| **FK**   | user_id     | 수신 사용자 ID   | UUID, N         | 시스템      | users.id 외래키 (필수 수신인 주소)                    |
+| **FK**   | business_id | 연관 사업장 ID   | UUID, Y         | 시스템      | businesses.id 외래키 (특정 업장 관련 시 기록)         |
+| **일반** | type        | 알림 유형        | VARCHAR(20), N  | 시스템      | 예: POLICY_MATCH, CHAT_ANSWER (아이콘 구분용)         |
+| **일반** | title       | 알림 제목        | VARCHAR(255), N | 시스템      | 기본값: '새로운 알림' (사용자 노출 요약 문구)         |
+| **일반** | message     | 알림 본문        | TEXT, N         | 시스템      | 상세 안내 문구가 담기는 그릇                          |
+| **일반** | is_read     | 읽음 여부        | BOOLEAN, N      | 사용자 입력 | 기본값: False (확인 도장 역할, Server Default: false) |
+| **일반** | link_url    | 이동 URL         | TEXT, Y         | 시스템      | 클릭 시 특정 페이지로 안내하는 지름길                 |
+| **일반** | created_at  | 알림 생성 일시   | TIMESTAMP, N    | 시스템      | Server Default: CURRENT_TIMESTAMP (Timezone 포함)     |
 
 ---
 
@@ -262,14 +275,14 @@
 - **관계성**: N:1 (users, businesses)
 - **상세 명세**:
 
-| 구분 | 컬럼명 | 역할 | 타입/옵션 | 출처 | 비고 |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **PK** | id | 리드 식별자 | UUID, N | 시스템 | 파트너 연결 요청을 식별하는 고유 키 |
-| **FK** | user_id | 신청 사용자 ID | UUID, N | 시스템 | 상담을 요청한 개인 사용자 정보 연결 |
-| **FK** | business_id | 신청 사업장 ID | UUID, N | 시스템 | 상담 대상이 되는 특정 사업장 정보 연결 |
-| **일반** | lead_type | 상담 종류(로봇/세무 등) | VARCHAR(50), N | 사용자 선택 | 어떤 파트너사의 상담을 원하는지 종류 구분 |
-| **일반** | status | 처리 상태 | VARCHAR(20), N | 시스템 | 신청, 검토중, 연결완료 등 상담 매칭 프로세스 관리 |
-| **일반** | created_at | 신청 일시 | TIMESTAMP, N | 시스템 | 사장님이 파트너 연결을 요청한 시각 |
+| 구분     | 컬럼명      | 역할                  | 타입/옵션      | 출처          | 비고                                  |
+| :------- | :---------- | :-------------------- | :------------- | :------------ | :------------------------------------ |
+| **PK**   | id          | 리드 요청 고유 식별자 | UUID, N        | 시스템        | 기본값: uuid4                         |
+| **FK**   | user_id     | 신청 사용자 ID        | UUID, N        | 시스템        | users.id 외래키                       |
+| **FK**   | business_id | 대상 사업장 ID        | UUID, N        | 시스템        | businesses.id 외래키                  |
+| **일반** | lead_type   | 상담 종류             | VARCHAR(50), N | 사용자 선택   | 로봇 도입, 세무 상담 등 파트너 유형   |
+| **일반** | status      | 처리 상태             | VARCHAR(20), N | 시스템/관리자 | 신청, 검토, 연결완료 등 프로세스 상태 |
+| **일반** | created_at  | 신청 일시             | TIMESTAMP, N   | 시스템        | Server Default: CURRENT_TIMESTAMP     |
 
 ---
 
@@ -279,14 +292,14 @@
 - **관계성**: N:1 (businesses)
 - **상세 명세**:
 
-| 구분 | 컬럼명 | 역할 | 타입/옵션 | 출처 | 비고 |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **PK** | id | 로그 식별자 (추가) | UUID, N | 시스템 | 시뮬레이션 이력을 식별하는 고유 키 |
-| **FK** | business_id | 대상 사업장 ID | UUID, N | 시스템 | 어느 사업장 기준으로 시뮬레이션했는지 연결 |
-| **일반** | sim_type | 시뮬레이션 종류 | VARCHAR(50), N | 사용자 선택 | 가산점 계산, 융자 한도 예측 등 시뮬레이션 성격 |
-| **일반** | input_data | 입력값(특허 등) | JSONB, N | 사용자 입력 | "특허가 1개 있다면?"과 같은 가상 입력 조건들 저장 |
-| **일반** | output_data | 예상 결과값 | JSONB, N | **AI/시스템** | 가상 조건 입력 시 시스템이 계산해낸 예상 점수/결과 |
-| **일반** | created_at | 실행 일시 | TIMESTAMP, N | 시스템 | 시뮬레이션을 수행한 시점 기록 |
+| 구분     | 컬럼명      | 역할                   | 타입/옵션      | 출처        | 비고                                             |
+| :------- | :---------- | :--------------------- | :------------- | :---------- | :----------------------------------------------- |
+| **PK**   | id          | 시뮬레이션 로그 식별자 | UUID, N        | 시스템      | 기본값: uuid4                                    |
+| **FK**   | business_id | 기준 사업장 ID         | UUID, N        | 시스템      | businesses.id 외래키                             |
+| **일반** | sim_type    | 시뮬레이션 종류        | VARCHAR(50), N | 시스템      | 가산점 시뮬레이션, ROI 예측 등 구분              |
+| **일반** | input_data  | 사용자 입력 조건       | JSONB, N       | 사용자 입력 | 시뮬레이션을 위해 입력한 가상 환경 데이터 (JSON) |
+| **일반** | output_data | 계산·예측 결과         | JSONB, N       | 시스템      | 산출된 시뮬레이션 결과값 (JSON)                  |
+| **일반** | created_at  | 실행 일시              | TIMESTAMP, N   | 시스템      | Server Default: CURRENT_TIMESTAMP                |
 
 ---
 
@@ -296,15 +309,15 @@
 - **관계성**: N:1 (users, businesses), 1:N (chat_logs)
 - **상세 명세**:
 
-| 구분 | 컬럼명 | 역할 | 타입/옵션 | 출처 | 비고 |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **PK** | id | 대화방 식별자 | UUID, N | 시스템 | 하나의 상담 세션을 구분하는 고유 키 |
-| **FK** | user_id | 사용자 ID | UUID, N | 시스템 | 어떤 사용자의 상담 내역인지 연결 |
-| **FK** | business_id | 대상 사업장 ID | UUID, N | 시스템 | 현재 상담 중인 특정 사업장 연결 (데이터 격리 핵심) |
-| **일반** | title | 대화방 제목 | VARCHAR(255), Y | **AI 생성** | "청년창업자금 상담" 등 상담 내용을 AI가 요약한 제목 |
-| **일반** | user_feedback | 상담 만족도 | BOOLEAN, Y | **사용자 입력** | 해당 상담 세션 전체에 대한 좋아요/싫어요 피드백 |
-| **일반** | status | 상태(진행/종료) | VARCHAR(20), N | 시스템 | 현재 상담 중인지, 종료된 상담인지 관리하는 상태 플래그 |
-| **일반** | created_at | 생성 일시 | TIMESTAMP, N | 시스템 | 사장님이 비즈몽과 대화를 시작한 시점 |
+| 구분     | 컬럼명        | 역할                | 타입/옵션       | 출처        | 비고                                 |
+| :------- | :------------ | :------------------ | :-------------- | :---------- | :----------------------------------- |
+| **PK**   | id            | 대화방 고유 식별자  | UUID, N         | 시스템      | 기본값: uuid4                        |
+| **FK**   | user_id       | 상담 시작 사용자 ID | UUID, N         | 시스템      | users.id 외래키                      |
+| **FK**   | business_id   | 선택된 사업장 ID    | UUID, N         | 시스템      | businesses.id 외래키 (데이터 격리용) |
+| **일반** | title         | 대화방 제목         | VARCHAR(255), Y | 시스템      | AI 요약 또는 첫 질문 기반 생성       |
+| **일반** | user_feedback | 사용자 만족도       | BOOLEAN, Y      | 사용자 입력 | 좋아요/싫어요 등 피드백 기록         |
+| **일반** | status        | 상담 진행 상태      | VARCHAR(20), N  | 시스템      | 진행 중, 종료 등 세션 상태 관리      |
+| **일반** | created_at    | 대화방 생성 일시    | TIMESTAMP, N    | 시스템      | Server Default: CURRENT_TIMESTAMP    |
 
 ---
 
@@ -314,17 +327,17 @@
 - **관계성**: 독립적 (시스템 운영 로그)
 - **상세 명세**:
 
-| 구분 | 컬럼명 | 역할 | 타입/옵션 | 출처 | 비고 |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **PK** | id | 로그 식별자 | UUID, N | 시스템 | 각 배치 작업(수집)을 식별하는 고유 키 |
-| **일반** | job_name | 작업 명칭 | VARCHAR(100), N | 시스템 | "POLICY_CRAWLING", "USER_SYNC" 등 작업 종류 |
-| **일반** | status | 실행 결과 상태 | VARCHAR(20), N | 시스템 | SUCCESS, FAILED, RUNNING 등 진행 상태 |
-| **일반** | total_count | 전체 대상 건수 | INTEGER, N | 시스템 | 수집을 시도한 전체 정책/데이터 건수 |
-| **일반** | success_count | 성공 건수 | INTEGER, N | 시스템 | 정상적으로 DB에 반영된 건수 |
-| **일반** | fail_count | 실패 건수 | INTEGER, N | 시스템 | 오류로 인해 누락된 건수 |
-| **일반** | error_details | 오류 상세 내용 | JSONB, Y | 시스템 | 실패 시 발생한 에러 메시지나 원인 데이터 저장 |
-| **일반** | started_at | 작업 시작 일시 | TIMESTAMP, N | 시스템 | 배치가 시작된 시점 기록 |
-| **일반** | finished_at | 작업 종료 일시 | TIMESTAMP, Y | 시스템 | 배치가 종료된 시점 (소요 시간 계산용) |
+| 구분     | 컬럼명        | 역할                  | 타입/옵션       | 출처   | 비고                                  |
+| :------- | :------------ | :-------------------- | :-------------- | :----- | :------------------------------------ |
+| **PK**   | id            | 배치 실행 로그 식별자 | UUID, N         | 시스템 | 기본값: uuid4                         |
+| **일반** | job_name      | 작업 명칭             | VARCHAR(100), N | 시스템 | 예: POLICY_CRAWLING, DATA_SYNC 등     |
+| **일반** | status        | 실행 상태             | VARCHAR(20), N  | 시스템 | SUCCESS, FAILED, RUNNING 등 상태 관리 |
+| **일반** | total_count   | 전체 건수             | INTEGER, N      | 시스템 | 배치 작업이 처리해야 할 총 데이터 수  |
+| **일반** | success_count | 성공 건수             | INTEGER, N      | 시스템 | 성공적으로 반영된 데이터 수           |
+| **일반** | fail_count    | 실패 건수             | INTEGER, N      | 시스템 | 처리 중 오류가 발생한 데이터 수       |
+| **일반** | error_details | 오류 상세             | JSONB, Y        | 시스템 | 실패 원인 및 스택 트레이스 (JSON)     |
+| **일반** | started_at    | 작업 시작 일시        | TIMESTAMP, N    | 시스템 | Server Default: CURRENT_TIMESTAMP     |
+| **일반** | finished_at   | 작업 종료 일시        | TIMESTAMP, Y    | 시스템 | 작업이 최종 완료(또는 중단)된 시점    |
 
 ### 15. admins (관리자 계정)
 
@@ -332,29 +345,29 @@
 - **관계성**: 1:N (admin_audit_logs)
 - **상세 명세**:
 
-| 구분 | 컬럼명 | 역할 | 타입/옵션 | 출처 | 비고 |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **PK** | id | 관리자 식별자 | UUID, N | 시스템 | 관리자 고유 식별 키 |
-| **일반** | login_id | 로그인 아이디 | VARCHAR(50), N | 관리자 입력 | 관리자 페이지 접속용 ID |
-| **일반** | password | 비밀번호(해시) | TEXT, N | 관리자 입력 | 암호화된 비밀번호 데이터 |
-| **일반** | role | 권한 등급 | ENUM, N | 시스템 | MASTER(사장님), OPERATOR(운영팀), CS(상담팀) |
-| **일반** | is_active | 활성 상태 | BOOLEAN, D:T | 시스템 | 퇴사자나 미사용 계정 차단용 |
-| **일반** | created_at | 생성 일시 | TIMESTAMP, N | 시스템 | 계정 생성 시점 기록 |
+| 구분     | 컬럼명     | 역할               | 타입/옵션      | 출처        | 비고                                                         |
+| :------- | :--------- | :----------------- | :------------- | :---------- | :----------------------------------------------------------- |
+| **PK**   | id         | 관리자 고유 식별자 | UUID, N        | 시스템      | 기본값: uuid4                                                |
+| **일반** | login_id   | 관리자 로그인 ID   | VARCHAR(50), N | 관리자 생성 | Unique Index 적용                                            |
+| **일반** | password   | 비밀번호 해시      | TEXT, N        | 관리자 생성 | 보안을 위해 해싱된 암호값 저장                               |
+| **일반** | role       | 권한 등급          | ENUM, N        | 시스템      | MASTER, OPERATOR, CS 등 (AdminRole 연동)                     |
+| **일반** | is_active  | 계정 활성 여부     | BOOLEAN, N     | 시스템      | 기본값: True (퇴사·차단 시 False 변경, Server Default: true) |
+| **일반** | created_at | 계정 생성 일시     | TIMESTAMP, N   | 시스템      | Server Default: CURRENT_TIMESTAMP                            |
 
 ---
 
 ### 16. admin_audit_logs (관리자 활동 로그)
 
-- **존재 이유**: 데이터 수정 이력 추적 및 보안 감사 (Audit Trail)
+- **존재 이유**: 시스템 보안 및 추적성을 위해 관리자가 수행한 주요 작업(정책 업데이트, 데이터 수정 등)의 이력을 기록하고 관리함
 - **관계성**: N:1 (admins)
 - **상세 명세**:
 
-| 구분 | 컬럼명 | 역할 | 타입/옵션 | 출처 | 비고 |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **PK** | id | 로그 식별자 | UUID, N | 시스템 | 각 작업(Action)별 고유 ID |
-| **FK** | admin_id | 수행 관리자 ID | UUID, N | 시스템 | 작업을 수행한 관리자 계정 연결 |
-| **일반** | action_type | 작업 종류 | VARCHAR(50), N | 시스템 | POLICY_UPDATE, USER_BAN, BIZ_PICK_POST 등 |
-| **일반** | target_id | 대상 데이터 PK | UUID, Y | 시스템 | 어떤 정책이나 어떤 유저를 수정했는지 식별 |
-| **일반** | changes | 변경 상세 내용 | JSONB, Y | 시스템 | 수정 전(before)과 수정 후(after) 데이터 스냅샷 저장 |
-| **일반** | ip_address | 접속 IP | VARCHAR(45), Y | 시스템 | 보안 사고 대비를 위한 접속 환경 기록 |
-| **일반** | created_at | 수행 일시 | TIMESTAMP, N | 시스템 | 관리자 작업이 발생한 정확한 시각 |
+| 구분     | 컬럼명      | 역할                  | 타입/옵션      | 출처   | 비고                                |
+| :------- | :---------- | :-------------------- | :------------- | :----- | :---------------------------------- |
+| **PK**   | id          | 감사 로그 고유 식별자 | UUID, N        | 시스템 | 기본값: uuid4                       |
+| **FK**   | admin_id    | 작업 수행 관리자 ID   | UUID, N        | 시스템 | admins.id 외래키                    |
+| **일반** | action_type | 작업 유형             | VARCHAR(50), N | 시스템 | 예: POLICY_UPDATE, USER_BAN 등      |
+| **일반** | target_id   | 대상 엔티티 PK        | UUID, Y        | 시스템 | 변경 대상이 된 데이터의 고유 식별자 |
+| **일반** | changes     | 변경 내역 스냅샷      | JSONB, Y       | 시스템 | 변경 전·후 데이터 비교 정보 (JSON)  |
+| **일반** | ip_address  | 요청 IP 주소          | VARCHAR(45), Y | 시스템 | 작업자의 IPv4/IPv6 주소 기록        |
+| **일반** | created_at  | 작업 발생 일시        | TIMESTAMP, N   | 시스템 | Server Default: CURRENT_TIMESTAMP   |
