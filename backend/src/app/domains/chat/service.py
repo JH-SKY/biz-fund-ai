@@ -234,3 +234,7 @@ class ChatService:
         # 이 메서드는 Repository에서 관리자용 쿼리를 분리함에 따라 
         # 추후 AdminService로 이관하는 것이 좋습니다.
         return 0 # 현재는 인터페이스 유지를 위해 0 반환 (리팩토링 대상)
+    
+    async def count_chat_logs_since(self, since: datetime) -> int:
+        """Admin Dashboard를 위한 채팅 로그 카운트"""
+        return await self._repo.count_chats_since(since)

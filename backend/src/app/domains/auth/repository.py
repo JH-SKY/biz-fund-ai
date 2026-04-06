@@ -5,10 +5,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.app.domains.auth.model import SocialProvider, User, UserToken
 
 
@@ -97,10 +97,11 @@ class AuthRepository:
         token: str,
         expires_at: datetime,
     ) -> UserToken:
+        clean_expires_at = expires_at.replace(tzinfo=None)
         row = UserToken(
             user_id=user_id,
             token=token,
-            expires_at=expires_at,
+            expires_at=clean_expires_at,
             is_revoked=False,
         )
         self._session.add(row)
@@ -109,7 +110,9 @@ class AuthRepository:
 
     async def get_valid_token(self, token: str) -> UserToken | None:
         """유효(미만료·미무효화)한 Refresh Token 조회."""
-        now = datetime.now(timezone.utc)
+        # 비교를 위해 timezone 정보를 뺀 현재 시각 생성
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+
         stmt = select(UserToken).where(
             UserToken.token == token,
             UserToken.is_revoked.is_(False),
@@ -137,3 +140,17 @@ class AuthRepository:
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def count_users_since(self, since: datetime) -> int:
+        """특정 시점 이후 가입한 활성 유저 수 조회"""
+
+        # [핵심!] 시차 정보(tzinfo)가 있다면 제거해서 DB 규격에 맞춥니다. (Naive datetime으로 변환)
+        if since.tzinfo is not None:
+            since = since.replace(tzinfo=None)
+
+        query = (
+            select(func.count(User.id))
+            .where(User.created_at >= since)
+            .where(User.is_active == True)
+        )
+        result = await self._session.execute(query)
+        return result.scalar() or 0

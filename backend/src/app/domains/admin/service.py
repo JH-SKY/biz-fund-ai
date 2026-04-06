@@ -4,13 +4,12 @@
 from __future__ import annotations
 
 import json
-from typing import Any
 import uuid
-from datetime import timezone
+from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.app.core.config import ADMIN_POLICY_AGENCY_NAME
 from src.app.core.security import create_admin_access_token, verify_password
 from src.app.domains.admin.repository import AdminRepository, utc_start_of_today
@@ -31,16 +30,15 @@ from src.app.domains.admin.schema import (
     PolicyCreateResponseData,
     PolicyPatchRequest,
 )
-from src.app.domains.auth.model import Admin
-from src.app.domains.policy.model import PolicyStatus
-
-
+from src.app.domains.auth.model import Admin, User
 from src.app.domains.auth.service import AuthService
-from src.app.domains.chat.service import ChatService
-from src.app.domains.policy.service import PolicyService
 from src.app.domains.biz_pick.service import BizPickService
-from src.app.domains.system.service import SystemService
+from src.app.domains.chat.service import ChatService
 from src.app.domains.diagnosis.service import DiagnosisService
+from src.app.domains.policy.model import PolicyStatus
+from src.app.domains.policy.service import PolicyService
+from src.app.domains.system.service import SystemService
+
 
 class AdminService:
     """관리자 유스케이스. 타 도메인은 Service를 통해 통신한다."""
@@ -54,7 +52,7 @@ class AdminService:
         policy_service: PolicyService,
         biz_pick_service: BizPickService,
         system_service: SystemService,
-        diagnosis_service: DiagnosisService
+        diagnosis_service: DiagnosisService,
     ) -> None:
         self._session = session
         self._repo = repo
@@ -63,13 +61,18 @@ class AdminService:
         self._policy_service = policy_service
         self._biz_pick_service = biz_pick_service
         self._system_service = system_service
+        self._diagnosis_service = diagnosis_service
 
     async def login(self, body: AdminLoginRequest) -> dict:
         admin = await self._repo.get_admin_by_login_id(body.login_id)
         if admin is None or not admin.is_active:
-            raise HTTPException(status_code=401, detail="로그인 정보가 올바르지 않습니다.")
+            raise HTTPException(
+                status_code=401, detail="로그인 정보가 올바르지 않습니다."
+            )
         if not verify_password(body.password, admin.password):
-            raise HTTPException(status_code=401, detail="로그인 정보가 올바르지 않습니다.")
+            raise HTTPException(
+                status_code=401, detail="로그인 정보가 올바르지 않습니다."
+            )
         token = create_admin_access_token(admin_id=admin.id)
         return {"access_token": token, "token_type": "bearer"}
 
@@ -186,7 +189,7 @@ class AdminService:
         self,
         *,
         user_id: uuid.UUID | None,
-        admin_id: uuid.UUID,      # [추가] 로그용
+        admin_id: uuid.UUID,  # [추가] 로그용
         client_ip: str | None,
         page: int,
         size: int,
@@ -203,7 +206,7 @@ class AdminService:
             changes={"page": page, "size": size},
             ip_address=client_ip,
         )
-        # 중요: 조회의 경우 session.commit()은 필수는 아니나, 
+        # 중요: 조회의 경우 session.commit()은 필수는 아니나,
         # 로그 저장(INSERT)을 확정하기 위해 commit을 호출하는 것이 실무적 안전책입니다.
         await self._session.commit()
         items: list[ChatMonitorItem] = []
@@ -230,20 +233,19 @@ class AdminService:
         new_users = await self._auth_service.count_new_users_since(start)
         active_chats = await self._chat_service.count_chat_logs_since(start)
         top = await self._policy_service.list_top_policies_by_views(5)
-        popular = [
-            {"id": str(p.id), "hits": p.view_count}
-            for p in top
-        ]
+        popular = [{"id": str(p.id), "hits": p.view_count} for p in top]
         return DashboardStatsData(
             new_users_today=new_users,
             active_chats_today=active_chats,
             popular_policies=popular,
         )
 
-    async def list_audit_logs(self
-                              ,*,
-                              admin_id: uuid.UUID,    # [추가] 로그용
-        client_ip: str | None) -> list[AuditLogItem]:
+    async def list_audit_logs(
+        self,
+        *,
+        admin_id: uuid.UUID,  # [추가] 로그용
+        client_ip: str | None,
+    ) -> list[AuditLogItem]:
         rows = await self._repo.list_audit_logs()
         out: list[AuditLogItem] = []
         for r in rows:
@@ -295,7 +297,7 @@ class AdminService:
         *,
         page: int,
         size: int,
-        admin_id: uuid.UUID,      # [필수] 로그를 위해 추가
+        admin_id: uuid.UUID,  # [필수] 로그를 위해 추가
         ip_address: str | None,
         search_keyword: str | None,
         only_active: bool = True,
@@ -312,7 +314,7 @@ class AdminService:
             action_type="USER_LIST_VIEW",
             target_id=None,
             changes={"page": page, "search": search_keyword},
-            ip_address=ip_address
+            ip_address=ip_address,
         )
         total_pages = (total + size - 1) // size if size > 0 else 0
         items: list[AdminUserItem] = []
@@ -352,8 +354,7 @@ class AdminService:
         )
         return list(rows), total
 
-
-# ---------------------------------------------------------
+    # ---------------------------------------------------------
     # [신규] 진단 및 시뮬레이션 모니터링 (Diagnosis Domain 협력)
     # ---------------------------------------------------------
 
@@ -395,7 +396,7 @@ class AdminService:
         2. 설계 의도: 사용자 권한 체크 없이 관리자가 기술적 문제나 CS 대응을 위해 상세 로그를 확인합니다.
         """
         log = await self._diagnosis_service.get_log_detail_for_admin(diagnosis_id)
-        
+
         await self._repo.add_audit_log(
             admin_id=admin_id,
             action_type="DIAGNOSIS_DETAIL_VIEW",

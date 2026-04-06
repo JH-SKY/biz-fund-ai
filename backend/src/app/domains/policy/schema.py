@@ -15,7 +15,7 @@ from enum import Enum
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 # 9999-12-31 상수 — 상시접수 여부 판별 기준
 ALWAYS_OPEN_DATE = date(9999, 12, 31)
@@ -41,8 +41,7 @@ class PolicyListItem(BaseModel):
     closed_at: date
     is_bookmarked: bool = False
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PolicyListResponse(BaseModel):
@@ -66,8 +65,7 @@ class PolicyRecommendItem(BaseModel):
     reason: str = Field(..., min_length=1, description="매칭 판정 근거 문구")
     is_bookmarked: bool = False
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PolicyRecommendResponse(BaseModel):
@@ -79,7 +77,7 @@ class PolicyRecommendResponse(BaseModel):
 
 class PolicyDetailResponse(BaseModel):
     """정책 상세 응답 (명세서 §3).
-    
+
     기존 필드에 실시간 조회수(view_count)를 추가하여 사용자에게 정책의 인기도를 전달합니다.
     """
 
@@ -94,11 +92,12 @@ class PolicyDetailResponse(BaseModel):
     category: Optional[str] = None
     agency_name: str
     closed_at: date
-    view_count: int = Field(0, description="정책 상세 조회수") # [추가] 실시간 조회수 지표
+    view_count: int = Field(
+        0, description="정책 상세 조회수"
+    )  # [추가] 실시간 조회수 지표
     is_bookmarked: bool = False
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ── 북마크 ─────────────────────────────────────────────────────────────────

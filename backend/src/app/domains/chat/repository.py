@@ -1,13 +1,12 @@
 """채팅 도메인 리포지토리."""
 
 import uuid
-from typing import List, Optional
 from datetime import datetime
+from typing import List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-
 from src.app.domains.chat.model import ChatLog, ChatRoom
 
 
@@ -49,21 +48,20 @@ class ChatRepository:
         """
         stmt = select(ChatRoom).where(
             ChatRoom.id == room_id,
-            ChatRoom.status != "DELETED"  # 삭제되지 않은 세션만 조회
+            ChatRoom.status != "DELETED",  # 삭제되지 않은 세션만 조회
         )
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_chat_rooms_by_business(self, business_id: uuid.UUID) -> List[ChatRoom]:
+    async def get_chat_rooms_by_business(
+        self, business_id: uuid.UUID
+    ) -> List[ChatRoom]:
         """
         3. 특정 사업장의 활성 상담 목록을 최신순으로 조회합니다.
         """
         stmt = (
             select(ChatRoom)
-            .where(
-                ChatRoom.business_id == business_id,
-                ChatRoom.status != "DELETED"
-            )
+            .where(ChatRoom.business_id == business_id, ChatRoom.status != "DELETED")
             .order_by(ChatRoom.created_at.desc())
         )
         result = await self._session.execute(stmt)
@@ -144,3 +142,16 @@ class ChatRepository:
         """
         room.status = "DELETED"
         await self._session.flush()
+
+    async def count_chats_since(self, since: datetime) -> int:
+        """특정 시점 이후 생성된 채팅 로그 수 조회"""
+
+        # [복습!] 시차 정보 제거 (PostgreSQL 규격 맞춤)
+        if since.tzinfo is not None:
+            since = since.replace(tzinfo=None)
+
+        query = select(func.count(ChatLog.id)).where(
+            ChatLog.created_at >= since
+        )  # ChatLog는 실제 모델명에 맞춰주세요!
+        result = await self._session.execute(query)
+        return result.scalar() or 0

@@ -178,6 +178,9 @@ class Policy(Base):
     bookmarks: Mapped[list["PolicyBookmark"]] = relationship(
         "PolicyBookmark", back_populates="policy", cascade="all, delete-orphan"
     )
+    __table_args__ = (
+        UniqueConstraint("title", "agency_name", name="uq_policy_title_agency"),
+    )
 
 
 class PolicyBookmark(Base):

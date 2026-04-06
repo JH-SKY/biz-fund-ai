@@ -84,3 +84,5 @@ class ServiceUnavailableException(BaseAppException):
     """4. 서비스 점검 중: '잠시 후 다시 시도해주세요' (503)"""
     def __init__(self, message: str = "서비스를 일시적으로 사용할 수 없습니다."):
         super().__init__(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, message=message)
+
+    

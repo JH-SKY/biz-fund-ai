@@ -1,8 +1,8 @@
 # src/app/database/postgres/database.py
 import os
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from dotenv import load_dotenv
 
+from dotenv import load_dotenv
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 # 1. 환경 변수 로드 (준비물):
 # - .env 파일의 DATABASE_URL(보안 정보)을 시스템 환경 변수로 등록
@@ -18,11 +18,13 @@ engine = create_async_engine(SQLALCHEMY_DATABASE_URL, echo=True)
 # - AsyncSession 기반의 비동기 세션 생성기 정의
 # - autoflush/autocommit 비활성화로 데이터 무결성 제어권 확보
 SessionLocal = async_sessionmaker(
-    autocommit=False, 
-    autoflush=False, 
-    bind=engine, 
-    class_=AsyncSession
+    autocommit=False,
+    autoflush=False,
+    bind=engine,
+    expire_on_commit=False,  #  커밋 후에도 객체 데이터를 유지합니다.
+    class_=AsyncSession,
 )
+
 
 # 4. 의존성 주입 함수 (설계 의도):
 # - 각 API 요청 시 독립적인 DB 세션을 할당하고 작업 종료 후 자동 회수

@@ -8,7 +8,6 @@ from typing import Optional
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.app.core.config import KAKAO_PROFILE_URL, NAVER_PROFILE_URL
 from src.app.core.security import (
     create_user_access_token,
@@ -20,6 +19,7 @@ from src.app.domains.auth.exception import (
     invalid_social_token,
     social_api_error,
 )
+from src.app.domains.auth.model import SocialProvider, User
 from src.app.domains.auth.repository import AuthRepository
 from src.app.domains.auth.schema import (
     MyProfileData,
@@ -28,7 +28,6 @@ from src.app.domains.auth.schema import (
     SocialLoginRequest,
     SocialLoginResponseData,
 )
-from src.app.domains.auth.model import SocialProvider, User
 
 
 class AuthService:
@@ -67,15 +66,15 @@ class AuthService:
             )
         elif not user.is_active:
             raise auth_unauthorized("탈퇴 처리된 계정입니다.")
-        
+
         # 2. [실무 포인트] 온보딩 대상 여부 판단 로직
         # 단순히 신규 생성이었거나, 기존 유저라도 필수 정보(예: 관심분야)가 없다면 신규 유저로 간주
         # user.interest_sectors가 None이거나 빈 리스트([])인 경우 체크
-        is_profile_incomplete = not user.nickname 
+        is_profile_incomplete = not user.nickname
         should_redirect_to_onboarding = is_new or is_profile_incomplete
 
         access_token = create_user_access_token(user_id=user.id)
-        refresh_token = generate_refresh_token() 
+        refresh_token = generate_refresh_token()
         expires_at = refresh_token_expires_at()
 
         await self._repo.create_token(
@@ -84,12 +83,13 @@ class AuthService:
             expires_at=expires_at,
         )
         await self._session.commit()
+        await self._session.refresh(user)
 
         return SocialLoginResponseData(
             access_token=access_token,
             refresh_token=refresh_token,
             user_id=str(user.id),
-            is_new_user=should_redirect_to_onboarding
+            is_new_user=should_redirect_to_onboarding,
         )
 
     # ── 카카오 로그인 ──────────────────────────────────────
@@ -126,10 +126,57 @@ class AuthService:
             profile_image_url=image,
         )
 
-    # ── 네이버 로그인 ──────────────────────────────────────
+    # # ── 네이버 로그인 실제코드 ──────────────────────────────────────
+
+    # async def naver_login(self, body: SocialLoginRequest) -> SocialLoginResponseData:
+    #     """네이버 Access Token → 유저 프로필 조회 → 로그인/가입."""
+    #     try:
+    #         async with httpx.AsyncClient(timeout=10.0) as client:
+    #             resp = await client.get(
+    #                 NAVER_PROFILE_URL,
+    #                 headers={"Authorization": f"Bearer {body.access_token}"},
+    #             )
+    #     except httpx.RequestError:
+    #         raise social_api_error("네이버")
+
+    #     if resp.status_code == 401:
+    #         raise invalid_social_token("네이버")
+    #     if resp.status_code != 200:
+    #         raise social_api_error("네이버")
+
+    #     data = resp.json()
+    #     if data.get("resultcode") != "00":
+    #         raise invalid_social_token("네이버")
+    #     profile = data.get("response", {})
+    #     social_id: str = str(profile.get("id", ""))
+    #     email: str = profile.get("email", f"{social_id}@naver.local")
+    #     name: str = profile.get("name") or "네이버 사용자"
+    #     image: str | None = profile.get("profile_image")
+
+    #     return await self._social_login(
+    #         social_id=social_id,
+    #         provider=SocialProvider.NAVER,
+    #         email=email,
+    #         name=name,
+    #         profile_image_url=image,
+    #     )
+
+    # ── 네이버 로그인 테스트 추가코드 ──────────────────────────────────────
 
     async def naver_login(self, body: SocialLoginRequest) -> SocialLoginResponseData:
         """네이버 Access Token → 유저 프로필 조회 → 로그인/가입."""
+        # ── [테스트용 뒷문 시작] ────────────────────────────
+
+        # 1. 만약 포스트맨에서 'naver_test'라고 토큰을 보내면 네이버에 안 물어봅니다.
+        if body.access_token == "naver_test":
+            return await self._social_login(
+                social_id="test_12345",
+                provider=SocialProvider.NAVER,
+                email="ryan_test@naver.com",  # 테스트하고 싶은 이메일
+                name="테스터라이언",
+                profile_image_url=None,
+            )
+        # ── [테스트용 뒷문 끝] ──────────────────────────────
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.get(
@@ -227,3 +274,6 @@ class AuthService:
         now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         return ProfilePatchResponseData(updated_at=now)
 
+    async def count_new_users_since(self, since: datetime) -> int:
+        """Admin Dashboard를 위한 신규 유저 카운트 로직"""
+        return await self._repo.count_users_since(since)

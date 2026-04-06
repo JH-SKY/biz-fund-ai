@@ -1,21 +1,19 @@
 # src/app/main.py
 from typing import Annotated
 
-from fastapi import Depends, FastAPI
-from fastapi.exceptions import RequestValidationError
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
-
 # SQLAlchemy mapper 구성을 위해 모든 도메인 모델을 앱 시작 전에 로드한다.
 # relationship 문자열 참조("ClassName") 해석은 모든 모델이 메모리에 올라온 뒤 이뤄진다.
 import src.app.domains.auth.model  # noqa: F401
 import src.app.domains.business.model  # noqa: F401
-import src.app.domains.policy.model  # noqa: F401
-import src.app.domains.diagnosis.model  # noqa: F401
 import src.app.domains.chat.model  # noqa: F401
+import src.app.domains.diagnosis.model  # noqa: F401
 import src.app.domains.notification.model  # noqa: F401
+import src.app.domains.policy.model  # noqa: F401
 import src.app.domains.system.model  # noqa: F401
-
+from fastapi import Depends, FastAPI
+from fastapi.exceptions import RequestValidationError
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.api.v1.router import api_router
 from src.app.core.exceptions import request_validation_exception_handler
 from src.app.database.postgres.database import get_db
