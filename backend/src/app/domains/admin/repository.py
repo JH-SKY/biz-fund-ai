@@ -7,7 +7,7 @@ import uuid
 from datetime import date, datetime, time, timezone
 from typing import Any, Sequence
 
-from backend.src.app.domains.policy.model import Policy
+from src.app.domains.policy.model import Policy
 from sqlalchemy import desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 

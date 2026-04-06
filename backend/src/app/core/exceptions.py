@@ -10,18 +10,21 @@ from fastapi.responses import JSONResponse
 
 
 def _friendly_message_for_validation_errors(errors: list) -> str:
-    """Pydantic/FastAPI 검증 오류를 UX용 한 줄 메시지로 매핑.
-
-    기본 422 응답의 detail[].msg 에도 원문이 들어가지만,
-    사업자번호 등 민감 UX 구간은 톤을 통일한다.
+    """
+    [주석 1. 입력값 검증 메시지 처리]
+    사용자가 폼을 잘못 채웠을 때, 딱딱한 개발 용어 대신 사장님이 이해하기 쉬운 말로 바꿔주는 '통역사' 역할이에요.
     """
     for err in errors:
         if not isinstance(err, dict):
             continue
         loc = err.get("loc") or ()
         parts = list(loc) if isinstance(loc, (list, tuple)) else []
+        
+        # 1. 특정 필드(사업자번호 등)에 맞춤형 메시지 제공
         if parts and parts[-1] == "biz_no":
             return "사장님, 번호를 다시 확인해주세요."
+            
+    # 2. 그 외 기본 메시지
     return "입력값을 다시 확인해주세요."
 
 
@@ -29,12 +32,9 @@ async def request_validation_exception_handler(
     _request: Request,
     exc: RequestValidationError,
 ) -> JSONResponse:
-    """RequestValidationError (422) — envelope + 표준 detail 유지.
-
-    - message: 프론트에서 토스트/인라인에 바로 쓸 수 있는 한 줄 문구
-    - detail: FastAPI 기본과 동일한 구조(jsonable_encoder 적용)
-      Pydantic field_validator 의 ValueError 문구는 detail[].msg 에 포함됨
-      (예: "Value error, 사업자등록번호는 10자리 ...")
+    """
+    [주석 2. 422 에러 핸들러]
+    입력값 형식이 틀렸을 때(422) 호출되며, 에러 정보를 예쁘게 포장해서 프론트엔드로 전달하는 '포장지'입니다.
     """
     raw_errors = exc.errors()
     return JSONResponse(
@@ -45,3 +45,42 @@ async def request_validation_exception_handler(
             "detail": jsonable_encoder(raw_errors),
         },
     )
+
+
+# --- 커스텀 예외 정의 구간 ---
+
+class BaseAppException(Exception):
+    """
+    [주석 3. 에러의 큰 뿌리 (부모 클래스)]
+    우리 서비스에서 발생하는 모든 예외들이 공통적으로 가져야 할 '상태 코드'와 '안내 문구'라는 그릇을 미리 만들어 둔 것이에요.
+    """
+    def __init__(self, status_code: int, message: str):
+        self.status_code = status_code
+        self.message = message
+
+
+class ForbiddenException(BaseAppException):
+    """1. 권한 없음: '사장님, 여기는 들어오실 수 없어요' (403)"""
+    def __init__(self, message: str = "권한이 없습니다."):
+        super().__init__(status_code=status.HTTP_403_FORBIDDEN, message=message)
+
+
+class NotFoundException(BaseAppException):
+    """2. 찾지 못함: '요청하신 데이터를 찾을 수 없어요' (404)"""
+    def __init__(self, message: str = "존재하지 않는 리소스입니다."):
+        super().__init__(status_code=status.HTTP_404_NOT_FOUND, message=message)
+
+
+class RateLimitException(BaseAppException):
+    """
+    3. 요청 횟수 초과: '사장님, 너무 빨리 요청하셨어요' (429)
+    이 에러는 식당의 '웨이팅 대기표'와 같아요. 서버 부하와 AI API 비용 폭탄을 막기 위해 잠시 멈추게 합니다.
+    """
+    def __init__(self, message: str = "요청 횟수가 너무 많습니다. 잠시 후 다시 시도해주세요."):
+        super().__init__(status_code=status.HTTP_429_TOO_MANY_REQUESTS, message=message)
+
+
+class ServiceUnavailableException(BaseAppException):
+    """4. 서비스 점검 중: '잠시 후 다시 시도해주세요' (503)"""
+    def __init__(self, message: str = "서비스를 일시적으로 사용할 수 없습니다."):
+        super().__init__(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, message=message)
