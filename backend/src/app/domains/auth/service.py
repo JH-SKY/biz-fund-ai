@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,10 +29,9 @@ from src.app.domains.auth.schema import (
     SocialLoginRequest,
     SocialLoginResponseData,
 )
-from src.app.domains.business.service import BusinessService
 
 if TYPE_CHECKING:
-    from src.app.api.deps.user_auth import CurrentUser
+    pass
 
 
 class AuthService:
@@ -42,11 +41,9 @@ class AuthService:
         self,
         session: AsyncSession,
         repo: AuthRepository,
-        business_service: BusinessService,
     ) -> None:
         self._session = session
         self._repo = repo
-        self._business_service = business_service
 
     # ── 소셜 로그인 공통 내부 로직 ────────────────────────
 
@@ -234,7 +231,9 @@ class AuthService:
 
     # ── 회원 탈퇴 ─────────────────────────────────────────
 
-    async def withdraw(self, user: User, reason: Optional[str] = None) -> None:
+    async def withdraw(
+        self, user: User, business_service: Any = None, reason: Optional[str] = None
+    ) -> None:
         """도메인 규칙: 물리 삭제 금지 → Soft Delete.
 
         회원 탈퇴 처리 (Soft Delete).
@@ -253,10 +252,9 @@ class AuthService:
         """
         await self._repo.revoke_all_user_tokens(user.id)
         await self._repo.soft_delete_user(user)
-        if self._business_service:
-            await self._business_service.deactivate_all_businesses_by_user_internal(
-                user.id
-            )
+        if business_service:
+            await business_service.deactivate_all_businesses_by_user_internal(user.id)
+
         await self._session.commit()
 
     # ── 내 프로필 조회 ─────────────────────────────────────

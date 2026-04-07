@@ -81,10 +81,13 @@ class AuthRepository:
 
     async def soft_delete_user(self, user: User) -> None:
         """도메인 규칙: 물리 삭제 금지 → status='DELETED' + is_active=False + deleted_at(UTC)."""
-        withdrawn_at = datetime.now(timezone.utc)
+        
+        # [수정됨] timezone.utc로 시간을 구한 뒤, DB 삽입을 위해 tzinfo를 제거(naive)합니다.
+        withdrawn_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        
         user.status = "DELETED"
         user.is_active = False
-        # [도메인 규칙 1.2] ① 5년 후 물리 삭제를 위한 타임스탬프 기록 — 비유: 보관함에 '폐기 예정일' 각인.
+        # [도메인 규칙 1.2] ① 5년 후 물리 삭제를 위한 타임스탬프 기록
         user.deleted_at = withdrawn_at
         await self._session.flush()
 

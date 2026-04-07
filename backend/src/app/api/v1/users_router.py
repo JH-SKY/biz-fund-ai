@@ -11,6 +11,8 @@ from src.app.api.deps.user_auth import CurrentUser, get_auth_service
 from src.app.core.response import api_json
 from src.app.domains.auth.schema import ProfilePatchRequest
 from src.app.domains.auth.service import AuthService
+from src.app.api.deps.business_deps import get_business_service
+from src.app.domains.business.service import BusinessService
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -19,9 +21,10 @@ router = APIRouter(prefix="/users", tags=["users"])
 async def withdraw(
     current_user: CurrentUser,
     svc: Annotated[AuthService, Depends(get_auth_service)],
+    biz_svc: Annotated[BusinessService, Depends(get_business_service)]
 ):
     """회원 탈퇴. 도메인 규칙: Soft Delete(status=DELETED). 204 No Content."""
-    await svc.withdraw(current_user)
+    await svc.withdraw(current_user, business_service=biz_svc)
     return Response(status_code=204)
 
 

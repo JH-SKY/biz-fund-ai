@@ -10,10 +10,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
+from src.app.api.deps.user_auth import CurrentUser, get_current_user
 from src.app.database.postgres.database import get_db
 from src.app.domains.business.exception import onboarding_required
 from src.app.domains.business.interfaces import (
@@ -28,8 +29,6 @@ from src.app.domains.business.model import Business
 from src.app.domains.business.repository import BusinessRepository
 from src.app.domains.business.service import BusinessService
 
-if TYPE_CHECKING:
-    from src.app.api.deps.user_auth import CurrentUser
 # ── 외부 서비스 DI Factory (인프라 교체 지점) ──────────────────────────────────
 
 
@@ -83,8 +82,8 @@ async def get_business_service(
 
 
 async def get_optional_business(
-    user: "CurrentUser",
     db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated["CurrentUser", Depends(get_current_user)],
 ) -> Business | None:
     """
     [주석 1. 비엄격 모드]
@@ -96,15 +95,15 @@ async def get_optional_business(
 
 
 async def get_active_business(
-    user: "CurrentUser",
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> Business:
+    user: Annotated["CurrentUser", Depends(get_current_user)],
+) -> Business | None:
     """
     [주석 2. 엄격 모드]
     [도메인 규칙 1.1] 사업장이 없으면 즉시 onboarding_required(403) 예외를 발생시킵니다.
     프론트엔드는 이 에러를 받으면 사용자를 온보딩 페이지로 보냅니다.
     """
-    biz = await get_optional_business(user, db)
+    biz = await get_optional_business(user=user, db=db)
     if biz is None:
         raise onboarding_required()
     return biz

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
 
@@ -18,7 +19,7 @@ def api_json(
 
     body: dict[str, Any] = {"status": http_status}
     if data is not None:
-        body["data"] = data
+        body["data"] = jsonable_encoder(data)
     if message is not None:
         body["message"] = message
     return JSONResponse(status_code=http_status, content=body)

@@ -116,9 +116,11 @@ async def get_business_info(
 )
 async def update_business_info(
     body: BusinessUpdateRequest,
+    user: CurrentUser,
     biz: ActiveBusiness,
     svc: BusinessServiceDep,
 ) -> JSONResponse:
+    
     await svc.update_my_business(biz, body)
     return api_json(
         http_status=200,
