@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional,TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,14 +23,16 @@ from src.app.domains.notification.schema import (
     UnreadCountResponseData,
     UpdateNotificationSettingsRequest,
 )
-
+if TYPE_CHECKING:
+    from src.app.domains.auth.service import AuthService
+    from src.app.domains.auth.model import User
 
 class NotificationService:
     def __init__(
         self,
         session: AsyncSession,
         repo: NotificationRepository,
-        auth_service: AuthService, 
+        auth_service: "AuthService", 
     ) -> None:
         self._session = session
         self._repo = repo

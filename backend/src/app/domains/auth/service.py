@@ -5,11 +5,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.app.core.config import KAKAO_PROFILE_URL, NAVER_PROFILE_URL
 from src.app.core.security import (
     create_user_access_token,
@@ -31,6 +30,9 @@ from src.app.domains.auth.schema import (
     SocialLoginResponseData,
 )
 from src.app.domains.business.service import BusinessService
+
+if TYPE_CHECKING:
+    from src.app.api.deps.user_auth import CurrentUser
 
 
 class AuthService:
@@ -311,7 +313,6 @@ class AuthService:
     async def get_all_active_user_ids_internal(self) -> list[uuid.UUID]:
         """[Internal] 전체 시스템 공지 대상자 추출용 브릿지"""
         return await self._repo.get_all_active_user_ids()
-    
 
     async def update_notification_settings_internal(
         self,
@@ -329,3 +330,4 @@ class AuthService:
             policy_update_enabled=policy_update_enabled,
             chat_answer_enabled=chat_answer_enabled,
         )
+        await self._session.commit()

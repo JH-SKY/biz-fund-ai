@@ -10,11 +10,10 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from src.app.api.deps.user_auth import CurrentUser
 from src.app.database.postgres.database import get_db
 from src.app.domains.business.exception import onboarding_required
 from src.app.domains.business.interfaces import (
@@ -29,6 +28,8 @@ from src.app.domains.business.model import Business
 from src.app.domains.business.repository import BusinessRepository
 from src.app.domains.business.service import BusinessService
 
+if TYPE_CHECKING:
+    from src.app.api.deps.user_auth import CurrentUser
 # ── 외부 서비스 DI Factory (인프라 교체 지점) ──────────────────────────────────
 
 
@@ -82,7 +83,7 @@ async def get_business_service(
 
 
 async def get_optional_business(
-    user: CurrentUser,
+    user: "CurrentUser",
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Business | None:
     """
@@ -95,7 +96,7 @@ async def get_optional_business(
 
 
 async def get_active_business(
-    user: CurrentUser,
+    user: "CurrentUser",
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Business:
     """
