@@ -241,3 +241,13 @@ class DiagnosisService:
             )
             for log in logs
         ]
+    
+    # ── Admin 전용 (Internal) ─────────────────────────────────────────────
+
+    async def get_all_logs_for_admin(self, sim_type: str | None = None) -> list:
+        """[Internal] 관리자 모니터링용: 시스템 전체 시뮬레이션/진단 이력 전수 조회"""
+        return await self._repo.get_all_simulation_logs_for_admin(sim_type)
+
+    async def get_log_detail_for_admin(self, diagnosis_id: uuid.UUID) -> Any:
+        """[Internal] 관리자 모니터링용: ID 기반 로그 단건 상세 조회"""
+        return await self._repo.get_simulation_log_for_admin(diagnosis_id)

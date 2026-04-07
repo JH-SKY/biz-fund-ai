@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.domains.auth.model import SocialProvider, User, UserToken
 
@@ -154,3 +154,63 @@ class AuthRepository:
         )
         result = await self._session.execute(query)
         return result.scalar() or 0
+
+    # ── Admin 전용 (Internal) ─────────────────────────────────────────────
+
+    async def list_users_page(
+        self,
+        *,
+        page: int,
+        size: int,
+        search_keyword: str | None,
+        only_active: bool = True,
+    ) -> tuple[list[User], int]:
+        """[Internal] 관리자용 전체 유저 목록 페이징 조회"""
+
+        filters = []
+        if only_active:
+            filters.append(User.is_active.is_(True))
+        if search_keyword and search_keyword.strip():
+            kw = f"%{search_keyword.strip()}%"
+            filters.append(or_(User.name.ilike(kw), User.email.ilike(kw)))
+
+        count_stmt = select(func.count()).select_from(User)
+        stmt = select(User)
+        for f in filters:
+            count_stmt = count_stmt.where(f)
+            stmt = stmt.where(f)
+
+        total = int((await self._session.execute(count_stmt)).scalar_one())
+        stmt = (
+            stmt.order_by(User.created_at.desc()).offset((page - 1) * size).limit(size)
+        )
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return list(rows), total
+
+    # ── 타 도메인 지원용 (Internal) ───────────────────────────────────────────
+
+    async def get_all_active_user_ids(self) -> list[uuid.UUID]:
+        """[Internal] 전체 시스템 공지 발송 등을 위한 활성 유저 ID만 추출"""
+        stmt = select(User.id).where(User.is_active.is_(True))
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def update_notification_settings_internal(
+        self,
+        user: User,
+        push_enabled: bool | None,
+        marketing_enabled: bool | None,
+        policy_update_enabled: bool | None,
+        chat_answer_enabled: bool | None,
+    ) -> None:
+        """[Internal] 알림 설정 상태만 선택적으로 업데이트합니다."""
+        if push_enabled is not None:
+            user.push_enabled = push_enabled
+        if marketing_enabled is not None:
+            user.marketing_enabled = marketing_enabled
+        if policy_update_enabled is not None:
+            user.policy_update_enabled = policy_update_enabled
+        if chat_answer_enabled is not None:
+            user.chat_answer_enabled = chat_answer_enabled
+            
+        await self._session.flush()

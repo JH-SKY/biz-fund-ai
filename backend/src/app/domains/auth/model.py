@@ -15,20 +15,20 @@ if TYPE_CHECKING:
     from src.app.domains.system.model import LeadRequest
 
 from sqlalchemy import (
+    TIMESTAMP,
     Boolean,
-    Enum as sqlalchemy_Enum,
     ForeignKey,
-    Integer,
     String,
     Text,
-    TIMESTAMP,
     text,
+)
+from sqlalchemy import (
+    Enum as sqlalchemy_Enum,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.app.database.postgres.base import Base
-
 
 # ── 사용자 ──────────────────────────────────────────────────────────────────
 
@@ -94,6 +94,40 @@ class User(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, server_default=text("CURRENT_TIMESTAMP"), nullable=False
+    )
+    # 1. 사용자의 알림 수신 동의 상태를 관리하는 설정값들입니다.
+    # 2. 서비스 운영 및 마케팅 활용(광고성 정보 전송)을 위해 세분화하여 저장합니다.
+
+    # [설계 의도] 전체 알림 마스터 스위치: 이 값이 False면 다른 모든 알림이 차단되는 구조로 설계합니다.
+    push_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        server_default=text("true"),
+        comment="전체 푸시 알림 활성화 여부 (Master Switch)",
+    )
+
+    # [설계 의도] 법적 준수: 광고성 정보는 기본값을 'false'로 설정하여 사용자 동의를 유도합니다.
+    marketing_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=text("false"),
+        comment="마케팅/광고성 정보 수신 동의 여부",
+    )
+
+    # [설계 의도] 서비스 안정성: 약관 변경 등 중요 공지는 서비스 이용에 필수적이므로 기본값을 'true'로 합니다.
+    policy_update_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        server_default=text("true"),
+        comment="서비스 이용약관 및 정책 변경 알림 수신 여부",
+    )
+
+    # [설계 의도] 핵심 기능(UX): AI 서비스의 핵심인 '답변 알림'은 사용자 재방문을 유도하므로 기본값을 'true'로 합니다.
+    chat_answer_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        server_default=text("true"),
+        comment="AI 채팅 답변 완료 알림 수신 여부",
     )
 
     tokens: Mapped[list["UserToken"]] = relationship("UserToken", back_populates="user")

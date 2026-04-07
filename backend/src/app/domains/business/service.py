@@ -472,3 +472,19 @@ class BusinessService:
             raise document_forbidden()
         await self._repo.soft_delete_document(doc)
         await self._session.commit()
+
+
+    # ── 타 도메인 지원용 (Internal) ───────────────────────────────────────────
+
+    async def get_latest_financial_snapshot_internal(
+        self, business_id: uuid.UUID
+    ) -> BusinessFinancialSnapshot | None:
+        """
+        [Internal] 정밀진단(Diagnosis) 도메인에서 '진단 준비(Pre-check)' 단계 수행 시 
+        사업장의 가장 최근 재무 데이터를 가져오기 위해 호출하는 브릿지 인터페이스입니다.
+        """
+        return await self._repo.get_latest_financial_snapshot_internal(business_id)
+    
+    async def deactivate_all_businesses_by_user_internal(self, user_id: uuid.UUID) -> None:
+        """[Internal] Auth 도메인에서 회원 탈퇴 시 호출"""
+        await self._repo.deactivate_all_businesses_by_user_internal(user_id)

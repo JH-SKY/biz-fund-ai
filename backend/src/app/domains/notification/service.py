@@ -12,6 +12,7 @@ from src.app.domains.notification.exception import (
     notification_forbidden,
     notification_not_found,
 )
+from src.app.domains.auth.service import AuthService
 from src.app.domains.notification.model import Notification
 from src.app.domains.notification.repository import NotificationRepository
 from src.app.domains.notification.schema import (
@@ -29,9 +30,11 @@ class NotificationService:
         self,
         session: AsyncSession,
         repo: NotificationRepository,
+        auth_service: AuthService, 
     ) -> None:
         self._session = session
         self._repo = repo
+        self._auth_service = auth_service
 
     async def get_my_notifications(
         self,
@@ -114,17 +117,37 @@ class NotificationService:
         )
 
     async def get_notification_settings(self, user: User) -> NotificationSettingsResponseData:
-        """알림 설정 조회 (현재 DB 모델에 설정 컬럼이 없으므로 Mock Data 반환)."""
-        # TODO: User 모델에 알림 설정 컬럼 추가 또는 별도 Settings 테이블 필요
-        return NotificationSettingsResponseData()
+            """
+            알림 설정 조회.
+            라우터에서 넘겨받은 user 객체(인증됨)에서 직접 설정값을 읽어옵니다.
+            """
+            return NotificationSettingsResponseData(
+                # 모델에 새 컬럼이 추가되었으므로 바로 가져올 수 있습니다.
+                # getattr를 쓴 이유는 마이그레이션 타이밍 이슈로 인한 속성 에러 방어 목적입니다.
+                push_enabled=getattr(user, 'push_enabled', True),
+                marketing_enabled=getattr(user, 'marketing_enabled', False),
+                policy_update_enabled=getattr(user, 'policy_update_enabled', True),
+                chat_answer_enabled=getattr(user, 'chat_answer_enabled', True),
+            )
 
     async def update_notification_settings(
         self,
         user: User,
         req: UpdateNotificationSettingsRequest,
     ) -> None:
-        """알림 설정 변경 (현재 DB 모델에 설정 컬럼이 없으므로 성공 처리만 시뮬레이션)."""
-        # TODO: User 모델의 알림 설정 컬럼 업데이트 구현
+        """
+        알림 설정 변경.
+        AuthService의 브릿지 함수를 호출하여 User 테이블을 업데이트합니다 (도메인 격리 준수).
+        """
+        await self._auth_service.update_notification_settings_internal(
+            user=user,
+            push_enabled=req.push_enabled,
+            marketing_enabled=req.marketing_enabled,
+            policy_update_enabled=req.policy_update_enabled,
+            chat_answer_enabled=req.chat_answer_enabled,
+        )
+        
+        # 업데이트 내역 확정
         await self._session.commit()
 
     async def create_notification(
@@ -162,11 +185,14 @@ class NotificationService:
     ) -> int:
         """
         [Admin 전용] 전 유저 대상 시스템 대량 공지 발송.
-        
-        어드민 도메인에서 이 메서드를 호출하면 모든 활성 유저에게 동일한 알림이 발송됩니다.
-        'Bulk Insert' 로직을 사용하여 대규모 유저에게도 빠르게 발달할 수 있는 '전체 방송' 시스템입니다. [cite: 2026-03-05]
+        도메인 격리를 위해 Auth 서비스에서 ID를 먼저 받아온 뒤 Insert를 수행합니다.
         """
+        user_ids = await self._auth_service.get_all_active_user_ids_internal()
+        if not user_ids:
+            return 0
+            
         count = await self._repo.bulk_create_system_notification(
+            user_ids=user_ids,
             noti_type=noti_type,
             title=title,
             message=message,
@@ -180,7 +206,7 @@ class NotificationService:
         """
         오래된 알림 일괄 삭제 (배치 시스템 연동용).
         
-        [도메인 규칙 6.3] 알림 데이터가 무한정 쌓이지 않도록 주기적 파기.
+        알림 데이터가 무한정 쌓이지 않도록 주기적 파기.
         지정된 retention_days(기본 90일)가 지난 알림을 물리 삭제하여 DB를 쾌적하게 유지합니다. [cite: 2026-03-05]
         """
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=retention_days)

@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import timezone
 from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from src.app.core.config import ADMIN_POLICY_AGENCY_NAME
 from src.app.core.security import create_admin_access_token, verify_password
 from src.app.domains.admin.repository import AdminRepository, utc_start_of_today
@@ -337,9 +338,6 @@ class AdminService:
             total_count=total,
             total_pages=total_pages,
         )
-
-    async def count_new_users_since(self, since: datetime) -> int:
-        return await self._repo.count_new_users_since(since)
 
     async def list_users_page(
         self,

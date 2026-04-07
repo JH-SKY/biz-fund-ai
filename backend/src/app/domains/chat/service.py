@@ -1,9 +1,9 @@
 """채팅 도메인 서비스 계층 - 비즈몽 AI 상담 로직."""
 
 import uuid
-from datetime import datetime, timedelta, timezone
-from typing import List
+from datetime import datetime
 from decimal import Decimal
+from typing import List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,7 +14,7 @@ from src.app.domains.chat.exception import (
     chat_room_not_found,
 )
 from src.app.domains.chat.interfaces import ILLMEngine, LLMResponse
-from src.app.domains.chat.model import ChatRoom, ChatLog
+from src.app.domains.chat.model import ChatLog, ChatRoom
 from src.app.domains.chat.repository import ChatRepository
 from src.app.domains.chat.schema import (
     AutoSummaryResponseData,
@@ -32,7 +32,7 @@ from src.app.domains.policy.service import PolicyService
 class ChatService:
     """
     비즈몽 AI 상담의 핵심 비즈니스 로직을 수행합니다.
-    설계 원칙: 
+    설계 원칙:
     1. 외부 API(LLM) 호출 시 DB 트랜잭션을 최소한으로 유지합니다.
     2. 도메인 간 통신은 주입된 서비스를 통해서만 수행합니다.
     """
@@ -67,12 +67,15 @@ class ChatService:
     ) -> ChatLog:
         """[공통 로직] AI의 답변을 분석하여 로그로 저장합니다."""
         ref_policy_id = (
-            uuid.UUID(ai_resp.referenced_policy_ids[0]) 
-            if ai_resp.referenced_policy_ids else None
+            uuid.UUID(ai_resp.referenced_policy_ids[0])
+            if ai_resp.referenced_policy_ids
+            else None
         )
-        
+
         # 비용 데이터 무결성: 숫자가 아닌 값이 들어올 경우를 대비한 안전 장치
-        safe_cost = Decimal(str(ai_resp.total_cost)) if ai_resp.total_cost else Decimal("0.0")
+        safe_cost = (
+            Decimal(str(ai_resp.total_cost)) if ai_resp.total_cost else Decimal("0.0")
+        )
 
         return await self._repo.create_chat_log(
             user_id=business.user_id,
@@ -111,16 +114,16 @@ class ChatService:
             role="user",
             content=req.initial_message,
         )
-        await self._session.commit() # 유저 메시지 유실 방지를 위해 먼저 커밋
+        await self._session.commit()  # 유저 메시지 유실 방지를 위해 먼저 커밋
 
         # AI 답변 생성 (트랜잭션 외부 수행 - 성능 핵심)
         ai_resp = await self._llm_engine.generate_reply(
             session_id=str(room.id),
             user_message=req.initial_message,
             business_context={
-                "biz_name": business.biz_name, 
+                "biz_name": business.biz_name,
                 "score": business.profile_score,
-                "sector": business.sector_code
+                "sector": business.sector_code,
             },
         )
 
@@ -175,7 +178,10 @@ class ChatService:
         ai_resp = await self._llm_engine.generate_reply(
             session_id=str(room.id),
             user_message=req.message,
-            business_context={"biz_name": business.biz_name, "score": business.profile_score},
+            business_context={
+                "biz_name": business.biz_name,
+                "score": business.profile_score,
+            },
         )
 
         # AI 답변 기록 및 2차 커밋
@@ -185,7 +191,9 @@ class ChatService:
         # 정책 정보 매핑 (Service-to-Service)
         referenced_policies = []
         if ai_log.ref_policy_id:
-            policy = await self._policy_service.get_policy_by_id_internal(ai_log.ref_policy_id)
+            policy = await self._policy_service.get_policy_by_id_internal(
+                ai_log.ref_policy_id
+            )
             if policy:
                 referenced_policies.append(
                     ReferencedPolicy(id=str(policy.id), title=policy.title)
@@ -213,11 +221,15 @@ class ChatService:
         """5. 대화 맥락을 파악하여 상담방의 제목을 자동 생성합니다."""
         room = await self._verify_ownership_and_status(business, session_id)
         logs = await self._repo.get_chat_logs_by_room(room.id)
-        
+
+        # 대화 내용이 없을 경우의 방어 로직
+        if not logs:
+            return AutoSummaryResponseData(new_title="새로운 상담")
+
         # 비용 효율성을 위해 마지막 5개 메시지만 요약에 사용
-        messages = [log.content for log in logs[-5:]] 
+        messages = [log.content for log in logs[-5:]]
         new_title = await self._llm_engine.summarize_title(messages)
-        
+
         await self._repo.update_chat_room_title(room, new_title)
         await self._session.commit()
 
@@ -231,10 +243,24 @@ class ChatService:
 
     async def auto_close_inactive_sessions(self) -> int:
         """[배치 전용] 7일 이상 미활동 중인 세션을 정리하여 리소스를 확보합니다."""
-        # 이 메서드는 Repository에서 관리자용 쿼리를 분리함에 따라 
+        # 이 메서드는 Repository에서 관리자용 쿼리를 분리함에 따라
         # 추후 AdminService로 이관하는 것이 좋습니다.
-        return 0 # 현재는 인터페이스 유지를 위해 0 반환 (리팩토링 대상)
-    
+        return 0  # 현재는 인터페이스 유지를 위해 0 반환 (리팩토링 대상)
+
     async def count_chat_logs_since(self, since: datetime) -> int:
         """Admin Dashboard를 위한 채팅 로그 카운트"""
         return await self._repo.count_chats_since(since)
+
+    # ── Admin 전용 (Internal) ─────────────────────────────────────────────
+
+    async def list_user_chat_logs_page(
+        self, user_id: uuid.UUID | None, page: int, size: int
+    ) -> list[ChatLog]:
+        """[Internal] 관리자 모니터링용 유저 메시지 리스트 조회"""
+        return await self._repo.list_user_chat_logs_page(user_id, page, size)
+
+    async def find_first_assistant_after(
+        self, room_id: uuid.UUID, after: datetime
+    ) -> Optional[ChatLog]:
+        """[Internal] 관리자 모니터링용 매칭 AI 답변 조회"""
+        return await self._repo.find_first_assistant_after(room_id, after)

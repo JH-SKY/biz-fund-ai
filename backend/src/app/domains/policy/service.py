@@ -290,6 +290,21 @@ class PolicyService:
 
         await self._session.commit()
         return new_policy
+    
+    async def get_policy_by_id_internal(self, policy_id: uuid.UUID) -> Optional[Policy]:
+        """
+        [Internal] 관리자 정보 수정 등을 위해 정책 원본 모델을 조회합니다.
+        비즈니스 규칙 검증 없이 순수하게 DB의 데이터를 가져옵니다.
+        """
+        return await self._repo.get_policy_by_id(policy_id)
+
+    async def patch_policy_internal(self, policy: Policy, **kwargs) -> None:
+        """
+        [Internal] 정책 정보를 부분 수정합니다.
+        트랜잭션 커밋(commit)은 호출한 상위 서비스(AdminService)에 위임하기 위해
+        이곳에서는 flush 로직까지만 호출합니다.
+        """
+        await self._repo.patch_policy_internal(policy, **kwargs)
 
     # ── 3. 중복 검증용 조회 ──────────────────────────────────────────────────
 

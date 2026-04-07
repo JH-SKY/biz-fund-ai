@@ -11,12 +11,14 @@ from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.app.api.deps.business_deps import get_business_service
 from src.app.core.security import decode_user_access_token
 from src.app.database.postgres.database import get_db
 from src.app.domains.auth.exception import auth_unauthorized
+from src.app.domains.auth.model import User
 from src.app.domains.auth.repository import AuthRepository
 from src.app.domains.auth.service import AuthService
-from src.app.domains.auth.model import User
+from src.app.domains.business.service import BusinessService
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -30,8 +32,9 @@ async def get_auth_repo(
 async def get_auth_service(
     db: Annotated[AsyncSession, Depends(get_db)],
     repo: Annotated[AuthRepository, Depends(get_auth_repo)],
+    business_service: Annotated[BusinessService, Depends(get_business_service)],
 ) -> AuthService:
-    return AuthService(db, repo)
+    return AuthService(db, repo, business_service=business_service)
 
 
 async def get_current_user(

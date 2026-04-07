@@ -3,11 +3,13 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from src.app.core.config import KAKAO_PROFILE_URL, NAVER_PROFILE_URL
 from src.app.core.security import (
     create_user_access_token,
@@ -28,14 +30,21 @@ from src.app.domains.auth.schema import (
     SocialLoginRequest,
     SocialLoginResponseData,
 )
+from src.app.domains.business.service import BusinessService
 
 
 class AuthService:
     """인증·사용자 유스케이스. Repository만 통해 DB에 접근한다."""
 
-    def __init__(self, session: AsyncSession, repo: AuthRepository) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        repo: AuthRepository,
+        business_service: BusinessService,
+    ) -> None:
         self._session = session
         self._repo = repo
+        self._business_service = business_service
 
     # ── 소셜 로그인 공통 내부 로직 ────────────────────────
 
@@ -242,6 +251,10 @@ class AuthService:
         """
         await self._repo.revoke_all_user_tokens(user.id)
         await self._repo.soft_delete_user(user)
+        if self._business_service:
+            await self._business_service.deactivate_all_businesses_by_user_internal(
+                user.id
+            )
         await self._session.commit()
 
     # ── 내 프로필 조회 ─────────────────────────────────────
@@ -277,3 +290,42 @@ class AuthService:
     async def count_new_users_since(self, since: datetime) -> int:
         """Admin Dashboard를 위한 신규 유저 카운트 로직"""
         return await self._repo.count_users_since(since)
+
+    # ── Admin 전용 (Internal) ─────────────────────────────────────────────
+
+    async def list_users_page(
+        self,
+        *,
+        page: int,
+        size: int,
+        search_keyword: str | None,
+        only_active: bool = True,
+    ) -> tuple[list[User], int]:
+        """[Internal] 관리자 도메인에서 유저 목록을 조회하기 위한 인터페이스"""
+        return await self._repo.list_users_page(
+            page=page, size=size, search_keyword=search_keyword, only_active=only_active
+        )
+
+    # ── 타 도메인 지원용 (Internal) ───────────────────────────────────────────
+
+    async def get_all_active_user_ids_internal(self) -> list[uuid.UUID]:
+        """[Internal] 전체 시스템 공지 대상자 추출용 브릿지"""
+        return await self._repo.get_all_active_user_ids()
+    
+
+    async def update_notification_settings_internal(
+        self,
+        user: User,
+        push_enabled: bool | None = None,
+        marketing_enabled: bool | None = None,
+        policy_update_enabled: bool | None = None,
+        chat_answer_enabled: bool | None = None,
+    ) -> None:
+        """[Internal] 알림 도메인에서 알림 설정 변경 요청 시 호출하는 브릿지 인터페이스"""
+        await self._repo.update_notification_settings_internal(
+            user=user,
+            push_enabled=push_enabled,
+            marketing_enabled=marketing_enabled,
+            policy_update_enabled=policy_update_enabled,
+            chat_answer_enabled=chat_answer_enabled,
+        )

@@ -155,3 +155,28 @@ class ChatRepository:
         )  # ChatLog는 실제 모델명에 맞춰주세요!
         result = await self._session.execute(query)
         return result.scalar() or 0
+
+    # ── Admin 전용 (Internal) ─────────────────────────────────────────────
+
+    async def list_user_chat_logs_page(
+        self, user_id: uuid.UUID | None, page: int, size: int
+    ) -> list[ChatLog]:
+        """[Internal] 관리자 모니터링용: 사용자의 질문 메시지만 페이징 조회"""
+        stmt = select(ChatLog).where(ChatLog.role == "user")
+        if user_id:
+            stmt = stmt.where(ChatLog.user_id == user_id)
+        stmt = stmt.order_by(ChatLog.created_at.desc()).offset((page - 1) * size).limit(size)
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def find_first_assistant_after(
+        self, room_id: uuid.UUID, after: datetime
+    ) -> Optional[ChatLog]:
+        """[Internal] 관리자 모니터링용: 유저 질문 직후에 달린 AI의 첫 답변 조회"""
+        stmt = select(ChatLog).where(
+            ChatLog.room_id == room_id,
+            ChatLog.role == "assistant",
+            ChatLog.created_at > after
+        ).order_by(ChatLog.created_at.asc()).limit(1)
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()

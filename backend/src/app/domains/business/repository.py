@@ -273,3 +273,30 @@ class BusinessRepository:
         """
         doc.is_active = False
         await self._session.flush()
+
+    # ── 타 도메인 지원용 (Internal) ───────────────────────────────────────────
+
+    async def get_latest_financial_snapshot_internal(
+        self, business_id: uuid.UUID
+    ) -> BusinessFinancialSnapshot | None:
+        """
+        [Internal] 정밀 진단(Diagnosis) 등 타 도메인에서 가장 최신 연도의 재무 데이터를 요구할 때 사용합니다.
+        """
+        stmt = (
+            self._base_query(BusinessFinancialSnapshot)
+            .where(BusinessFinancialSnapshot.business_id == business_id)
+            .order_by(BusinessFinancialSnapshot.snapshot_year.desc())
+            .limit(1)
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+    
+    async def deactivate_all_businesses_by_user_internal(self, user_id: uuid.UUID) -> None:
+        """[Internal] 유저 탈퇴 시 연관된 모든 사업장을 논리 삭제(Soft Delete)합니다."""
+        from sqlalchemy import update
+        stmt = (
+            update(Business)
+            .where(Business.user_id == user_id, Business.is_active == True)
+            .values(is_active=False)
+        )
+        await self._session.execute(stmt)

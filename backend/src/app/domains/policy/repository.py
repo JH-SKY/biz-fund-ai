@@ -288,3 +288,14 @@ class PolicyRepository:
 
         # 3. 일 시키기: 결과가 있으면 객체를 반환하고, 없으면 None을 반환
         return result.scalar_one_or_none()
+
+    async def patch_policy_internal(
+        self,
+        policy: Policy,
+        **kwargs,
+    ) -> None:
+        """[Internal] 관리자 도메인 등에서 정책 정보를 부분 수정(업데이트)합니다."""
+        for key, value in kwargs.items():
+            if hasattr(policy, key) and value is not None:
+                setattr(policy, key, value)
+        await self._session.flush()
