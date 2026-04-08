@@ -247,6 +247,7 @@ class PolicyRepository:
         apply_url: str | None = None,
         status: PolicyStatus = PolicyStatus.RECRUITING,  # [추가] 상태값 받기
         closed_at: date | None = None,  # [추가] 마감일 받기
+        origin_id: str,
         **kwargs,  # [꿀팁] 그 외 예상치 못한 데이터 방어
     ) -> Policy:
         """새로운 정책 데이터를 DB 모델로 변환하여 세션에 추가합니다."""
@@ -261,6 +262,7 @@ class PolicyRepository:
             closed_at=closed_at or date(9999, 12, 31),  # 마감일 없으면 무기한
             is_active=True,
             view_count=0,
+            origin_id=origin_id,  # 고유 식별자
         )
 
         self._session.add(new_policy)
@@ -269,24 +271,13 @@ class PolicyRepository:
 
     # ── 3. 중복 검증용 조회 ──────────────────────────────────────────────────
 
-    async def get_policy_by_title_and_agency(
-        self, *, title: str, agency_name: str
-    ) -> Optional[Policy]:
+    async def get_policy_by_origin_id(self, origin_id: str) -> Optional[Policy]:
         """
-        [설계 의도] 제목과 기관명이 완전히 일치하는 정책이 있는지 확인합니다.
-        비유: 도서관에 이미 똑같은 책(제목+출판사)이 있는지 검색해보는 과정입니다.
+        [설계 의도] 기업마당 고유 번호(origin_id)로 이미 저장된 공고인지 확인합니다.
+        가장 확실하고 안전한 중복 검사 방식입니다.
         """
-        # 1. 준비물: 정책 테이블에서 데이터를 뽑을 쿼리 작성
-        stmt = select(Policy).where(
-            Policy.title == title,
-            Policy.agency_name == agency_name,
-            Policy.is_active == True,  # 활성화된 정책 중에서만 중복 체크
-        )
-
-        # 2. 버튼 찾기: 쿼리 실행
+        stmt = select(Policy).where(Policy.origin_id == origin_id)
         result = await self._session.execute(stmt)
-
-        # 3. 일 시키기: 결과가 있으면 객체를 반환하고, 없으면 None을 반환
         return result.scalar_one_or_none()
 
     async def patch_policy_internal(

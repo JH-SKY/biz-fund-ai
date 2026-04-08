@@ -28,3 +28,10 @@ USER_REFRESH_TOKEN_EXPIRE_DAYS: int = int(
 # ── 소셜 로그인 API ────────────────────────────────────
 KAKAO_PROFILE_URL: str = "https://kapi.kakao.com/v2/user/me"
 NAVER_PROFILE_URL: str = "https://openapi.naver.com/v1/nid/me"
+
+# ── 외부 API 키 ────────────────────────────────────────
+# 국세청(사업자번호) API
+NTS_API_KEY: str = os.getenv("NTS_API_KEY", "")
+
+# 기업마당(정책공고) API
+BIZINFO_API_KEY: str = os.getenv("BIZINFO_API_KEY", "")

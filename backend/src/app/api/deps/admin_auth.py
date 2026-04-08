@@ -21,7 +21,7 @@ from src.app.database.postgres.database import get_db
 from src.app.domains.admin.exception import admin_forbidden, admin_unauthorized
 from src.app.domains.admin.repository import AdminRepository
 from src.app.domains.admin.service import AdminService
-from src.app.domains.auth.model import Admin
+from src.app.domains.admin.model import Admin
 from src.app.domains.auth.service import AuthService
 from src.app.domains.biz_pick.service import BizPickService
 from src.app.domains.chat.service import ChatService

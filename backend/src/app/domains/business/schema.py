@@ -85,18 +85,10 @@ class VerifyBizNumberRequest(BaseModel):
 
 
 class VerifyBizNumberResponseData(BaseModel):
-    is_valid: bool
-    company_name: Optional[str] = None
-    biz_status: Optional[str] = None
-    open_date: Optional[str] = None
-    nts_status_row: Optional[dict[str, Any]] = Field(
-        None,
-        description=(
-            "국세청 사업자등록정보 상태조회 API 응답 `data[]` 원소와 동일한 키 구조 "
-            "(b_no, b_stt, b_stt_cd, tax_type, rprs_nm, b_nm 등). 실연동 시 원본 매핑용."
-        ),
-    )
-
+    is_valid: bool = Field(..., description="유효한 계속사업자 여부")
+    biz_status: Optional[str] = Field(None, description="계속사업자, 휴업자, 폐업자 등 국세청 상태")
+    tax_type: Optional[str] = Field(None, description="부가가치세 일반과세자 등")
+    # 기획 변경에 따라 company_name, open_date 등은 서버가 주지 않고 유저가 직접 입력합니다.
 
 # ── 사업장 조회 / 수정 ──────────────────────────────────────────────────────
 

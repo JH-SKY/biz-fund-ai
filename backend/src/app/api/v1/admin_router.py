@@ -7,7 +7,6 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
-
 from src.app.api.deps.admin_auth import CurrentAdmin, get_admin_service
 from src.app.core.response import api_json
 from src.app.domains.admin.schema import (
@@ -118,7 +117,13 @@ async def admin_chat_logs(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=200),
 ):
-    data = await svc.list_chat_monitor(admin_id=admin.id,client_ip=_client_ip(request), user_id=user_id, page=page, size=size)
+    data = await svc.list_chat_monitor(
+        admin_id=admin.id,
+        client_ip=_client_ip(request),
+        user_id=user_id,
+        page=page,
+        size=size,
+    )
     return api_json(http_status=200, data=data.model_dump(), message="success")
 
 
@@ -190,3 +195,38 @@ async def admin_list_users(
         only_active=not include_inactive_users,
     )
     return api_json(http_status=200, data=data.model_dump(), message="success")
+
+
+############ 테스트용 코드
+# 파일 상단에 필요한 import 추가 (이미 있다면 패스)
+from sqlalchemy.ext.asyncio import AsyncSession
+from src.app.database.postgres.database import get_db
+from src.app.domains.policy.repository import PolicyRepository
+from src.app.domains.policy.sync_service import BizinfoSyncService
+
+# ... 기존 코드들 ...
+
+
+@router.post(
+    "/policies/sync",
+    summary="[테스트] 기업마당 정책 공고 동기화",
+    description="기업마당 API를 찔러서 최신 공고 100개를 가져와 DB에 넣습니다.",
+)
+async def sync_bizinfo_policies_test(
+    db: AsyncSession = Depends(get_db),
+    # current_admin = Depends(get_current_admin) # 만약 관리자 인증이 필요하다면 주석 해제
+):
+    # 1. 레포지토리와 서비스 조립
+    repo = PolicyRepository(db)
+    sync_service = BizinfoSyncService(session=db, repo=repo)
+
+    # 2. 기업마당에서 100개 끌어오기 실행!
+    result = await sync_service.sync_policies(display_count=100)
+
+    # 3. 결과 반환
+    if result["status"] == "error":
+        return api_json(http_status=500, message=result["message"])
+
+    return api_json(
+        http_status=200, message="성공적으로 동기화되었습니다.", data=result
+    )

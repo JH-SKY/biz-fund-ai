@@ -17,7 +17,6 @@ from typing import Optional
 
 from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.app.domains.auth.model import User
 from src.app.domains.business.exception import (
     business_already_registered,
@@ -49,7 +48,6 @@ from src.app.domains.business.schema import (
     ValidateStatsResponseData,
     VerifyBizNumberResponseData,
 )
-
 
 # ── 내부 유틸 ──────────────────────────────────────────────────────────────
 
@@ -110,7 +108,9 @@ def _to_info_response(biz: Business) -> BusinessInfoResponseData:
     )
 
 
-def _to_finance_response(snap: BusinessFinancialSnapshot) -> FinanceSnapshotResponseData:
+def _to_finance_response(
+    snap: BusinessFinancialSnapshot,
+) -> FinanceSnapshotResponseData:
     return FinanceSnapshotResponseData(
         finance_id=str(snap.id),
         snapshot_year=snap.snapshot_year,
@@ -153,17 +153,13 @@ class BusinessService:
 
     # ── 온보딩 ────────────────────────────────────────────────────────────
 
-    async def verify_biz_number(
-        self, biz_no: str
-    ) -> VerifyBizNumberResponseData:
-        """국세청 진위 확인 API 위임 (현재 Mock 응답)."""
+    async def verify_biz_number(self, biz_no: str) -> VerifyBizNumberResponseData:
+        """국세청 진위 확인 API 호출 (상태 조회)"""
         result = await self._biz_verification.verify(biz_no)
         return VerifyBizNumberResponseData(
             is_valid=result.is_valid,
-            company_name=result.company_name,
             biz_status=result.biz_status,
-            open_date=result.open_date,
-            nts_status_row=result.nts_status_row,
+            tax_type=result.tax_type,
         )
 
     async def register_business(
@@ -276,7 +272,7 @@ class BusinessService:
         existing = await self._repo.get_financial_snapshot_by_year(
             biz.id, body.snapshot_year
         )
-        
+
         debt_ratio = _compute_debt_ratio(body.total_debt, body.annual_revenue)
 
         if existing is not None:
@@ -289,7 +285,9 @@ class BusinessService:
                     total_debt=body.total_debt,
                     capital=body.capital,
                     debt_ratio=debt_ratio,
-                    employee_count=body.employee_count if body.employee_count is not None else existing.employee_count,
+                    employee_count=body.employee_count
+                    if body.employee_count is not None
+                    else existing.employee_count,
                     tax_arrears_yn=body.tax_arrears_yn,
                 )
                 await self._session.commit()
@@ -329,9 +327,7 @@ class BusinessService:
             if body.annual_revenue is not None
             else snap.annual_revenue
         )
-        new_debt = (
-            body.total_debt if body.total_debt is not None else snap.total_debt
-        )
+        new_debt = body.total_debt if body.total_debt is not None else snap.total_debt
         debt_ratio = _compute_debt_ratio(new_debt, new_revenue)
 
         await self._repo.update_financial_snapshot(
@@ -364,9 +360,7 @@ class BusinessService:
             for s in snaps
         ]
 
-    async def delete_financial_snapshot(
-        self, biz: Business, year: int
-    ) -> None:
+    async def delete_financial_snapshot(self, biz: Business, year: int) -> None:
         snap = await self._repo.get_financial_snapshot_by_year(biz.id, year)
         if snap is None:
             raise finance_not_found(year)
@@ -426,9 +420,7 @@ class BusinessService:
             created_at=doc.created_at,
         )
 
-    async def get_my_documents(
-        self, biz: Business
-    ) -> list[DocumentListItemData]:
+    async def get_my_documents(self, biz: Business) -> list[DocumentListItemData]:
         docs = await self._repo.get_documents_by_business_id(biz.id)
         return [
             DocumentListItemData(
@@ -473,18 +465,19 @@ class BusinessService:
         await self._repo.soft_delete_document(doc)
         await self._session.commit()
 
-
     # ── 타 도메인 지원용 (Internal) ───────────────────────────────────────────
 
     async def get_latest_financial_snapshot_internal(
         self, business_id: uuid.UUID
     ) -> BusinessFinancialSnapshot | None:
         """
-        [Internal] 정밀진단(Diagnosis) 도메인에서 '진단 준비(Pre-check)' 단계 수행 시 
+        [Internal] 정밀진단(Diagnosis) 도메인에서 '진단 준비(Pre-check)' 단계 수행 시
         사업장의 가장 최근 재무 데이터를 가져오기 위해 호출하는 브릿지 인터페이스입니다.
         """
         return await self._repo.get_latest_financial_snapshot_internal(business_id)
-    
-    async def deactivate_all_businesses_by_user_internal(self, user_id: uuid.UUID) -> None:
+
+    async def deactivate_all_businesses_by_user_internal(
+        self, user_id: uuid.UUID
+    ) -> None:
         """[Internal] Auth 도메인에서 회원 탈퇴 시 호출"""
         await self._repo.deactivate_all_businesses_by_user_internal(user_id)

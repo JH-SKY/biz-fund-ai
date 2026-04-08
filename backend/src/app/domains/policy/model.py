@@ -37,7 +37,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-
 from src.app.database.postgres.base import Base
 
 
@@ -91,6 +90,12 @@ class Policy(Base):
     )
     region: Mapped[Optional[str]] = mapped_column(
         String(100), nullable=True, index=True, comment="지원 대상 지역 (전국/서울 등)"
+    )
+    origin_id: Mapped[Optional[str]] = mapped_column(
+        String(100),
+        nullable=True,
+        unique=True,
+        comment="외부 원천 API의 고유 공고 식별자 (예: 기업마당 pblancId)",
     )
 
     # 2. AI 데이터 계층 (추적성 및 가공 데이터)
@@ -197,9 +202,6 @@ class Policy(Base):
     )
     bookmarks: Mapped[list["PolicyBookmark"]] = relationship(
         "PolicyBookmark", back_populates="policy", cascade="all, delete-orphan"
-    )
-    __table_args__ = (
-        UniqueConstraint("title", "agency_name", name="uq_policy_title_agency"),
     )
 
 

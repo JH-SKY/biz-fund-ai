@@ -263,29 +263,25 @@ class PolicyService:
         [도메인 규칙] 정책 저장 전 중복 여부를 확인하고, 없으면 저장합니다.
         """
         # 1. 준비물: 중복 확인에 필요한 데이터 꺼내기
-        title = kwargs.get("title")
-        agency_name = kwargs.get("agency_name", "미정")
+        origin_id = kwargs.get("origin_id")
 
-        # 2. 버튼 찾기: 창고 관리자(Repo)에게 똑같은 게 있는지 물어보기
-        existing = await self._repo.get_policy_by_title_and_agency(
-            title=title, agency_name=agency_name
-        )
+        # 1. origin_id가 넘어온 경우에만 중복 체크 (관리자가 완전 수동 등록 시엔 없을 수 있음)
+        if origin_id:
+            existing = await self._repo.get_policy_by_origin_id(origin_id)
+            if existing:
+                from src.app.domains.policy.exception import policy_already_exists
+                raise policy_already_exists()
 
-        # 3. 일 시키기: 이미 있다면 409 에러 던지기 (입구 컷!)
-        if existing:
-            # 아까 만든 커스텀 예외를 여기서 사용합니다.
-            from src.app.domains.policy.exception import policy_already_exists
-
-            raise policy_already_exists()
-
-        # 4. 중복이 아닐 때만 아래 기존 로직(생성) 실행
+         # 2. 중복이 아니면 DB에 저장
         new_policy = await self._repo.create_policy(
-            title=title,
+            origin_id=origin_id,  # [추가] 고유 식별자 저장
+            title=kwargs.get("title", "제목 없음"),
             content_raw=kwargs.get("content_raw", ""),
             category=kwargs.get("category"),
-            agency_name=agency_name,
+            agency_name=kwargs.get("agency_name", "미정"),
             apply_url=kwargs.get("apply_url"),
-            # ... 나머지 필드들
+            status=kwargs.get("status"), # 상태
+            closed_at=kwargs.get("closed_at") # 마감일
         )
 
         await self._session.commit()
@@ -307,18 +303,3 @@ class PolicyService:
         await self._repo.patch_policy_internal(policy, **kwargs)
 
     # ── 3. 중복 검증용 조회 ──────────────────────────────────────────────────
-
-    async def get_policy_by_title_and_agency(
-        self, *, title: str, agency_name: str
-    ) -> Optional[Policy]:
-        """
-        [설계 의도] 제목과 기관명이 완전히 일치하는 정책이 있는지 확인합니다.
-        비유: 도서관에 이미 똑같은 책(제목+출판사)이 있는지 검색해보는 과정입니다.
-        """
-        stmt = select(Policy).where(
-            Policy.title == title,
-            Policy.agency_name == agency_name,
-            Policy.is_active == True,  # 활성화된 정책 중에서만 찾음
-        )
-        result = await self._session.execute(stmt)
-        return result.scalar_one_or_none()

@@ -31,7 +31,8 @@ from src.app.domains.admin.schema import (
     PolicyCreateResponseData,
     PolicyPatchRequest,
 )
-from src.app.domains.auth.model import Admin, User
+from src.app.domains.admin.model import Admin
+from src.app.domains.auth.model import User
 from src.app.domains.auth.service import AuthService
 from src.app.domains.biz_pick.service import BizPickService
 from src.app.domains.chat.service import ChatService

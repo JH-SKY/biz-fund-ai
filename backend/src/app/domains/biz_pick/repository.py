@@ -6,7 +6,7 @@ from typing import List, Optional, Tuple
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.app.domains.policy.model import BizPick
+from src.app.domains.biz_pick.model import BizPick
 
 
 class BizPickRepository:

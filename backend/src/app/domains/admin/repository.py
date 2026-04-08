@@ -11,7 +11,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # [수정됨] User, Policy 등 타 도메인 모델 임포트 완전 삭제
-from src.app.domains.auth.model import Admin, AdminAuditLog
+from src.app.domains.admin.model import Admin, AdminAuditLog
 
 
 class AdminRepository:

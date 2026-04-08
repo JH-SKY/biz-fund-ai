@@ -15,11 +15,12 @@ RAG/LangGraph 연동 준비:
 
 from __future__ import annotations
 
+import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any
 
-
+import httpx
+from src.app.core.config import NTS_API_KEY
 # ── 데이터 클래스 (내부 통신 DTO) ──────────────────────────────────────────
 
 
@@ -33,29 +34,8 @@ class BizVerificationResult:
     """
 
     is_valid: bool
-    company_name: str | None = None
     biz_status: str | None = None
-    open_date: str | None = None
-    nts_status_row: dict[str, Any] | None = None
-
-
-# 국세청 사업자등록정보 상태조회 API — 응답 `data[]` 항목 필드명 샘플
-# (공공데이터포털 OpenAPI 명세·연동 가이드와 동일한 스키마를 목표로 함)
-_NTS_STATUS_ROW_KEYS = (
-    "b_no",
-    "b_stt",
-    "b_stt_cd",
-    "tax_type",
-    "tax_type_cd",
-    "end_dt",
-    "utcc_yn",
-    "tax_type_change_dt",
-    "invoice_apply_dt",
-    "rprs_nm",
-    "hq_yn",
-    "b_nm",
-    "corp_no",
-)
+    tax_type: str | None = None
 
 
 @dataclass
@@ -95,8 +75,7 @@ class IStatsValidationService(ABC):
         stat_type: str,
         value: int,
         sector_code: str | None = None,
-    ) -> StatsValidationResult:
-        ...
+    ) -> StatsValidationResult: ...
 
 
 class IFileStorageService(ABC):
@@ -121,45 +100,60 @@ class IFileStorageService(ABC):
         ...
 
 
-# ── Mock 구현체 ─────────────────────────────────────────────────────────────
-
-
-class MockBizVerificationService(IBizVerificationService):
-    """국세청 API Mock.
-
-    [도메인 규칙 2.1 Fallback]: 외부 API 미연동 단계에서 고정 응답 반환.
-    실제 API 연동 시: RealBizVerificationService 구현 후 business_deps.py만 교체.
-
-    nts_status_row 는 상태조회 API의 data[] 한 행과 필드명을 맞춘다
-    (b_stt=계속사업자, rprs_nm, b_nm 등). 진위확인 전용 코드값은 연동 시 별도 매핑.
-    """
+class RealBizVerificationService(IBizVerificationService):
+    """국세청 공공데이터포털 사업자등록정보 상태조회 실연동"""
 
     async def verify(self, biz_no: str) -> BizVerificationResult:
-        row: dict[str, Any] = {
-            "b_no": biz_no,
-            "b_stt": "계속사업자",
-            "b_stt_cd": "01",
-            "tax_type": "부가가치세 일반과세자",
-            "tax_type_cd": "01",
-            "end_dt": "",
-            "utcc_yn": "N",
-            "tax_type_change_dt": "",
-            "invoice_apply_dt": "",
-            "rprs_nm": "이종혁",
-            "hq_yn": "N",
-            "b_nm": "라이언테크",
-            "corp_no": "",
-        }
-        # 키 누락 방지(실연동 파서도 동일 스키마로 normalize 권장)
-        for k in _NTS_STATUS_ROW_KEYS:
-            row.setdefault(k, "")
-        return BizVerificationResult(
-            is_valid=True,
-            company_name=row.get("b_nm"),
-            biz_status=row.get("b_stt"),
-            open_date="20240101",
-            nts_status_row=row,
-        )
+
+        if not NTS_API_KEY:
+            return BizVerificationResult(is_valid=False, biz_status="서버 설정 오류")
+
+        url = "https://api.odcloud.kr/api/nts-businessman/v1/status"
+
+        # 공공데이터포털은 Decoding 된 키 또는 Encoding 된 키 처리가 까다롭습니다.
+        # 파라미터로 넘길 때 httpx가 자동 인코딩하므로 디코딩된 키를 사용하는 것이 좋습니다.
+        params = {"serviceKey": NTS_API_KEY}
+        headers = {"Accept": "application/json", "Content-Type": "application/json"}
+        payload = {"b_no": [biz_no]}
+
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.post(
+                    url, params=params, json=payload, headers=headers, timeout=5.0
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                # data 배열이 비어있으면 조회가 안된 것
+                if not data.get("data"):
+                    return BizVerificationResult(
+                        is_valid=False, biz_status="조회 결과 없음"
+                    )
+
+                item = data["data"][0]
+                b_stt = item.get("b_stt", "")
+                tax_type = item.get("tax_type", "")
+
+                # 국세청 미등록 번호 처리
+                if b_stt == "국세청에 등록되지 않은 사업자등록번호입니다.":
+                    return BizVerificationResult(is_valid=False, biz_status=b_stt)
+
+                # 기획 정책: '계속사업자'만 valid 처리할 것인지, 휴업/폐업도 통과시킬 것인지 결정
+                # 정책자금 매칭이므로 '계속사업자'만 가입/온보딩 가능하게 설계하는 것을 추천합니다.
+                is_valid = b_stt == "계속사업자"
+
+                return BizVerificationResult(
+                    is_valid=is_valid, biz_status=b_stt, tax_type=tax_type
+                )
+            except Exception as e:
+                # API 호출 실패 시 (타임아웃 등) Fallback (is_manual=True로 우회할 수 있게)
+                print(f"국세청 API 호출 에러: {e}")
+                return BizVerificationResult(
+                    is_valid=False, biz_status="국세청 서버 통신 지연"
+                )
+
+
+# ── Mock 구현체 ─────────────────────────────────────────────────────────────
 
 
 class MockStatsValidationService(IStatsValidationService):
@@ -172,7 +166,7 @@ class MockStatsValidationService(IStatsValidationService):
 
     _THRESHOLDS: dict[str, int] = {
         "REVENUE": 100_000_000_000,  # 1,000억 원 초과 시 경고
-        "EMPLOYEE_COUNT": 5_000,      # 5,000명 초과 시 경고
+        "EMPLOYEE_COUNT": 5_000,  # 5,000명 초과 시 경고
     }
 
     async def validate(

@@ -21,9 +21,9 @@ from src.app.domains.business.interfaces import (
     IBizVerificationService,
     IFileStorageService,
     IStatsValidationService,
-    MockBizVerificationService,
     MockFileStorageService,
     MockStatsValidationService,
+    RealBizVerificationService,
 )
 from src.app.domains.business.model import Business
 from src.app.domains.business.repository import BusinessRepository
@@ -34,7 +34,7 @@ from src.app.domains.business.service import BusinessService
 
 def get_biz_verification_service() -> IBizVerificationService:
     """국세청 사업자번호 진위 확인 서비스 (Mock/Real 교체 지점)"""
-    return MockBizVerificationService()
+    return RealBizVerificationService()
 
 
 def get_stats_validation_service() -> IStatsValidationService:
