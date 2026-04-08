@@ -143,6 +143,8 @@
 | **일반** | target_logic        | 매칭 필터 규칙     | JSONB, Y        | AI 가공   | 사업장 매칭을 위한 AI 판단 기준점             |
 | **일반** | bonus_logic         | 가산점 계산 규칙   | JSONB, Y        | AI 가공   | 우대 사항 점수화 로직                         |
 | **일반** | view_count          | 상세 조회 수       | INTEGER, N      | 시스템    | 기본값: 0, 인기 정책 산출용                   |
+| **일반** | origin_id           | 원천 사이트공고 번호| STR, Y           | 시스템    | 원천 공고 고유 번호 (Unique)                   |
+| **일반** | min_support         | 최소 지원 금액    | INTEGER, Y      | 시스템    | 최소 지원 금액                              |
 | **일반** | is_active           | 활성 여부          | BOOLEAN, N      | 시스템    | 기본값: True (Soft Delete 적용)               |
 | **일반** | created_at          | 데이터 생성 시점   | TIMESTAMP, N    | 시스템    | Server Default: CURRENT_TIMESTAMP             |
 
