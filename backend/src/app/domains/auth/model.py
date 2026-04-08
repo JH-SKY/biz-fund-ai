@@ -1,5 +1,4 @@
-# src/app/domains/auth/model.py
-"""인증 도메인 SQLAlchemy 모델 — users, user_tokens, admins, admin_audit_logs."""
+"""인증 도메인 SQLAlchemy 모델 — users, user_tokens."""
 
 from __future__ import annotations
 
@@ -8,6 +7,8 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional
 
+# [비유] TYPE_CHECKING은 '나중에 할 일 메모'와 같습니다. 
+# 순환 참조(서로를 무한히 불러오는 현상)를 방지하기 위해 설계되었습니다.
 if TYPE_CHECKING:
     from src.app.domains.business.model import Business
     from src.app.domains.chat.model import ChatLog, ChatRoom
@@ -30,25 +31,26 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.app.database.postgres.base import Base
 
-# ── 사용자 ──────────────────────────────────────────────────────────────────
-
+# ── 1. 사용자 관련 정의 ─────────────────────────────────────────────────────────
 
 class SocialProvider(str, Enum):
+    """소셜 로그인 제공자."""
     KAKAO = "KAKAO"
     NAVER = "NAVER"
 
 
 class User(Base):
     """
-    users 테이블 — 소셜 로그인·프로필·관심분야.
-    [도메인 설계 원칙]
-    1. 탈퇴 시 실제 데이터를 삭제하지 않는 'Soft Delete' 방식을 사용합니다.
-    2. 유저가 탈퇴(is_active=False)해도 연결된 'Business', 'ChatRoom' 데이터는 유지합니다.
-    3. (주의) 타 도메인에서 데이터를 조회할 때, 반드시 유저의 is_active 상태를 확인해야 합니다.
+    users 테이블 — 소셜 로그인 프로필 및 사용자 상태 관리.
+    
+    [설계 의도]
+    1. Soft Delete: 'deleted_at'에 날짜가 찍히면 '폐기 예정 스티커'가 붙은 것으로 간주합니다.
+    2. 관계 유지: 유저가 떠나도 그 유저가 남긴 비즈니스 정보나 채팅 로그는 데이터 분석을 위해 보존합니다.
     """
 
     __tablename__ = "users"
 
+    # 식별자 및 기본 정보
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
@@ -62,24 +64,29 @@ class User(Base):
     phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     nickname: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
+    
+    # 소셜 로그인 정보
     social_id: Mapped[str] = mapped_column(String(255), nullable=False)
     social_provider: Mapped[SocialProvider] = mapped_column(
         sqlalchemy_Enum(SocialProvider), nullable=False
     )
     profile_image_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    # 계정 상태 제어
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    # [도메인 규칙 1.2] ① 탈퇴 시각 — 비유: '폐기 예정일이 찍힌 보관 스티커'(5년 후 물리 삭제를 위한 타임스탬프 기록).
     deleted_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP,
         nullable=True,
         default=None,
-        comment="탈퇴 시각(UTC). 5년 후 물리 삭제를 위한 타임스탬프 기록",
+        comment="탈퇴 시각(UTC). 5년 후 물리 삭제를 위한 기록",
     )
     marketing_agreed_at: Mapped[Optional[datetime]] = mapped_column(
         TIMESTAMP, nullable=True
     )
+
+    # 관심 분야 및 역량 정보 (JSONB 활용)
     interest_sectors: Mapped[Optional[Any]] = mapped_column(
-        JSONB, nullable=True, comment="관심 업종/분야 리스트 (JSONB array)"
+        JSONB, nullable=True, comment="관심 업종 리스트"
     )
     military_service: Mapped[Optional[str]] = mapped_column(
         String(30),
@@ -90,39 +97,33 @@ class User(Base):
         Boolean, nullable=True, comment="비전공 창업자 여부"
     )
     tech_stack: Mapped[Optional[Any]] = mapped_column(
-        JSONB, nullable=True, comment="기술 스택 리스트 (JSONB array)"
+        JSONB, nullable=True, comment="기술 스택 리스트"
     )
+    
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, server_default=text("CURRENT_TIMESTAMP"), nullable=False
     )
-    # 1. 사용자의 알림 수신 동의 상태를 관리하는 설정값들입니다.
-    # 2. 서비스 운영 및 마케팅 활용(광고성 정보 전송)을 위해 세분화하여 저장합니다.
 
-    # [설계 의도] 전체 알림 마스터 스위치: 이 값이 False면 다른 모든 알림이 차단되는 구조로 설계합니다.
+    # ── 알림 설정 (Notification Settings) ────────────────────────────────────────
+    # [설계 의도] 마스터 스위치: push_enabled가 꺼지면 모든 알림이 차단됩니다.
     push_enabled: Mapped[bool] = mapped_column(
         Boolean,
         default=True,
         server_default=text("true"),
-        comment="전체 푸시 알림 활성화 여부 (Master Switch)",
+        comment="전체 푸시 알림 마스터 스위치",
     )
-
-    # [설계 의도] 법적 준수: 광고성 정보는 기본값을 'false'로 설정하여 사용자 동의를 유도합니다.
     marketing_enabled: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
         server_default=text("false"),
-        comment="마케팅/광고성 정보 수신 동의 여부",
+        comment="마케팅 정보 수신 동의 여부",
     )
-
-    # [설계 의도] 서비스 안정성: 약관 변경 등 중요 공지는 서비스 이용에 필수적이므로 기본값을 'true'로 합니다.
     policy_update_enabled: Mapped[bool] = mapped_column(
         Boolean,
         default=True,
         server_default=text("true"),
-        comment="서비스 이용약관 및 정책 변경 알림 수신 여부",
+        comment="약관 및 정책 변경 알림 수신 여부",
     )
-
-    # [설계 의도] 핵심 기능(UX): AI 서비스의 핵심인 '답변 알림'은 사용자 재방문을 유도하므로 기본값을 'true'로 합니다.
     chat_answer_enabled: Mapped[bool] = mapped_column(
         Boolean,
         default=True,
@@ -130,6 +131,7 @@ class User(Base):
         comment="AI 채팅 답변 완료 알림 수신 여부",
     )
 
+    # ── 타 도메인과의 관계 (Relationships) ─────────────────────────────────────────
     tokens: Mapped[list["UserToken"]] = relationship("UserToken", back_populates="user")
     businesses: Mapped[list["Business"]] = relationship(
         "Business", back_populates="user"
@@ -146,8 +148,10 @@ class User(Base):
     )
 
 
+# ── 2. 인증 토큰 관련 정의 ───────────────────────────────────────────────────────
+
 class UserToken(Base):
-    """user_tokens 테이블 — Refresh Token 저장·무효화."""
+    """user_tokens 테이블 — Refresh Token 저장소."""
 
     __tablename__ = "user_tokens"
 
@@ -161,118 +165,28 @@ class UserToken(Base):
         UUID(as_uuid=True),
         ForeignKey("users.id"),
         nullable=False,
-        comment="소유 사용자 ID (users.id)",
+        comment="소유 사용자 ID",
     )
     token: Mapped[str] = mapped_column(
         Text,
         nullable=False,
         unique=True,
-        comment="opaque Refresh Token 원본값 저장",
+        comment="Refresh Token 값",
     )
     expires_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP, nullable=False, comment="토큰 만료 일시"
+        TIMESTAMP, nullable=False, comment="만료 일시"
     )
     is_revoked: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
         nullable=False,
         server_default=text("false"),
-        comment="로그아웃·탈퇴로 무효화 여부",
+        comment="로그아웃 등으로 인한 무효화 여부",
     )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP,
         server_default=text("CURRENT_TIMESTAMP"),
         nullable=False,
-        comment="발급 일시",
     )
 
     user: Mapped["User"] = relationship("User", back_populates="tokens")
-
-
-# ── 관리자 ──────────────────────────────────────────────────────────────────
-
-
-class AdminRole(str, Enum):
-    """관리자 권한 등급."""
-
-    MASTER = "MASTER"
-    OPERATOR = "OPERATOR"
-    CS = "CS"
-
-
-class Admin(Base):
-    """admins 테이블 — 관리자 계정·권한 등급."""
-
-    __tablename__ = "admins"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-        comment="관리자 고유 식별자",
-    )
-    login_id: Mapped[str] = mapped_column(
-        String(50), nullable=False, unique=True, comment="관리자 로그인 ID"
-    )
-    password: Mapped[str] = mapped_column(Text, nullable=False, comment="비밀번호 해시")
-    role: Mapped[AdminRole] = mapped_column(
-        sqlalchemy_Enum(AdminRole, name="adminrole"),
-        nullable=False,
-        comment="권한 등급 (MASTER·OPERATOR·CS)",
-    )
-    is_active: Mapped[bool] = mapped_column(
-        Boolean,
-        default=True,
-        nullable=False,
-        server_default=text("true"),
-        comment="계정 활성 여부",
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP,
-        server_default=text("CURRENT_TIMESTAMP"),
-        nullable=False,
-        comment="계정 생성 일시",
-    )
-
-    audit_logs: Mapped[list["AdminAuditLog"]] = relationship(
-        "AdminAuditLog", back_populates="admin"
-    )
-
-
-class AdminAuditLog(Base):
-    """admin_audit_logs 테이블 — 관리자 작업 이력 감사 로그."""
-
-    __tablename__ = "admin_audit_logs"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-        comment="감사 로그 고유 식별자",
-    )
-    admin_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("admins.id"),
-        nullable=False,
-        comment="작업 수행 관리자 ID (admins.id)",
-    )
-    action_type: Mapped[str] = mapped_column(
-        String(50), nullable=False, comment="작업 유형 (POLICY_UPDATE 등)"
-    )
-    target_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), nullable=True, comment="대상 엔티티 PK"
-    )
-    changes: Mapped[Optional[Any]] = mapped_column(
-        JSONB, nullable=True, comment="변경 전·후 스냅샷 (JSON)"
-    )
-    ip_address: Mapped[Optional[str]] = mapped_column(
-        String(45), nullable=True, comment="요청 IP (IPv4/IPv6)"
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP,
-        server_default=text("CURRENT_TIMESTAMP"),
-        nullable=False,
-        comment="작업 발생 일시",
-    )
-
-    admin: Mapped["Admin"] = relationship("Admin", back_populates="audit_logs")

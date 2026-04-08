@@ -1,4 +1,3 @@
-# src/app/domains/diagnosis/model.py
 """진단 도메인 SQLAlchemy 모델 — match_logs, simulation_logs."""
 
 from __future__ import annotations
@@ -7,15 +6,19 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Optional
 
+# [비유] '상호 참조'는 택배 기사님이 서로 자기 집으로 오라고 손짓하는 상황과 같습니다.
+# TYPE_CHECKING을 사용해 "일단 이름만 알고 있을게!"라고 메모해두는 것입니다.
 if TYPE_CHECKING:
     from src.app.domains.business.model import Business
     from src.app.domains.policy.model import Policy
 
-from sqlalchemy import ForeignKey, Integer, String, TIMESTAMP, text
+from sqlalchemy import TIMESTAMP, ForeignKey, Integer, String, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.app.database.postgres.base import Base
+
+# ── 1. 매칭 진단 결과 ─────────────────────────────────────────────────────────
 
 
 class MatchLog(Base):
@@ -47,6 +50,7 @@ class MatchLog(Base):
     match_status: Mapped[str] = mapped_column(
         String(10), nullable=False, comment="신호등 상태 (G/Y/R 등)"
     )
+    # [설계 의도] "왜 이 점수가 나왔는지"를 나중에 설명하기 위해 데이터를 통째로 담아두는 그릇입니다.
     reason_json: Mapped[Optional[Any]] = mapped_column(
         JSONB, nullable=True, comment="점수 산정 근거 (JSON)"
     )
@@ -59,6 +63,9 @@ class MatchLog(Base):
 
     business: Mapped["Business"] = relationship("Business", back_populates="match_logs")
     policy: Mapped["Policy"] = relationship("Policy", back_populates="match_logs")
+
+
+# ── 2. 가산점 및 시나리오 시뮬레이션 ───────────────────────────────────────────
 
 
 class SimulationLog(Base):
@@ -79,8 +86,11 @@ class SimulationLog(Base):
         comment="기준 사업장 ID (businesses.id)",
     )
     sim_type: Mapped[str] = mapped_column(
-        String(50), nullable=False, comment="시뮬레이션 종류"
+        String(50),
+        nullable=False,
+        comment="시뮬레이션 종류 (예: ADD_POINT, ROI_PREDICT)",
     )
+    # [설계 의도] 시뮬레이션은 변수가 많으므로 유연한 JSONB 타입을 사용하여 '입력값'과 '결과값'을 모두 저장합니다.
     input_data: Mapped[Any] = mapped_column(
         JSONB, nullable=False, comment="사용자 입력 조건 (JSON)"
     )

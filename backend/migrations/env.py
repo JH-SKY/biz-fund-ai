@@ -1,13 +1,14 @@
 import asyncio
-from logging.config import fileConfig
-from sqlalchemy import pool
-from sqlalchemy.ext.asyncio import async_engine_from_config
-from alembic import context
 
 # 1. 환경 변수 로드 (준비물):
 # - 프로젝트 루트의 .env 파일을 읽어 실무 보안을 강화합니다.
 import os
+from logging.config import fileConfig
+
+from alembic import context
 from dotenv import load_dotenv
+from sqlalchemy import pool
+from sqlalchemy.ext.asyncio import async_engine_from_config
 
 load_dotenv()
 
@@ -16,11 +17,10 @@ load_dotenv()
 # - 각 도메인 model.py를 명시적으로 import해야 Alembic autogenerate가 테이블을 인식한다.
 from src.app.database.postgres.base import Base
 from src.app.domains.auth.model import (  # noqa: F401
-    Admin,
-    AdminAuditLog,
     User,
     UserToken,
 )
+from src.app.domains.biz_pick.model import BizPick  # noqa: F401
 from src.app.domains.business.model import (  # noqa: F401
     Application,
     Business,
@@ -30,8 +30,10 @@ from src.app.domains.business.model import (  # noqa: F401
 from src.app.domains.chat.model import ChatLog, ChatRoom  # noqa: F401
 from src.app.domains.diagnosis.model import MatchLog, SimulationLog  # noqa: F401
 from src.app.domains.notification.model import Notification  # noqa: F401
-from src.app.domains.policy.model import BizPick, Policy  # noqa: F401
-from src.app.domains.system.model import BatchLog, LeadRequest  # noqa: F401
+from src.app.domains.policy.model import Policy, PolicyBookmark  # noqa: F401
+from src.app.domains.system.model import BatchLog, LeadRequest # noqa: F401
+from src.app.domains.admin.model import Admin, AdminAuditLog # noqa: F401
+from src.app.domains.biz_pick.model import BizPick
 
 config = context.config
 target_metadata = Base.metadata

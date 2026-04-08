@@ -1,9 +1,9 @@
 # src/app/domains/policy/model.py
 """정책 도메인 SQLAlchemy 모델 — policies, policy_bookmarks, biz_picks.
 
-이 파일은 시스템의 '그릇' 역할을 합니다. 
-1. 정책 데이터(Policy)를 담고, 
-2. 사용자의 관심(Bookmark)을 연결하며, 
+이 파일은 시스템의 '그릇' 역할을 합니다.
+1. 정책 데이터(Policy)를 담고,
+2. 사용자의 관심(Bookmark)을 연결하며,
 3. 서비스 콘텐츠(BizPick)를 저장합니다.
 """
 
@@ -20,18 +20,20 @@ if TYPE_CHECKING:
     from src.app.domains.diagnosis.model import MatchLog
 
 from sqlalchemy import (
+    TIMESTAMP,
     BigInteger,
     Boolean,
     Date,
-    Enum as sqlalchemy_Enum,
     ForeignKey,
     Index,
     Integer,
     String,
     Text,
-    TIMESTAMP,
     UniqueConstraint,
     text,
+)
+from sqlalchemy import (
+    Enum as sqlalchemy_Enum,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -42,10 +44,10 @@ from src.app.database.postgres.base import Base
 class PolicyStatus(str, Enum):
     """공고 진행 상태를 정의하는 '상태 표지판'입니다."""
 
-    PREPARING = "PREPARING"      # 준비 중
-    RECRUITING = "RECRUITING"    # 접수 중 (가장 활발히 노출됨)
-    CLOSED = "CLOSED"            # 마감됨
-    END_OF_BUDGET = "END_OF_BUDGET" # 예산 소진 (조기 마감)
+    PREPARING = "PREPARING"  # 준비 중
+    RECRUITING = "RECRUITING"  # 접수 중 (가장 활발히 노출됨)
+    CLOSED = "CLOSED"  # 마감됨
+    END_OF_BUDGET = "END_OF_BUDGET"  # 예산 소진 (조기 마감)
 
 
 class Policy(Base):
@@ -67,13 +69,22 @@ class Policy(Base):
         comment="정책(공고) 고유 식별자",
     )
     title: Mapped[str] = mapped_column(
-        String(255), nullable=False, index=True, comment="공고 제목 (검색 최적화 인덱스 적용)"
+        String(255),
+        nullable=False,
+        index=True,
+        comment="공고 제목 (검색 최적화 인덱스 적용)",
     )
     agency_name: Mapped[str] = mapped_column(
-        String(100), nullable=False, index=True, comment="공고 기관명 (주관 부처 검색용)"
+        String(100),
+        nullable=False,
+        index=True,
+        comment="공고 기관명 (주관 부처 검색용)",
     )
     category: Mapped[Optional[str]] = mapped_column(
-        String(50), nullable=True, index=True, comment="정책 카테고리 (금융/바우처, R&D 등)"
+        String(50),
+        nullable=True,
+        index=True,
+        comment="정책 카테고리 (금융/바우처, R&D 등)",
     )
     support_type: Mapped[Optional[str]] = mapped_column(
         String(50), nullable=True, comment="지원 유형 (융자·출연금·보조금 등)"
@@ -90,20 +101,28 @@ class Policy(Base):
         Text, nullable=True, comment="상세용 쉬운 풀이 (비전공자 사용자를 위한 AI 해설)"
     )
     ai_metadata: Mapped[Optional[dict]] = mapped_column(
-        JSONB, 
-        nullable=True, 
-        comment="AI 추천 엔진용 메타데이터 (가중치, 벡터 DB 참조 ID 등 임시 저장소)"
+        JSONB,
+        nullable=True,
+        comment="AI 추천 엔진용 메타데이터 (가중치, 벡터 DB 참조 ID 등 임시 저장소)",
     )
     content_raw: Mapped[str] = mapped_column(
-        Text, nullable=False, comment="공고 원문 전체 (RAG 엔진이 학습하고 분석할 실제 원천 데이터)"
+        Text,
+        nullable=False,
+        comment="공고 원문 전체 (RAG 엔진이 학습하고 분석할 실제 원천 데이터)",
     )
 
     # 3. 지원 조건 및 금액
     max_support: Mapped[Optional[int]] = mapped_column(
         BigInteger, nullable=True, comment="최대 지원 금액 (원 단위, 통계 및 정렬용)"
     )
+    # [추가] 지원 금액 범위 (정교한 필터링용)
+    min_support: Mapped[Optional[int]] = mapped_column(
+        BigInteger, nullable=True, comment="최소 지원 금액 (원)"
+    )
     support_amount_desc: Mapped[Optional[str]] = mapped_column(
-        String(100), nullable=True, comment="지원 금액 표시 문자열 (사용자에게 직접 보여줄 텍스트)"
+        String(100),
+        nullable=True,
+        comment="지원 금액 표시 문자열 (사용자에게 직접 보여줄 텍스트)",
     )
     required_documents: Mapped[Optional[Any]] = mapped_column(
         JSONB,
@@ -136,6 +155,7 @@ class Policy(Base):
     apply_url: Mapped[Optional[str]] = mapped_column(
         Text, nullable=True, comment="원문 신청 페이지 URL (외부 링크)"
     )
+
     target_logic: Mapped[Optional[Any]] = mapped_column(
         JSONB, nullable=True, comment="사업장 매칭 필터 규칙 (AI가 판단할 기준점)"
     )
@@ -197,7 +217,9 @@ class PolicyBookmark(Base):
             "policy_id",
             name="uq_policy_bookmark_biz_policy",
         ),
-        Index("ix_policy_bookmark_business_id", "business_id"), # 특정 사업장의 찜 목록 조회 최적화
+        Index(
+            "ix_policy_bookmark_business_id", "business_id"
+        ),  # 특정 사업장의 찜 목록 조회 최적화
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -229,58 +251,3 @@ class PolicyBookmark(Base):
         "Business", back_populates="policy_bookmarks"
     )
     policy: Mapped["Policy"] = relationship("Policy", back_populates="bookmarks")
-
-
-class BizPick(Base):
-    """biz_picks 테이블 — 사용자에게 도움을 주는 '꿀팁' 콘텐츠 보관소입니다.
-    
-    이 코드는 현재 정책 도메인에 머물러 있으나, 추후 관리자 도메인으로 이사가 예정되어 있습니다.
-    """
-
-    __tablename__ = "biz_picks"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-        comment="콘텐츠 고유 ID",
-    )
-    title: Mapped[str] = mapped_column(
-        String(255), nullable=False, comment="콘텐츠 제목"
-    )
-    category: Mapped[str] = mapped_column(
-        String(50), nullable=False, index=True, comment="카테고리 (세무·정책자금 등 분류)"
-    )
-    content_html: Mapped[str] = mapped_column(
-        Text, nullable=False, comment="HTML 본문 (관리자 도구에서 작성된 원본)"
-    )
-    thumbnail_url: Mapped[Optional[str]] = mapped_column(
-        Text, nullable=True, comment="썸네일 이미지 주소"
-    )
-    is_published: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-        default=True,
-        server_default=text("true"),
-        comment="공개 여부 (준비 중인 글은 숨김)",
-    )
-    view_count: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-        default=0,
-        server_default=text("0"),
-        comment="조회수",
-    )
-    like_count: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-        default=0,
-        server_default=text("0"),
-        comment="좋아요 수 (인기 콘텐츠 정렬 기준)",
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP,
-        server_default=text("CURRENT_TIMESTAMP"),
-        nullable=False,
-        comment="발행 시점",
-    )
