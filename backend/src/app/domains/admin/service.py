@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core.config import ADMIN_POLICY_AGENCY_NAME
 from src.app.core.security import create_admin_access_token, verify_password
+from src.app.domains.admin.model import Admin
 from src.app.domains.admin.repository import AdminRepository, utc_start_of_today
 from src.app.domains.admin.schema import (
     AdminLoginRequest,
@@ -31,7 +32,6 @@ from src.app.domains.admin.schema import (
     PolicyCreateResponseData,
     PolicyPatchRequest,
 )
-from src.app.domains.admin.model import Admin
 from src.app.domains.auth.model import User
 from src.app.domains.auth.service import AuthService
 from src.app.domains.biz_pick.service import BizPickService
@@ -39,6 +39,7 @@ from src.app.domains.chat.service import ChatService
 from src.app.domains.diagnosis.service import DiagnosisService
 from src.app.domains.policy.model import PolicyStatus
 from src.app.domains.policy.service import PolicyService
+from src.app.domains.policy.sync_service import BizinfoSyncService
 from src.app.domains.system.service import SystemService
 
 
@@ -55,6 +56,7 @@ class AdminService:
         biz_pick_service: BizPickService,
         system_service: SystemService,
         diagnosis_service: DiagnosisService,
+        PolicyRepository: BizinfoSyncService,
     ) -> None:
         self._session = session
         self._repo = repo
@@ -64,6 +66,7 @@ class AdminService:
         self._biz_pick_service = biz_pick_service
         self._system_service = system_service
         self._diagnosis_service = diagnosis_service
+        self.policy_repo = PolicyRepository(session)
 
     async def login(self, body: AdminLoginRequest) -> dict:
         admin = await self._repo.get_admin_by_login_id(body.login_id)
@@ -405,3 +408,14 @@ class AdminService:
         )
         await self._session.commit()
         return log
+
+    async def sync_bootstrap_policies(self, count: int = 1000):
+        """과거 데이터 대량 적재 위임"""
+        # 서비스 내부에서 필요한 싱크 서비스를 생성하여 호출
+        sync_svc = BizinfoSyncService(session=self.session, repo=self.policy_repo)
+        return await sync_svc.bootstrap_historical_policies(count=count)
+
+    async def sync_daily_policies(self):
+        """일일 최신 정책 업데이트 위임"""
+        sync_svc = BizinfoSyncService(session=self.session, repo=self.policy_repo)
+        return await sync_svc.sync_recent_policies()

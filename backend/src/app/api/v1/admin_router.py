@@ -7,6 +7,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
+
 from src.app.api.deps.admin_auth import CurrentAdmin, get_admin_service
 from src.app.core.response import api_json
 from src.app.domains.admin.schema import (
@@ -197,36 +198,30 @@ async def admin_list_users(
     return api_json(http_status=200, data=data.model_dump(), message="success")
 
 
-############ 테스트용 코드
-# 파일 상단에 필요한 import 추가 (이미 있다면 패스)
-from sqlalchemy.ext.asyncio import AsyncSession
-from src.app.database.postgres.database import get_db
-from src.app.domains.policy.repository import PolicyRepository
-from src.app.domains.policy.sync_service import BizinfoSyncService
-
-# ... 기존 코드들 ...
+### 정책 공고 엔드포인트
 
 
 @router.post(
-    "/policies/sync",
-    summary="[테스트] 기업마당 정책 공고 동기화",
-    description="기업마당 API를 찔러서 최신 공고 100개를 가져와 DB에 넣습니다.",
+    "/policies/sync/bootstrap",
+    summary="[초기 세팅] 과거 정책 대량 적재",
+    description="최초 세팅 시 사용합니다. 과거 데이터 최대 1000개를 긁어옵니다. (시간 소요됨)",
 )
-async def sync_bizinfo_policies_test(
-    db: AsyncSession = Depends(get_db),
-    # current_admin = Depends(get_current_admin) # 만약 관리자 인증이 필요하다면 주석 해제
+async def bootstrap_bizinfo_policies(
+    admin: CurrentAdmin,  # 권한 검증 추가
+    svc: Annotated[AdminService, Depends(get_admin_service)],
 ):
-    # 1. 레포지토리와 서비스 조립
-    repo = PolicyRepository(db)
-    sync_service = BizinfoSyncService(session=db, repo=repo)
+    result = await svc.sync_bootstrap_policies(count=1000)
+    return api_json(http_status=200, data=result)
 
-    # 2. 기업마당에서 100개 끌어오기 실행!
-    result = await sync_service.sync_policies(display_count=100)
 
-    # 3. 결과 반환
-    if result["status"] == "error":
-        return api_json(http_status=500, message=result["message"])
-
-    return api_json(
-        http_status=200, message="성공적으로 동기화되었습니다.", data=result
-    )
+@router.post(
+    "/policies/sync/daily",
+    summary="[스마트 동기화] 일일 최신 정책 업데이트",
+    description="매일 돌아가는 정기 동기화 로직입니다. 최신 100건을 비교 후 업데이트합니다.",
+)
+async def sync_daily_bizinfo_policies(
+    admin: CurrentAdmin,  # 권한 검증 추가
+    svc: Annotated[AdminService, Depends(get_admin_service)],
+):
+    result = await svc.sync_daily_policies()
+    return api_json(http_status=200, data=result)
