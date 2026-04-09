@@ -17,10 +17,10 @@ from fastapi import Depends, Header, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.database.postgres.database import get_db
+from src.app.domains.policy.interfaces import MockMatchEngine, RDBPolicySearcher
 from src.app.domains.policy.repository import PolicyRepository
 from src.app.domains.policy.service import PolicyService
-from src.app.domains.policy.interfaces import MockMatchEngine, RDBPolicySearcher
-
+from src.app.domains.policy.sync_service import BizinfoSyncService
 
 # ── Repository & Service DI ────────────────────────────────────────────────
 
@@ -37,7 +37,12 @@ async def get_policy_service(
 ) -> PolicyService:
     searcher = RDBPolicySearcher(repo)
     match_engine = MockMatchEngine()
-    return PolicyService(session=db, repo=repo, searcher=searcher, match_engine=match_engine)
+    return PolicyService(
+        session=db,
+        repo=repo,
+        searcher=searcher,
+        match_engine=match_engine,
+    )
 
 
 # ── X-Business-Id 헤더 파싱 ────────────────────────────────────────────────
@@ -77,8 +82,23 @@ async def get_required_business_id(
         )
 
 
+async def get_sync_service(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    repo: Annotated[PolicyRepository, Depends(get_policy_repo)],
+) -> BizinfoSyncService:
+    """
+    정책 동기화(Bizinfo) 서비스를 생성하여 반환합니다.
+    admin_auth.py에서 이 함수를 통해 서비스 객체를 주입받습니다.
+    """
+    return BizinfoSyncService(db, repo)
+
+
+# 다른 곳에서 편하게 타입 힌트로 사용할 별칭
+
+
 # ── 편의 타입 별칭 ─────────────────────────────────────────────────────────
 
 PolicyServiceDep = Annotated[PolicyService, Depends(get_policy_service)]
 OptionalBusinessId = Annotated[Optional[uuid.UUID], Depends(get_optional_business_id)]
 RequiredBusinessId = Annotated[uuid.UUID, Depends(get_required_business_id)]
+SyncServiceDep = Annotated[BizinfoSyncService, Depends(get_sync_service)]

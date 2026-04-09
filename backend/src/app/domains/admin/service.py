@@ -56,7 +56,7 @@ class AdminService:
         biz_pick_service: BizPickService,
         system_service: SystemService,
         diagnosis_service: DiagnosisService,
-        PolicyRepository: BizinfoSyncService,
+        sync_service: BizinfoSyncService,
     ) -> None:
         self._session = session
         self._repo = repo
@@ -66,7 +66,7 @@ class AdminService:
         self._biz_pick_service = biz_pick_service
         self._system_service = system_service
         self._diagnosis_service = diagnosis_service
-        self.policy_repo = PolicyRepository(session)
+        self._sync_service = sync_service
 
     async def login(self, body: AdminLoginRequest) -> dict:
         admin = await self._repo.get_admin_by_login_id(body.login_id)
@@ -412,10 +412,8 @@ class AdminService:
     async def sync_bootstrap_policies(self, count: int = 1000):
         """과거 데이터 대량 적재 위임"""
         # 서비스 내부에서 필요한 싱크 서비스를 생성하여 호출
-        sync_svc = BizinfoSyncService(session=self.session, repo=self.policy_repo)
-        return await sync_svc.bootstrap_historical_policies(count=count)
+        return await self._sync_service.bootstrap_historical_policies(count=count) # 주입받은 객체 사용 (O)
 
     async def sync_daily_policies(self):
         """일일 최신 정책 업데이트 위임"""
-        sync_svc = BizinfoSyncService(session=self.session, repo=self.policy_repo)
-        return await sync_svc.sync_recent_policies()
+        return await self._sync_service.sync_recent_policies()
