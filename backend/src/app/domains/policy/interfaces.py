@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import uuid
 from abc import ABC, abstractmethod
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 from src.app.domains.business.model import Business
 from src.app.domains.policy.model import Policy
@@ -21,7 +21,7 @@ from src.app.domains.policy.schema import MatchLevel
 
 class MatchResult:
     """매칭 엔진의 계산 결과를 담는 데이터 전송 객체(DTO).
-    
+
     이 객체는 정책과 사업장 간의 연관성을 수치와 텍스트로 요약합니다.
     """
 
@@ -40,7 +40,7 @@ class MatchResult:
 
 class IPolicySearcher(ABC):
     """정책 검색 엔진의 표준 인터페이스.
-    
+
     RDB 검색 외에 벡터 검색(Vector Search) 등으로 확장될 수 있습니다.
     """
 
@@ -55,7 +55,7 @@ class IPolicySearcher(ABC):
         size: int = 10,
     ) -> Tuple[list[Policy], int, int]:
         """필터 조건에 맞는 정책 목록과 페이징 정보를 반환합니다.
-        
+
         Returns:
             (검색된 정책 리스트, 전체 결과 수, 전체 페이지 수)
         """
@@ -64,7 +64,7 @@ class IPolicySearcher(ABC):
 
 class IMatchEngine(ABC):
     """사업장 맞춤형 정책 매칭 엔진의 표준 인터페이스.
-    
+
     단순 점수 계산부터 LLM 기반의 복합 분석까지 다양한 구현이 가능합니다.
     """
 
@@ -84,7 +84,7 @@ class IMatchEngine(ABC):
 
 class RDBPolicySearcher(IPolicySearcher):
     """기존 PostgreSQL(RDB) 인덱스를 활용한 검색 구현체.
-    
+
     1. 작동 방식: SQL의 LIKE 또는 ILIKE 연산자를 기반으로 필터링을 수행합니다.
     2. 장점: 정형 데이터(지역, 카테고리) 필터링에 매우 빠르고 정확합니다.
     """
@@ -113,8 +113,8 @@ class RDBPolicySearcher(IPolicySearcher):
 
 class MockMatchEngine(IMatchEngine):
     """테스트 및 초기 개발용 Mock 매칭 엔진.
-    
-    [도메인 규칙 5.3] 실제 AI 엔진 결합 전까지 사업장 프로필 점수를 기반으로 
+
+    [도메인 규칙 5.3] 실제 AI 엔진 결합 전까지 사업장 프로필 점수를 기반으로
     가상의 신호등 결과를 반환하여 전체 서비스 흐름을 검증합니다.
     """
 
@@ -125,7 +125,7 @@ class MockMatchEngine(IMatchEngine):
         business: Business,
     ) -> MatchResult:
         """사업장의 프로필 점수에 따라 등급을 나눕니다.
-        
+
         1. 70점 이상: GREEN (적극 추천)
         2. 40점 이상: YELLOW (추가 정보 필요)
         3. 그 외: RED (자격 미달 또는 정보 부족)
@@ -142,7 +142,9 @@ class MockMatchEngine(IMatchEngine):
             reason = "일부 가점 요건 미충족 — 추가 정보 입력 시 GREEN 상향 가능합니다."
         else:
             level = MatchLevel.RED
-            reason = "사업장 정보가 부족하여 자격 판단이 어렵습니다. 온보딩을 완료해 주세요."
+            reason = (
+                "사업장 정보가 부족하여 자격 판단이 어렵습니다. 온보딩을 완료해 주세요."
+            )
 
         return MatchResult(
             policy_id=policy.id,
@@ -150,3 +152,27 @@ class MockMatchEngine(IMatchEngine):
             match_score=round(score, 1),
             reason=reason,
         )
+
+    class IPolicyEnricher(ABC):
+        """정책 공고 원문을 분석하여 구조화된 데이터로 변환하는 인터페이스.
+
+        설계 의도: OpenAI, Claude 등 어떤 AI 모델을 쓰거나 PDF 파싱 라이브러리를 바꿔도
+        기존 비즈니스 로직(SyncService)은 영향을 받지 않습니다.
+        """
+
+        @abstractmethod
+        async def extract_and_structure(
+            self, pdf_url: str, original_summary: str
+        ) -> dict[str, Any]:
+            """PDF 원문을 추출하고 AI를 통해 target_logic, bonus_logic 등을 추출합니다.
+
+            Returns:
+                {
+                    "content_raw": str,      # 추출된 원문 전체
+                    "target_logic": dict,    # 매칭용 구조화 데이터
+                    "bonus_logic": dict,     # 가산점 구조화 데이터
+                    "ai_summary": str,       # 리스트용 3줄 요약
+                    "ai_full_explanation": str # 상세용 쉬운 설명
+                }
+            """
+            pass

@@ -1,3 +1,4 @@
+# src/app/domains/policy/sync_service.py
 """기업마당(Bizinfo) API 연동 및 정책 공고 자동화 서비스."""
 
 from datetime import date, datetime
@@ -8,6 +9,9 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core.config import BIZINFO_API_KEY
+from src.app.domains.policy.interfaces import (
+    IPolicyEnricher,  # [추가] AI 보강 인터페이스
+)
 from src.app.domains.policy.model import Policy, PolicyStatus
 from src.app.domains.policy.repository import PolicyRepository
 from src.app.domains.system.model import BatchLog
@@ -16,9 +20,15 @@ from src.app.domains.system.model import BatchLog
 class BizinfoSyncService:
     """기업마당 API 데이터를 우리 DB로 동기화하는 핵심 서비스."""
 
-    def __init__(self, session: AsyncSession, repo: PolicyRepository):
+    def __init__(
+        self,
+        session: AsyncSession,
+        repo: PolicyRepository,
+        enricher: IPolicyEnricher,  # [추가] 외부 의존성을 낮추기 위해 인터페이스 주입
+    ):
         self._session = session
         self._repo = repo
+        self._enricher = enricher  # [추가]
         self._api_url = "https://apis.data.go.kr/1421000/bizinfo/pblancBsnsService"
 
     async def bootstrap_historical_policies(self, count: int = 1000) -> dict:
@@ -136,9 +146,29 @@ class BizinfoSyncService:
                 agency = item.get("jrsdInsttNm", "기관명 없음")
                 category = item.get("pldirSportRealmLclasCodeNm", "기타")
                 target = item.get("trgetNm", "정보 없음")
-                summary = item.get("bsnsSumryCn", "")
-                raw_content = f"[지원대상]\n{target}\n\n[상세내용]\n{summary}"
+                original_summary = item.get("bsnsSumryCn", "")
 
+                # [추가] PDF URL 확보
+                pdf_url = item.get("printFlpthNm")
+
+                # [추가] AI를 통한 데이터 구조화 및 보강 (실패해도 기본값으로 진행되도록 try-except 처리)
+                enriched_data = {}
+                if pdf_url and str(pdf_url).startswith("http"):
+                    try:
+                        enriched_data = await self._enricher.extract_and_structure(
+                            pdf_url=pdf_url, original_summary=original_summary
+                        )
+                    except Exception as enrich_err:
+                        # AI 호출이나 PDF 다운로드 실패 시 로그만 남기고 흐름 중단 방지
+                        print(f"AI 데이터 보강 실패 (ID: {origin_id}): {enrich_err}")
+
+                # AI가 추출한 원문이 있으면 사용하고, 없으면 기존 방식(API 요약 데이터) 조립
+                raw_content = (
+                    enriched_data.get("content_raw")
+                    or f"[지원대상]\n{target}\n\n[상세내용]\n{original_summary}"
+                )
+
+                # Insert 구문 (AI로 추출한 추가 필드 반영)
                 stmt = insert(Policy).values(
                     origin_id=origin_id,
                     title=title,
@@ -150,10 +180,16 @@ class BizinfoSyncService:
                     status=status,
                     apply_url=item.get("pblancUrl", ""),
                     content_raw=raw_content,
+                    # [추가] AI 파싱 데이터 (값이 없으면 None으로 들어감)
+                    target_logic=enriched_data.get("target_logic"),
+                    bonus_logic=enriched_data.get("bonus_logic"),
+                    ai_summary=enriched_data.get("ai_summary"),
+                    ai_full_explanation=enriched_data.get("ai_full_explanation"),
                     is_active=True,
                     view_count=0,
                 )
 
+                # Update 구문 (중복된 공고일 경우에도 보강된 데이터로 업데이트)
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["origin_id"],
                     set_={
@@ -166,6 +202,19 @@ class BizinfoSyncService:
                         "status": status,
                         "apply_url": item.get("pblancUrl", ""),
                         "content_raw": raw_content,
+                        # [추가] AI 데이터 업데이트
+                        "target_logic": enriched_data.get(
+                            "target_logic", Policy.target_logic
+                        ),
+                        "bonus_logic": enriched_data.get(
+                            "bonus_logic", Policy.bonus_logic
+                        ),
+                        "ai_summary": enriched_data.get(
+                            "ai_summary", Policy.ai_summary
+                        ),
+                        "ai_full_explanation": enriched_data.get(
+                            "ai_full_explanation", Policy.ai_full_explanation
+                        ),
                     },
                 )
 

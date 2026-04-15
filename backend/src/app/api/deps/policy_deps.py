@@ -17,6 +17,9 @@ from fastapi import Depends, Header, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.database.postgres.database import get_db
+
+# [추가] AI 보강 구현체 임포트
+from src.app.domains.policy.infrastructure import OpenAIPolicyEnricher
 from src.app.domains.policy.interfaces import MockMatchEngine, RDBPolicySearcher
 from src.app.domains.policy.repository import PolicyRepository
 from src.app.domains.policy.service import PolicyService
@@ -82,6 +85,7 @@ async def get_required_business_id(
         )
 
 
+# [수정] AI Enricher 의존성 주입 추가
 async def get_sync_service(
     db: Annotated[AsyncSession, Depends(get_db)],
     repo: Annotated[PolicyRepository, Depends(get_policy_repo)],
@@ -90,10 +94,8 @@ async def get_sync_service(
     정책 동기화(Bizinfo) 서비스를 생성하여 반환합니다.
     admin_auth.py에서 이 함수를 통해 서비스 객체를 주입받습니다.
     """
-    return BizinfoSyncService(db, repo)
-
-
-# 다른 곳에서 편하게 타입 힌트로 사용할 별칭
+    enricher = OpenAIPolicyEnricher()  # AI PDF 분석 객체 생성
+    return BizinfoSyncService(db, repo, enricher)  # SyncService에 조립해서 반환
 
 
 # ── 편의 타입 별칭 ─────────────────────────────────────────────────────────
