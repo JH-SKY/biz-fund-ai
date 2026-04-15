@@ -9,6 +9,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, Request
 
 from src.app.api.deps.admin_auth import CurrentAdmin, get_admin_service
+from src.app.api.deps.policy_deps import SyncServiceDep
 from src.app.core.response import api_json
 from src.app.domains.admin.schema import (
     AdminLoginRequest,
@@ -34,7 +35,6 @@ async def admin_login(
     svc: Annotated[AdminService, Depends(get_admin_service)],
 ):
     """운영 편의: ADMIN_TOKEN 발급 (명세 본문에는 없으나 토큰 획득 경로)."""
-
     data = await svc.login(body)
     return api_json(http_status=200, data=data, message="success")
 
@@ -189,7 +189,7 @@ async def admin_list_users(
 ):
     data = await svc.list_users(
         admin_id=admin.id,
-        client_ip=_client_ip(request),
+        client_ip=_client_ip(request),  # 수정: ip_address → client_ip (service 규약 통일)
         page=page,
         size=size,
         search_keyword=search_keyword,
@@ -198,16 +198,21 @@ async def admin_list_users(
     return api_json(http_status=200, data=data.model_dump(), message="success")
 
 
-### 정책 공고 엔드포인트
+# ─────────────────────────────────────────────────────────────────────────────
+# 정책 수집 엔드포인트 (Policy Sync)
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 @router.post(
     "/policies/sync/bootstrap",
     summary="[초기 세팅] 과거 정책 대량 적재",
-    description="최초 세팅 시 사용합니다. 과거 데이터 최대 1000개를 긁어옵니다. (시간 소요됨)",
+    description=(
+        "최초 세팅 시 사용합니다. 기업마당 API 에서 최대 1000건을 페이지네이션으로 수집합니다. "
+        "AI 보강 없이 빠른 수집을 우선합니다. (소요 시간: 약 1~3분)"
+    ),
 )
 async def bootstrap_bizinfo_policies(
-    admin: CurrentAdmin,  # 권한 검증 추가
+    admin: CurrentAdmin,
     svc: Annotated[AdminService, Depends(get_admin_service)],
 ):
     result = await svc.sync_bootstrap_policies(count=1000)
@@ -217,11 +222,72 @@ async def bootstrap_bizinfo_policies(
 @router.post(
     "/policies/sync/daily",
     summary="[스마트 동기화] 일일 최신 정책 업데이트",
-    description="매일 돌아가는 정기 동기화 로직입니다. 최신 100건을 비교 후 업데이트합니다.",
+    description=(
+        "스케줄러(매일 03:00)가 자동 실행하는 로직을 수동으로 즉시 트리거합니다. "
+        "최신 2페이지(200건)를 수집하고 origin_id 기준 upsert 합니다."
+    ),
 )
 async def sync_daily_bizinfo_policies(
-    admin: CurrentAdmin,  # 권한 검증 추가
+    admin: CurrentAdmin,
     svc: Annotated[AdminService, Depends(get_admin_service)],
 ):
     result = await svc.sync_daily_policies()
     return api_json(http_status=200, data=result)
+
+
+@router.post(
+    "/policies/sync/run",
+    summary="[고급] 수집 범위·옵션 직접 지정 실행",
+    description=(
+        "페이지 범위, AI 보강 여부, 날짜 필터를 자유롭게 설정하여 수집을 실행합니다. "
+        "대용량 초기 적재나 특정 기간 재수집 시 사용합니다.\n\n"
+        "- `with_ai=true` 설정 시 첨부파일(PDF/HWP/이미지)을 파싱하고 GPT-4o 로 구조화합니다. "
+        "공고 1건당 약 3~10초 소요되므로 100건 이상 시 타임아웃 주의.\n"
+        "- `date_from` / `date_to` 는 YYYYMMDD 형식입니다. (예: 20250101)"
+    ),
+)
+async def run_policy_sync(
+    admin: CurrentAdmin,
+    svc: Annotated[AdminService, Depends(get_admin_service)],
+    page_start: int = Query(1, ge=1, description="수집 시작 페이지"),
+    page_end: int = Query(1, ge=1, description="수집 종료 페이지 (포함)"),
+    rows_per_page: int = Query(100, ge=10, le=1000, description="페이지당 공고 수"),
+    with_ai: bool = Query(False, description="True 이면 첨부파일 파싱 + AI 구조화 실행"),
+    date_from: str | None = Query(None, description="공고 시작일 필터 (YYYYMMDD)"),
+    date_to: str | None = Query(None, description="공고 종료일 필터 (YYYYMMDD)"),
+):
+    result = await svc.run_policy_sync(
+        page_start=page_start,
+        page_end=page_end,
+        rows_per_page=rows_per_page,
+        with_ai=with_ai,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    return api_json(http_status=200, data=result)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 정책 수집 테스트 엔드포인트 (Policy Sync - Test)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.post(
+    "/test-sync-one",
+    summary="[TEST] 정책 1개 동기화 및 AI 분석 파이프라인 테스트",
+    tags=["Admin - Test"],
+    description=(
+        "기업마당 API 에서 공고 1건을 가져와 전체 파이프라인을 검증합니다.\n\n"
+        "1. API 에서 최신 공고 1건 수집\n"
+        "2. 첨부파일(PDF/HWP/이미지) 다운로드 및 파싱\n"
+        "3. GPT-4o 로 구조화(target_logic, bonus_logic, ai_summary)\n"
+        "4. DB upsert 후 결과 반환\n\n"
+        "서버 콘솔 로그에서 단계별 진행 상황을 확인할 수 있습니다."
+    ),
+)
+async def test_sync_single_policy_endpoint(
+    admin: CurrentAdmin,           # 관리자 권한 검증 추가
+    sync_service: SyncServiceDep,  # policy_deps.py 에서 의존성 주입
+):
+    result = await sync_service.test_sync_single_policy()
+    return result

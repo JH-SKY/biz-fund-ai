@@ -35,3 +35,6 @@ NTS_API_KEY: str = os.getenv("NTS_API_KEY", "")
 
 # 기업마당(정책공고) API
 BIZINFO_API_KEY: str = os.getenv("BIZINFO_API_KEY", "")
+
+# 오픈 AI API
+OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")

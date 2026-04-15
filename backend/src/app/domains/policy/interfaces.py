@@ -39,10 +39,7 @@ class MatchResult:
 
 
 class IPolicySearcher(ABC):
-    """정책 검색 엔진의 표준 인터페이스.
-
-    RDB 검색 외에 벡터 검색(Vector Search) 등으로 확장될 수 있습니다.
-    """
+    """정책 검색 엔진의 표준 인터페이스."""
 
     @abstractmethod
     async def search(
@@ -54,19 +51,11 @@ class IPolicySearcher(ABC):
         page: int = 1,
         size: int = 10,
     ) -> Tuple[list[Policy], int, int]:
-        """필터 조건에 맞는 정책 목록과 페이징 정보를 반환합니다.
-
-        Returns:
-            (검색된 정책 리스트, 전체 결과 수, 전체 페이지 수)
-        """
         pass
 
 
 class IMatchEngine(ABC):
-    """사업장 맞춤형 정책 매칭 엔진의 표준 인터페이스.
-
-    단순 점수 계산부터 LLM 기반의 복합 분석까지 다양한 구현이 가능합니다.
-    """
+    """사업장 맞춤형 정책 매칭 엔진의 표준 인터페이스."""
 
     @abstractmethod
     async def compute_match(
@@ -75,7 +64,45 @@ class IMatchEngine(ABC):
         policy: Policy,
         business: Business,
     ) -> MatchResult:
-        """단일 정책과 사업장 정보를 비교하여 매칭 스코어와 사유를 도출합니다."""
+        pass
+
+
+class IPolicyEnricher(ABC):
+    """정책 공고 원문을 분석하여 구조화된 데이터로 변환하는 인터페이스.
+
+    설계 의도:
+      1. OpenAI, Claude 등 AI 모델이나 PDF 파싱 라이브러리를 바꿔도 SyncService는 영향받지 않는다.
+      2. verbose=True 를 주면 각 단계의 진행 로그를 출력 — 테스트·운영 메서드 분리 불필요.
+      3. file_url 파라미터명을 pdf_url 대신 file_url 로 사용해 .hwp/.hwpx/이미지 URL도 수용한다.
+    """
+
+    @abstractmethod
+    async def extract_and_structure(
+        self,
+        file_url: str,
+        original_summary: str,
+        *,
+        filename_hint: str = "",
+        verbose: bool = False,
+    ) -> dict[str, Any]:
+        """공고 첨부파일을 파싱하고 AI를 통해 JSON으로 구조화합니다.
+
+        Args:
+            file_url:        첨부 파일 다운로드 URL (항상 getImageFile.do 형태일 수 있음)
+            original_summary: 공공 API의 bsnsSumryCn (파싱 실패 시 fallback, HTML 제거 후 전달)
+            filename_hint:   printFileNm 필드값 — 실제 파일 확장자 힌트 (예: "공고문.hwp")
+                             바이너리 판별이 모호할 때 ZIP → HWPX 구분에 사용
+            verbose:         True이면 단계별 진행 상황을 logging.INFO 레벨로 출력
+
+        Returns:
+            {
+                "content_raw": "...",        # RAG 검색용 원문
+                "target_logic": {...},       # 사업장 매칭 필터 규칙
+                "bonus_logic": {...},        # 가산점 계산 규칙
+                "ai_summary": "...",         # 3줄 요약
+                "ai_full_explanation": "...",# 친절한 해설
+            }
+        """
         pass
 
 
@@ -83,11 +110,7 @@ class IMatchEngine(ABC):
 
 
 class RDBPolicySearcher(IPolicySearcher):
-    """기존 PostgreSQL(RDB) 인덱스를 활용한 검색 구현체.
-
-    1. 작동 방식: SQL의 LIKE 또는 ILIKE 연산자를 기반으로 필터링을 수행합니다.
-    2. 장점: 정형 데이터(지역, 카테고리) 필터링에 매우 빠르고 정확합니다.
-    """
+    """기존 PostgreSQL(RDB) 인덱스를 활용한 검색 구현체."""
 
     def __init__(self, repo: PolicyRepository) -> None:
         self._repo = repo
@@ -101,7 +124,6 @@ class RDBPolicySearcher(IPolicySearcher):
         page: int = 1,
         size: int = 10,
     ) -> Tuple[list[Policy], int, int]:
-        # Repository에 구현된 검색 로직을 대리(Delegate) 호출합니다.
         return await self._repo.search_policies(
             keyword=keyword,
             region=region,
@@ -112,11 +134,7 @@ class RDBPolicySearcher(IPolicySearcher):
 
 
 class MockMatchEngine(IMatchEngine):
-    """테스트 및 초기 개발용 Mock 매칭 엔진.
-
-    [도메인 규칙 5.3] 실제 AI 엔진 결합 전까지 사업장 프로필 점수를 기반으로
-    가상의 신호등 결과를 반환하여 전체 서비스 흐름을 검증합니다.
-    """
+    """테스트 및 초기 개발용 Mock 매칭 엔진."""
 
     async def compute_match(
         self,
@@ -124,13 +142,6 @@ class MockMatchEngine(IMatchEngine):
         policy: Policy,
         business: Business,
     ) -> MatchResult:
-        """사업장의 프로필 점수에 따라 등급을 나눕니다.
-
-        1. 70점 이상: GREEN (적극 추천)
-        2. 40점 이상: YELLOW (추가 정보 필요)
-        3. 그 외: RED (자격 미달 또는 정보 부족)
-        """
-        # 프로필 점수가 없을 경우 0점으로 처리하여 안전하게 계산합니다.
         raw_score = business.profile_score if business.profile_score is not None else 0
         score = float(raw_score)
 
@@ -152,27 +163,3 @@ class MockMatchEngine(IMatchEngine):
             match_score=round(score, 1),
             reason=reason,
         )
-
-    class IPolicyEnricher(ABC):
-        """정책 공고 원문을 분석하여 구조화된 데이터로 변환하는 인터페이스.
-
-        설계 의도: OpenAI, Claude 등 어떤 AI 모델을 쓰거나 PDF 파싱 라이브러리를 바꿔도
-        기존 비즈니스 로직(SyncService)은 영향을 받지 않습니다.
-        """
-
-        @abstractmethod
-        async def extract_and_structure(
-            self, pdf_url: str, original_summary: str
-        ) -> dict[str, Any]:
-            """PDF 원문을 추출하고 AI를 통해 target_logic, bonus_logic 등을 추출합니다.
-
-            Returns:
-                {
-                    "content_raw": str,      # 추출된 원문 전체
-                    "target_logic": dict,    # 매칭용 구조화 데이터
-                    "bonus_logic": dict,     # 가산점 구조화 데이터
-                    "ai_summary": str,       # 리스트용 3줄 요약
-                    "ai_full_explanation": str # 상세용 쉬운 설명
-                }
-            """
-            pass

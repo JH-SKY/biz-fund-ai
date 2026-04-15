@@ -1,8 +1,13 @@
 # src/app/main.py
+"""FastAPI 앱 인스턴스 생성 및 전역 설정.
+
+SQLAlchemy mapper 구성을 위해 모든 도메인 모델을 앱 시작 전에 로드한다.
+relationship 문자열 참조("ClassName") 해석은 모든 모델이 메모리에 올라온 뒤 이뤄진다.
+"""
+
+from contextlib import asynccontextmanager
 from typing import Annotated
 
-# SQLAlchemy mapper 구성을 위해 모든 도메인 모델을 앱 시작 전에 로드한다.
-# relationship 문자열 참조("ClassName") 해석은 모든 모델이 메모리에 올라온 뒤 이뤄진다.
 import src.app.domains.auth.model  # noqa: F401
 import src.app.domains.business.model  # noqa: F401
 import src.app.domains.chat.model  # noqa: F401
@@ -14,15 +19,33 @@ from fastapi import Depends, FastAPI
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from src.app.api.v1.router import api_router
 from src.app.core.exceptions import request_validation_exception_handler
 from src.app.database.postgres.database import get_db
+from src.app.worker.scheduler import shutdown_scheduler, start_scheduler
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """앱 수명주기 관리.
+
+    startup  : APScheduler 를 시작하고 일일 정책 동기화 크론 잡을 등록한다.
+    shutdown : 실행 중인 배치가 완료되기를 기다리지 않고 스케줄러를 즉시 종료한다.
+              (wait=False — 서버 재시작 시 응답 지연 방지)
+    """
+    start_scheduler()
+    yield
+    shutdown_scheduler()
+
 
 app = FastAPI(
     title="Biz-Fund-AI API",
     description="소상공인 맞춤형 정책 매칭 및 AI 에이전트 서비스",
     version="0.1.0",
+    lifespan=lifespan,
 )
+
 app.add_exception_handler(
     RequestValidationError,
     request_validation_exception_handler,
@@ -32,7 +55,6 @@ app.include_router(api_router)
 db_session = Annotated[AsyncSession, Depends(get_db)]
 
 
-# 1. 앱 초기화 및 메타데이터 설정:
 @app.get("/")
 async def read_root():
     return {
@@ -42,13 +64,9 @@ async def read_root():
     }
 
 
-# 2. DB 연결 상태 점검 (흐름 파악)
 @app.get("/db-check")
 async def check_db_connection(db: db_session):
-    # 3. 테스트 쿼리 실행 (흐름 파악)
     result = await db.execute(text("SELECT 1"))
-
-    # 4. 응답 처리 (설계 의도):
     if result:
         return {"status": "success", "message": "Database Connection Verified"}
     return {"status": "fail", "message": "Database Connection Failed"}

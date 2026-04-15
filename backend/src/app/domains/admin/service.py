@@ -302,8 +302,8 @@ class AdminService:
         *,
         page: int,
         size: int,
-        admin_id: uuid.UUID,  # [필수] 로그를 위해 추가
-        ip_address: str | None,
+        admin_id: uuid.UUID,
+        client_ip: str | None,  # 수정: ip_address → client_ip (router 호출 규약 통일)
         search_keyword: str | None,
         only_active: bool = True,
     ) -> AdminUserListData:
@@ -319,7 +319,7 @@ class AdminService:
             action_type="USER_LIST_VIEW",
             target_id=None,
             changes={"page": page, "search": search_keyword},
-            ip_address=ip_address,
+            ip_address=client_ip,
         )
         total_pages = (total + size - 1) // size if size > 0 else 0
         items: list[AdminUserItem] = []
@@ -411,9 +411,33 @@ class AdminService:
 
     async def sync_bootstrap_policies(self, count: int = 1000):
         """과거 데이터 대량 적재 위임"""
-        # 서비스 내부에서 필요한 싱크 서비스를 생성하여 호출
-        return await self._sync_service.bootstrap_historical_policies(count=count) # 주입받은 객체 사용 (O)
+        return await self._sync_service.bootstrap_historical_policies(count=count)
 
     async def sync_daily_policies(self):
         """일일 최신 정책 업데이트 위임"""
         return await self._sync_service.sync_recent_policies()
+
+    async def run_policy_sync(
+        self,
+        *,
+        page_start: int = 1,
+        page_end: int = 1,
+        rows_per_page: int = 100,
+        with_ai: bool = False,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> dict:
+        """관리자 수동 트리거용 정책 수집 실행.
+
+        run_policy_sync 의 모든 파라미터를 그대로 노출하여,
+        관리자가 API 를 통해 원하는 범위·옵션으로 수집을 실행할 수 있도록 한다.
+        """
+        return await self._sync_service.run_policy_sync(
+            job_name="POLICY_ADMIN_MANUAL",
+            page_start=page_start,
+            page_end=page_end,
+            rows_per_page=rows_per_page,
+            with_ai=with_ai,
+            date_from=date_from,
+            date_to=date_to,
+        )
