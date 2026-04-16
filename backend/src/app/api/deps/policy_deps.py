@@ -6,6 +6,7 @@
     북마크 상태 포함 여부는 헤더 유무에 따라 자동 결정된다.
   - RequiredBusinessId: X-Business-Id 헤더를 필수 수신.
     북마크 토글, 추천 API 등 사업장 컨텍스트가 반드시 필요한 엔드포인트에 사용.
+  - SyncServiceDep: BizinfoSyncService 에 PolicySyncAgent 를 주입하여 반환한다.
 """
 
 from __future__ import annotations
@@ -16,10 +17,8 @@ from typing import Annotated, Optional
 from fastapi import Depends, Header, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.app.agents.policy_sync_agent import PolicySyncAgent
 from src.app.database.postgres.database import get_db
-
-# [추가] AI 보강 구현체 임포트
-from src.app.domains.policy.infrastructure import OpenAIPolicyEnricher
 from src.app.domains.policy.interfaces import MockMatchEngine, RDBPolicySearcher
 from src.app.domains.policy.repository import PolicyRepository
 from src.app.domains.policy.service import PolicyService
@@ -85,19 +84,20 @@ async def get_required_business_id(
         )
 
 
-# [수정] AI Enricher 의존성 주입 추가
 async def get_sync_service(
     db: Annotated[AsyncSession, Depends(get_db)],
     repo: Annotated[PolicyRepository, Depends(get_policy_repo)],
 ) -> BizinfoSyncService:
-    """정책 동기화(Bizinfo) 서비스를 생성하여 반환합니다."""
+    """BizinfoSyncService 에 PolicySyncAgent 를 주입하여 반환한다.
 
-    enricher = OpenAIPolicyEnricher()  # AI 객체 생성
-    return BizinfoSyncService(db, repo, enricher)  # 조립해서 반환
+    PolicySyncAgent 는 내부에서 AsyncOpenAI 클라이언트를 생성한다.
+    그래프는 __init__ 시 1회 컴파일되므로 요청마다 재컴파일 비용이 없다.
+    """
+    agent = PolicySyncAgent()
+    return BizinfoSyncService(db, repo, agent)
 
 
 # ── 편의 타입 별칭 ─────────────────────────────────────────────────────────
-
 PolicyServiceDep = Annotated[PolicyService, Depends(get_policy_service)]
 OptionalBusinessId = Annotated[Optional[uuid.UUID], Depends(get_optional_business_id)]
 RequiredBusinessId = Annotated[uuid.UUID, Depends(get_required_business_id)]

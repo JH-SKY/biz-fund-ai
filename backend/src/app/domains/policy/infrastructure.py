@@ -15,6 +15,10 @@
   PDF 파싱 실패 또는 스캔본 → 이미지 변환 → Vision AI
   HWP 파싱 실패 → Vision AI
   Magic Number 판별 불가 → Vision AI (최후 방어선)
+
+AI 구조화 책임 분리:
+  문서 파싱(텍스트/이미지 추출)까지가 이 계층의 책임이다.
+  GPT-4o 호출·Self-Correction 등 AI 분석 로직은 PolicySyncAgent 에 위임한다.
 """
 
 from __future__ import annotations
@@ -22,7 +26,6 @@ from __future__ import annotations
 import base64
 import html as html_std
 import io
-import json
 import logging
 import re
 import zipfile
@@ -31,22 +34,8 @@ from typing import Any
 from xml.etree import ElementTree as ET
 
 import fitz  # PyMuPDF
-import httpx
-from openai import AsyncOpenAI
-
-from src.app.core.config import OPENAI_API_KEY
-from src.app.domains.policy.interfaces import IPolicyEnricher
 
 logger = logging.getLogger(__name__)
-
-# ── 공통 HTTP 헤더 ────────────────────────────────────────────────────────────
-_DEFAULT_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    ),
-}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # [Magic Number 상수] 파일 형식 판별의 '지문' 역할
@@ -113,7 +102,7 @@ def clean_html_text(raw: str) -> str:
 class IDocumentParser(ABC):
     """파일 바이너리를 받아 AI가 소화할 수 있는 형태로 변환하는 파서 인터페이스.
 
-    설계 의도: OpenAIPolicyEnricher는 IDocumentParser만 알면 되므로,
+    설계 의도: DocumentParserFactory 는 IDocumentParser만 알면 되므로,
     파서 구현체(PDF/HWP/이미지)를 교체해도 Enricher 코드는 변경할 필요가 없다.
 
     Returns:
@@ -182,22 +171,56 @@ class HWPDocumentParser(IDocumentParser):
 
     async def parse(self, content: bytes, *, verbose: bool = False) -> dict[str, Any]:
         # content의 첫 4바이트로 HWP vs HWPX 분기
-        # ZIP 시그니처(PK\x03\x04)면 HWPX, OLE2 시그니처면 HWP
         if content[:4] == _MAGIC_ZIP:
             text = self._parse_hwpx_zip(content)
-            if text:
-                if verbose:
-                    logger.info("  [HWPX] ZIP-XML 텍스트 추출 완료 (%d자)", len(text))
-                return {"type": "text", "data": text}
+            parser_type = "HWPX"
         else:
             text = self._parse_hwp_ole(content)
-            if text:
+            parser_type = "HWP OLE2"
+
+        if text:
+            # --- [품질 검증 로직 추가] ---
+            # 1. 문서가 너무 짧은지 확인 (500자 미만)
+            is_too_short = len(text.strip()) < 500
+
+            # 2. 문서가 중간에 끊겼는지 확인 (문서 끝에 주로 등장하는 키워드)
+            end_keywords = [
+                "문의",
+                "연락처",
+                "접수",
+                "사이트",
+                "홈페이지",
+                "02-",
+                "053-",
+                "061-",
+                "끝.",
+            ]
+            has_end_signal = any(kw in text[-300:] for kw in end_keywords)
+
+            # 정상적으로 추출되었다고 판단되는 경우
+            if not is_too_short and has_end_signal:
                 if verbose:
-                    logger.info("  [HWP OLE2] PrvText 추출 완료 (%d자)", len(text))
+                    logger.info(
+                        "  [%s] 텍스트 추출 완료 (%d자)", parser_type, len(text)
+                    )
                 return {"type": "text", "data": text}
 
-        # 텍스트 추출 실패 → Vision AI fallback
-        logger.warning("  [HWP] 텍스트 추출 실패 → Vision AI fallback")
+            # 잘린 것으로 의심되는 경우
+            else:
+                if verbose:
+                    logger.warning(
+                        "  [%s] 텍스트 유실(Truncation) 의심됨. 경고 표식을 추가합니다.",
+                        parser_type,
+                    )
+                return {
+                    "type": "text",
+                    "data": f"[⚠️시스템 알림: 이 문서는 원문 파싱 중 하단부가 유실되었을 가능성이 높음]\n{text}",
+                }
+
+        # 텍스트 추출 자체가 아예 실패한 경우에만 이미지 파서(Vision AI) 시도
+        # (주의: 이 경우 GPT가 HWP 바이너리를 읽지 못해 에러가 날 수 있으나
+        #  기존 코드의 Fallback 체계를 존중하여 유지합니다)
+        logger.warning("  [HWP] 텍스트 추출 실패 → Vision AI fallback 시도")
         return await ImageDocumentParser().parse(content, verbose=verbose)
 
     def _parse_hwpx_zip(self, content: bytes) -> str:
@@ -399,174 +422,3 @@ class DocumentParserFactory:
                 return HWPDocumentParser()
 
         return PDFDocumentParser()
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# [계층 4] OpenAI 기반 AI 보강 구현체 (OpenAIPolicyEnricher)
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-class OpenAIPolicyEnricher(IPolicyEnricher):
-    """DocumentParserFactory.from_content() + GPT-4o 를 조합한 정책 공고 AI 구조화 구현체.
-
-    처리 파이프라인:
-      [다운로드] → [Magic Number 기반 파서 결정] → [텍스트/이미지 추출] → [GPT-4o] → [JSON]
-
-    [Fallback 복구 흐름]
-    파일 파싱이 실패하거나 file_url 이 없는 경우:
-      → original_summary (HTML 제거 완료된 bsnsSumryCn) 를 content_raw 로 사용
-      → GPT-4o 에게 요약 텍스트만으로 구조화를 요청
-      이 흐름을 통해 파일 파싱 실패가 곧 '데이터 없음'이 되지 않도록 한다.
-    """
-
-    def __init__(self) -> None:
-        self._client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-
-    async def extract_and_structure(
-        self,
-        file_url: str,
-        original_summary: str,
-        *,
-        filename_hint: str = "",
-        verbose: bool = False,
-    ) -> dict[str, Any]:
-        """공고 파일을 파싱하고 GPT-4o 로 구조화된 JSON을 반환한다.
-
-        Args:
-            file_url:        printFlpthNm 에서 선택된 단일 다운로드 URL
-            original_summary: HTML 제거가 완료된 bsnsSumryCn (Fallback 용)
-            filename_hint:   printFileNm 의 실제 파일명 (ZIP → HWPX 구분에 활용)
-            verbose:         True 이면 단계별 로그 출력
-        """
-        # ── [STEP 1] 파일 다운로드 ─────────────────────────────────────────
-        if verbose:
-            logger.info("  [2-1] 문서 다운로드 시작 (URL: %s)", file_url)
-        content = await self._fetch_document(file_url)
-
-        # ── [STEP 2] Magic Number 기반 파서 결정 ──────────────────────────
-        # URL 이 getImageFile.do 이더라도 실제 내용은 PDF/HWP/이미지 어느 것이든 될 수 있다.
-        # 따라서 URL 을 믿지 않고, 다운로드된 파일의 첫 바이트를 직접 읽어 형식을 확정한다.
-        parser = DocumentParserFactory.from_content(
-            content, filename_hint=filename_hint
-        )
-
-        if verbose:
-            logger.info(
-                "  [2-2] 파서 결정: %s (hint=%s)",
-                type(parser).__name__,
-                filename_hint or "없음",
-            )
-
-        # ── [STEP 3] 문서 파싱 ────────────────────────────────────────────
-        doc_result = await parser.parse(content, verbose=verbose)
-
-        if verbose:
-            if doc_result["type"] == "text":
-                logger.info("  [2-3] 텍스트 추출 완료 (%d자)", len(doc_result["data"]))
-            else:
-                logger.info("  [2-3] 이미지 변환 완료 (%d장)", len(doc_result["data"]))
-                # AI에게 어떤 내용이 전달되는지 추적하기위한 로그
-        with open("debug_input_to_ai.txt", "w", encoding="utf-8") as f:
-            f.write(str(doc_result["data"]))
-        logger.info("  [DEBUG] AI 입력 원문을 debug_input_to_ai.txt에 저장했습니다.")
-        # ────────────────────────────────────────────────────────────────
-        # ── [STEP 4] GPT-4o 구조화 ───────────────────────────────────────
-        if verbose:
-            logger.info("  [3-1] OpenAI GPT-4o 분석 요청 중...")
-
-        result = await self._call_openai(doc_result, original_summary)
-
-        if verbose:
-            preview = json.dumps(result, ensure_ascii=False)[:150] + "..."
-            logger.info("  [3-2] AI 구조화 완료: %s", preview)
-
-        return result
-
-    # ── 내부 헬퍼 ────────────────────────────────────────────────────────────
-
-    async def _fetch_document(self, url: str) -> bytes:
-        """URL 에서 파일 바이너리를 다운로드한다."""
-        async with httpx.AsyncClient(
-            follow_redirects=True, headers=_DEFAULT_HEADERS
-        ) as client:
-            response = await client.get(url, timeout=30.0)
-            response.raise_for_status()
-            return response.content
-
-    def _build_system_prompt(self) -> str:
-        return """
-        너는 대한민국 정부 정책 공고문을 분석하여 시스템 매칭용 JSON 데이터로 변환하는 전문가야.
-        제공된 텍스트 또는 문서 이미지를 꼼꼼히 분석하여 아래 JSON 구조로 응답해줘.
-        누락 필드는 null 로 채워줘.
-
-        {
-            "target_logic": {
-                "sectors": ["업종리스트"],
-                "min_revenue": null,
-                "max_debt_ratio": null,
-                "target_age": null,
-                "region_restricted": false
-            },
-            "bonus_logic": {
-                "items": [
-                    {"name": "가점항목명", "point": 점수}
-                ]
-            },
-            "ai_summary": "사장님이 이해하기 쉬운 3줄 요약",
-            "ai_full_explanation": "공고 핵심을 친절하게 풀어낸 설명 (비전공자 대상)",
-            "extracted_text": "문서에서 읽어낸 주요 텍스트 원문 (RAG 검색용, 매우 중요)"
-        }
-        """
-
-    async def _call_openai(
-        self, doc_result: dict[str, Any], original_summary: str
-    ) -> dict[str, Any]:
-        """GPT-4o 에게 텍스트 또는 이미지를 전달하고 구조화된 JSON을 받는다."""
-        messages: list[dict] = [
-            {"role": "system", "content": self._build_system_prompt()}
-        ]
-
-        if doc_result["type"] == "text":
-            # 텍스트 모드: 원문 최대 6000자 (토큰 비용 방어)
-            user_content = (
-                f"원본 요약: {original_summary}\n\n"
-                f"공고문 원문:\n{doc_result['data'][:6000]}"
-            )
-            messages.append({"role": "user", "content": user_content})
-
-        else:
-            # Vision 모드: 이미지 리스트를 multipart content 로 조합
-            content_parts: list[dict] = [
-                {
-                    "type": "text",
-                    "text": (
-                        f"원본 요약: {original_summary}\n\n"
-                        "아래 첨부된 공고문 이미지를 읽고 분석해줘."
-                    ),
-                }
-            ]
-            for b64_img in doc_result["data"]:
-                content_parts.append(
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/png;base64,{b64_img}"},
-                    }
-                )
-            messages.append({"role": "user", "content": content_parts})
-
-        response = await self._client.chat.completions.create(
-            model="gpt-4o",
-            messages=messages,
-            response_format={"type": "json_object"},
-        )
-
-        result: dict[str, Any] = json.loads(response.choices[0].message.content)
-
-        # content_raw: RAG 검색용 원문 저장
-        if doc_result["type"] == "text":
-            result["content_raw"] = doc_result["data"]
-        else:
-            # Vision 모드에서는 GPT 가 읽어낸 extracted_text 를 원문으로 저장
-            result["content_raw"] = result.get("extracted_text", original_summary)
-
-        return result

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import random
 import uuid
 from typing import Annotated
 
@@ -189,7 +190,9 @@ async def admin_list_users(
 ):
     data = await svc.list_users(
         admin_id=admin.id,
-        client_ip=_client_ip(request),  # 수정: ip_address → client_ip (service 규약 통일)
+        client_ip=_client_ip(
+            request
+        ),  # 수정: ip_address → client_ip (service 규약 통일)
         page=page,
         size=size,
         search_keyword=search_keyword,
@@ -252,7 +255,9 @@ async def run_policy_sync(
     page_start: int = Query(1, ge=1, description="수집 시작 페이지"),
     page_end: int = Query(1, ge=1, description="수집 종료 페이지 (포함)"),
     rows_per_page: int = Query(100, ge=10, le=1000, description="페이지당 공고 수"),
-    with_ai: bool = Query(False, description="True 이면 첨부파일 파싱 + AI 구조화 실행"),
+    with_ai: bool = Query(
+        False, description="True 이면 첨부파일 파싱 + AI 구조화 실행"
+    ),
     date_from: str | None = Query(None, description="공고 시작일 필터 (YYYYMMDD)"),
     date_to: str | None = Query(None, description="공고 종료일 필터 (YYYYMMDD)"),
 ):
@@ -286,8 +291,17 @@ async def run_policy_sync(
     ),
 )
 async def test_sync_single_policy_endpoint(
-    admin: CurrentAdmin,           # 관리자 권한 검증 추가
-    sync_service: SyncServiceDep,  # policy_deps.py 에서 의존성 주입
+    admin: CurrentAdmin,
+    sync_service: SyncServiceDep,
+    page_no: int | None = Query(
+        None, description="테스트할 페이지 번호 (미입력 시 1~100 랜덤)"
+    ),
 ):
-    result = await sync_service.test_sync_single_policy()
+    # page_no가 없으면 1~100 사이 랜덤 숫자 생성
+    target_page = page_no if page_no is not None else random.randint(1, 100)
+
+    result = await sync_service.test_sync_single_policy(page_no=target_page)
+
+    # 어떤 페이지를 테스트했는지 결과에 추가해서 반환
+    result["tested_page"] = target_page
     return result

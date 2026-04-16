@@ -5,13 +5,17 @@
   1. Engine Agnostic: 서비스 로직은 구체적인 기술(Elasticsearch, FAISS, AI Model)에 의존하지 않습니다.
   2. Testability: Mock 구현체를 통해 실제 인프라 없이도 유닛 테스트가 가능합니다.
   3. Scalability: 향후 RAG 기반 검색이나 ML 기반 추천 엔진으로의 확장을 보장합니다.
+
+참고:
+  정책 공고 AI 구조화(파싱·GPT 분석·Self-Correction)는 PolicySyncAgent 에서 담당합니다.
+  (src/app/agents/policy_sync_agent.py)
 """
 
 from __future__ import annotations
 
 import uuid
 from abc import ABC, abstractmethod
-from typing import Any, Optional, Tuple
+from typing import Optional, Tuple
 
 from src.app.domains.business.model import Business
 from src.app.domains.policy.model import Policy
@@ -64,45 +68,6 @@ class IMatchEngine(ABC):
         policy: Policy,
         business: Business,
     ) -> MatchResult:
-        pass
-
-
-class IPolicyEnricher(ABC):
-    """정책 공고 원문을 분석하여 구조화된 데이터로 변환하는 인터페이스.
-
-    설계 의도:
-      1. OpenAI, Claude 등 AI 모델이나 PDF 파싱 라이브러리를 바꿔도 SyncService는 영향받지 않는다.
-      2. verbose=True 를 주면 각 단계의 진행 로그를 출력 — 테스트·운영 메서드 분리 불필요.
-      3. file_url 파라미터명을 pdf_url 대신 file_url 로 사용해 .hwp/.hwpx/이미지 URL도 수용한다.
-    """
-
-    @abstractmethod
-    async def extract_and_structure(
-        self,
-        file_url: str,
-        original_summary: str,
-        *,
-        filename_hint: str = "",
-        verbose: bool = False,
-    ) -> dict[str, Any]:
-        """공고 첨부파일을 파싱하고 AI를 통해 JSON으로 구조화합니다.
-
-        Args:
-            file_url:        첨부 파일 다운로드 URL (항상 getImageFile.do 형태일 수 있음)
-            original_summary: 공공 API의 bsnsSumryCn (파싱 실패 시 fallback, HTML 제거 후 전달)
-            filename_hint:   printFileNm 필드값 — 실제 파일 확장자 힌트 (예: "공고문.hwp")
-                             바이너리 판별이 모호할 때 ZIP → HWPX 구분에 사용
-            verbose:         True이면 단계별 진행 상황을 logging.INFO 레벨로 출력
-
-        Returns:
-            {
-                "content_raw": "...",        # RAG 검색용 원문
-                "target_logic": {...},       # 사업장 매칭 필터 규칙
-                "bonus_logic": {...},        # 가산점 계산 규칙
-                "ai_summary": "...",         # 3줄 요약
-                "ai_full_explanation": "...",# 친절한 해설
-            }
-        """
         pass
 
 

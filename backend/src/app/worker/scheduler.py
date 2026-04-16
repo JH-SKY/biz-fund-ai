@@ -40,28 +40,28 @@ async def _daily_policy_sync_job() -> None:
       4. 세션은 finally 블록에서 반드시 닫힘
     """
     # 지연 임포트: 순환 참조 방지 및 앱 초기화 이후에만 임포트
+    from src.app.agents.policy_sync_agent import PolicySyncAgent
     from src.app.database.postgres.database import SessionLocal
-    from src.app.domains.policy.infrastructure import OpenAIPolicyEnricher
     from src.app.domains.policy.repository import PolicyRepository
     from src.app.domains.policy.sync_service import BizinfoSyncService
 
-    logger.info("[SCHEDULER] 📅 일일 정책 동기화 배치 시작")
+    logger.info("[SCHEDULER] 일일 정책 동기화 배치 시작")
 
     async with SessionLocal() as session:
         try:
             repo = PolicyRepository(session)
-            enricher = OpenAIPolicyEnricher()
-            svc = BizinfoSyncService(session=session, repo=repo, enricher=enricher)
+            agent = PolicySyncAgent()
+            svc = BizinfoSyncService(session=session, repo=repo, agent=agent)
 
             result = await svc.sync_recent_policies()
 
             logger.info(
-                "[SCHEDULER] ✅ 완료 | 성공: %d | 실패: %d",
+                "[SCHEDULER] 완료 | 성공: %d | DB 실패: %d",
                 result.get("success", 0),
-                result.get("fail", 0),
+                result.get("db_fail", 0),
             )
         except Exception as exc:
-            logger.error("[SCHEDULER] 🚨 배치 실행 중 예외 발생: %s", exc, exc_info=True)
+            logger.error("[SCHEDULER] 배치 실행 중 예외 발생: %s", exc, exc_info=True)
 
 
 def start_scheduler() -> None:
