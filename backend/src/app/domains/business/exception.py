@@ -46,3 +46,36 @@ def document_forbidden() -> HTTPException:
         status_code=403,
         detail="해당 서류에 대한 접근 권한이 없습니다.",
     )
+
+
+def biz_no_closed() -> HTTPException:
+    """폐업 상태 사업자번호 — 정책 지원 불가 (AI 진단 필터링 기준)."""
+    return HTTPException(
+        status_code=422,
+        detail=(
+            "폐업한 사업자번호로는 서비스에 등록할 수 없습니다. "
+            "사업장이 계속사업자 상태인지 확인해 주세요."
+        ),
+    )
+
+
+def biz_no_suspended() -> HTTPException:
+    """휴업 상태 사업자번호 — 등록은 허용하지 않음 (정책 자금 지원 불가)."""
+    return HTTPException(
+        status_code=422,
+        detail=(
+            "현재 휴업 중인 사업자번호입니다. "
+            "정책 지원을 받으려면 사업장이 계속사업자 상태여야 합니다."
+        ),
+    )
+
+
+def biz_no_api_unavailable() -> HTTPException:
+    """국세청 API 점검 중 또는 응답 지연 — 수동 등록(is_manual=True) 안내."""
+    return HTTPException(
+        status_code=503,
+        detail=(
+            "현재 국세청 서버가 응답하지 않습니다. "
+            "잠시 후 다시 시도하거나, '수동 입력 모드'로 등록을 진행해 주세요."
+        ),
+    )

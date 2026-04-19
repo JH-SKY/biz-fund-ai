@@ -6,13 +6,26 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.app.domains.auth.model import SocialProvider
+
 
 # ── 소셜 로그인 공통 ────────────────────────────────────
 
 class SocialLoginRequest(BaseModel):
-    """카카오·네이버 공통 로그인 요청 Body."""
+    """카카오·네이버 공통 로그인 요청 Body. (내부 메서드용)"""
 
     access_token: str = Field(..., description="소셜 플랫폼에서 발급한 Access Token")
+    device_type: str = Field(..., description="클라이언트 디바이스 타입 (WEB / IOS / ANDROID)")
+
+
+class SocialAuthRequest(BaseModel):
+    """POST /auth/social-login 통합 엔드포인트 요청 Body.
+
+    provider 필드 하나로 카카오·네이버를 모두 처리한다.
+    """
+
+    access_token: str = Field(..., description="소셜 플랫폼에서 발급한 Access Token")
+    provider: SocialProvider = Field(..., description="소셜 로그인 제공자 (KAKAO / NAVER)")
     device_type: str = Field(..., description="클라이언트 디바이스 타입 (WEB / IOS / ANDROID)")
 
 
@@ -21,6 +34,24 @@ class SocialLoginResponseData(BaseModel):
     refresh_token: str
     user_id: str
     is_new_user: bool
+
+
+# ── 테스트 전용 로그인 (개발/스테이징 환경 한정) ──────────
+
+class TestLoginRequest(BaseModel):
+    """POST /auth/test-login 전용 요청 Body.
+
+    실제 소셜 서버를 거치지 않고 즉시 JWT를 발급한다.
+    APP_ENV=production 환경에서는 이 엔드포인트 자체가 비노출(404)된다.
+    """
+
+    test_user_key: str = Field(
+        ...,
+        description=(
+            "테스트 유저 식별 키. 동일한 키로 반복 호출하면 같은 유저가 반환된다. "
+            "예: 'alice', 'bob', 'admin_tester'"
+        ),
+    )
 
 
 # ── 로그아웃 ────────────────────────────────────────────

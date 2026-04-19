@@ -88,6 +88,28 @@ class Business(Base):
     profile_score: Mapped[int] = mapped_column(
         Integer, default=0, nullable=False, comment="사업장 정보 완성도 (0~100)"
     )
+    is_biz_no_verified: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=text("false"),
+        nullable=False,
+        comment="국세청 API 진위 확인 완료 여부 (True 이면 재호출 불필요)",
+    )
+    biz_verified_status: Mapped[Optional[str]] = mapped_column(
+        String(30),
+        nullable=True,
+        comment="국세청 반환 사업자 상태 (계속사업자 | 휴업자 | 폐업자 등)",
+    )
+    tax_type: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="국세청 반환 과세 유형 (부가가치세 일반과세자 등)",
+    )
+    biz_verified_at: Mapped[Optional[datetime]] = mapped_column(
+        TIMESTAMP,
+        nullable=True,
+        comment="국세청 API 마지막 검증 시각 (UTC)",
+    )
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, nullable=False, comment="업장 활성 여부 (폐업·삭제 등)"
     )

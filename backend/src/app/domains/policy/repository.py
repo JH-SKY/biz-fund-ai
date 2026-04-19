@@ -20,7 +20,7 @@ from typing import Optional
 
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from src.app.domains.policy.model import Policy, PolicyBookmark, PolicyStatus
+from src.app.domains.policy.model import Policy, PolicyBookmark, PolicyChunk, PolicyStatus
 
 
 class PolicyRepository:
@@ -299,3 +299,103 @@ class PolicyRepository:
             if hasattr(policy, key):
                 setattr(policy, key, value)
         await self._session.flush()
+
+    # ── 4. PolicyChunk (벡터 임베딩 청크) ──────────────────────────────────────
+
+    async def create_chunk(
+        self,
+        *,
+        policy_id: uuid.UUID,
+        chunk_index: int,
+        chunk_type: str,
+        chunk_text: str,
+        embedding: list[float],
+    ) -> PolicyChunk:
+        """정책 청크와 임베딩 벡터를 생성합니다."""
+        chunk = PolicyChunk(
+            policy_id=policy_id,
+            chunk_index=chunk_index,
+            chunk_type=chunk_type,
+            chunk_text=chunk_text,
+            embedding=embedding,
+        )
+        self._session.add(chunk)
+        await self._session.flush()
+        return chunk
+
+    async def delete_chunks_by_policy_id(self, policy_id: uuid.UUID) -> None:
+        """특정 정책의 청크를 전부 삭제합니다 (내용 변경 시 교체 전략)."""
+        stmt = delete(PolicyChunk).where(PolicyChunk.policy_id == policy_id)
+        await self._session.execute(stmt)
+        await self._session.flush()
+
+    async def update_content_hash(self, policy_id: uuid.UUID, content_hash: str) -> None:
+        """임베딩 변경 감지용 content_hash를 업데이트합니다."""
+        stmt = (
+            update(Policy)
+            .where(Policy.id == policy_id)
+            .values(content_hash=content_hash)
+        )
+        await self._session.execute(stmt)
+        await self._session.flush()
+
+    async def get_policies_without_hash(self, limit: int = 500) -> list[Policy]:
+        """content_hash가 없는 정책을 조회합니다 (초기 일괄 임베딩 배치용)."""
+        stmt = (
+            select(Policy)
+            .where(Policy.is_active.is_(True), Policy.content_hash.is_(None))
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def vector_search(
+        self,
+        query_vector: list[float],
+        *,
+        region: Optional[str] = None,
+        category: Optional[str] = None,
+        status: Optional[PolicyStatus] = None,
+        limit: int = 10,
+        offset: int = 0,
+    ) -> list[tuple[Policy, float]]:
+        """
+        [하이브리드 검색] SQL 필터 → 벡터 코사인 유사도 검색을 순서대로 수행합니다.
+
+        설계 의도:
+          - SQL 필터를 먼저 적용하여 관련 없는 지역·카테고리의 정책을 제외합니다.
+          - 필터링된 집합에서만 벡터 거리(Cosine Distance)를 계산하여
+            "부산 IT 지원금" 같은 엉뚱한 결과가 섞이지 않게 합니다.
+          - 한 정책이 여러 청크를 가지므로 MIN(거리) 기준으로 대표값을 선택합니다.
+
+        Returns:
+            [(Policy, cosine_distance), ...] — 거리 오름차순 정렬
+        """
+        # [1] 정책 조건 필터 구성
+        policy_conditions = [Policy.is_active.is_(True)]
+        if region:
+            policy_conditions.append(Policy.region.ilike(f"%{region}%"))
+        if category:
+            policy_conditions.append(Policy.category == category)
+        if status:
+            policy_conditions.append(Policy.status == status)
+
+        # [2] 청크 테이블과 JOIN 후 정책별 최소 코사인 거리 계산
+        #     <=> 연산자: pgvector Cosine Distance (0 = 동일, 2 = 반대)
+        min_dist_label = func.min(
+            PolicyChunk.embedding.cosine_distance(query_vector)
+        ).label("min_dist")
+
+        stmt = (
+            select(Policy, min_dist_label)
+            .join(PolicyChunk, PolicyChunk.policy_id == Policy.id)
+            .where(*policy_conditions)
+            .group_by(Policy.id)
+            .order_by(min_dist_label)
+            .limit(limit)
+            .offset(offset)
+        )
+
+        result = await self._session.execute(stmt)
+        rows = result.all()
+        return [(row[0], float(row[1])) for row in rows]

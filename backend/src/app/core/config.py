@@ -7,6 +7,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# ── 애플리케이션 환경 ────────────────────────────────────
+# .env에서 APP_ENV=production 으로 설정하면 테스트 전용 API가 비활성화된다.
+APP_ENV: str = os.getenv("APP_ENV", "development")
+
 # ── 관리자 JWT ─────────────────────────────────────────
 # 운영 시 반드시 강한 시크릿으로 교체.
 ADMIN_JWT_SECRET: str = os.getenv("ADMIN_JWT_SECRET", "dev-admin-jwt-change-me")

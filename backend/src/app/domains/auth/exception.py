@@ -20,3 +20,11 @@ def invalid_social_token(provider: str) -> HTTPException:
         status_code=401,
         detail=f"유효하지 않거나 만료된 {provider} 토큰입니다.",
     )
+
+
+def unsupported_provider(provider: str) -> HTTPException:
+    """Pydantic enum 검증 이후 도달하는 최후 방어선."""
+    return HTTPException(
+        status_code=400,
+        detail=f"지원하지 않는 소셜 로그인 제공자입니다: {provider}",
+    )

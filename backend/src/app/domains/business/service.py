@@ -19,6 +19,9 @@ from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.domains.auth.model import User
 from src.app.domains.business.exception import (
+    biz_no_api_unavailable,
+    biz_no_closed,
+    biz_no_suspended,
     business_already_registered,
     business_not_found,
     document_forbidden,
@@ -30,6 +33,9 @@ from src.app.domains.business.interfaces import (
     IBizVerificationService,
     IFileStorageService,
     IStatsValidationService,
+    NTS_ERR_TIMEOUT,
+    NTS_ERR_API_ERROR,
+    NTS_ERR_SERVER_CONFIG,
 )
 from src.app.domains.business.model import Business, BusinessFinancialSnapshot
 from src.app.domains.business.repository import BusinessRepository
@@ -154,12 +160,17 @@ class BusinessService:
     # ── 온보딩 ────────────────────────────────────────────────────────────
 
     async def verify_biz_number(self, biz_no: str) -> VerifyBizNumberResponseData:
-        """국세청 진위 확인 API 호출 (상태 조회)"""
+        """[온보딩 2단계] 국세청 진위 확인 API 호출 (상태 조회).
+
+        이 메서드는 프론트엔드 실시간 확인 전용이다. DB 저장은 하지 않는다.
+        최종 등록 시 register_business 에서 검증 결과가 DB에 반영된다.
+        """
         result = await self._biz_verification.verify(biz_no)
         return VerifyBizNumberResponseData(
             is_valid=result.is_valid,
             biz_status=result.biz_status,
             tax_type=result.tax_type,
+            error_code=result.error_code,
         )
 
     async def register_business(
@@ -169,14 +180,61 @@ class BusinessService:
     ) -> OnboardingRegisterResponseData:
         """온보딩: 사업장 최초 등록.
 
-        - 사업자번호 중복 체크
-        - employee_count 입력 시 현재 연도 재무 스냅샷 자동 생성
-        - profile_score 자동 계산
+        [로직 순서]
+        1. 사업자번호 중복 체크 (이미 등록된 활성 사업장)
+        2. 국세청 API 호출하여 상태 확인
+           - is_manual=True 이면 스킵 (API 점검 중 수동 등록 허용)
+           - 이미 동일 biz_no 가 is_biz_no_verified=True 로 DB에 존재하면 재호출 생략
+           - 폐업/휴업 상태면 등록 차단
+           - API 호출 실패(타임아웃·오류) 시 503 반환 → 프론트가 is_manual=True 재시도 유도
+        3. 사업장 생성 + 검증 결과 즉시 저장
+        4. employee_count 입력 시 현재 연도 재무 스냅샷 자동 생성
+        5. profile_score 자동 계산
         """
+        # [1] 중복 체크
         existing = await self._repo.get_business_by_biz_no(body.biz_no)
         if existing is not None:
             raise business_already_registered()
 
+        # [2] 국세청 검증 (is_manual=False 일 때만 수행)
+        is_biz_no_verified = False
+        biz_verified_status: str | None = None
+        tax_type_val: str | None = None
+        verified_at: datetime | None = None
+
+        if not body.is_manual:
+            # 동일 biz_no 에 대해 이미 검증한 이력이 있으면 재호출 생략
+            cached = await self._repo.get_verified_business_by_biz_no(body.biz_no)
+            if cached is not None:
+                is_biz_no_verified = True
+                biz_verified_status = cached.biz_verified_status
+                tax_type_val = cached.tax_type
+                verified_at = cached.biz_verified_at
+            else:
+                result = await self._biz_verification.verify(body.biz_no)
+
+                # API 자체 실패 (타임아웃·HTTP 오류·서버 설정 오류) → 503
+                if result.error_code in (
+                    NTS_ERR_TIMEOUT,
+                    NTS_ERR_API_ERROR,
+                    NTS_ERR_SERVER_CONFIG,
+                ):
+                    raise biz_no_api_unavailable()
+
+                # 폐업 사업자 — 정책 지원 불가, 등록 차단
+                if result.biz_status == "폐업자":
+                    raise biz_no_closed()
+
+                # 휴업 사업자 — 정책 지원 불가, 등록 차단
+                if result.biz_status == "휴업자":
+                    raise biz_no_suspended()
+
+                is_biz_no_verified = result.is_valid
+                biz_verified_status = result.biz_status
+                tax_type_val = result.tax_type
+                verified_at = datetime.now(timezone.utc) if result.is_valid else None
+
+        # [3] 사업장 생성 (검증 결과 포함)
         biz = await self._repo.create_business(
             user_id=user.id,
             biz_name=body.biz_name,
@@ -191,8 +249,13 @@ class BusinessService:
             is_female_ent=body.is_female_ent,
             is_ventured=body.is_ventured,
             profile_score=0,
+            is_biz_no_verified=is_biz_no_verified,
+            biz_verified_status=biz_verified_status,
+            tax_type=tax_type_val,
+            biz_verified_at=verified_at,
         )
 
+        # [4] employee_count 입력 시 현재 연도 재무 스냅샷 자동 생성
         if body.employee_count is not None:
             current_year = datetime.now(timezone.utc).year
             await self._repo.create_financial_snapshot(
@@ -210,6 +273,7 @@ class BusinessService:
                 tax_arrears_yn=False,
             )
 
+        # [5] profile_score 자동 계산
         score = _compute_profile_score(biz)
         await self._repo.update_business(biz, profile_score=score)
         await self._session.commit()

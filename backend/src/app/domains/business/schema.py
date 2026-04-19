@@ -88,6 +88,13 @@ class VerifyBizNumberResponseData(BaseModel):
     is_valid: bool = Field(..., description="유효한 계속사업자 여부")
     biz_status: Optional[str] = Field(None, description="계속사업자, 휴업자, 폐업자 등 국세청 상태")
     tax_type: Optional[str] = Field(None, description="부가가치세 일반과세자 등")
+    error_code: Optional[str] = Field(
+        None,
+        description=(
+            "API 실패 원인 코드. 성공 시 null. "
+            "TIMEOUT | API_ERROR | NO_DATA | NOT_REGISTERED | SERVER_CONFIG"
+        ),
+    )
     # 기획 변경에 따라 company_name, open_date 등은 서버가 주지 않고 유저가 직접 입력합니다.
 
 # ── 사업장 조회 / 수정 ──────────────────────────────────────────────────────

@@ -173,7 +173,7 @@ class PolicySyncAgent:
 
     async def _set_success_node(self, state: PolicySyncState) -> dict:
         if state["debug_mode"]:
-            self._write_debug_file("debug_3_ai_result.json", json.dumps(state["structured_data"], ensure_ascii=False, indent=4))
+            self._write_debug_file("3_ai_result.json", json.dumps(state["structured_data"], ensure_ascii=False, indent=4), origin_id=state["origin_id"])
         logger.info("[%s] SUCCESS — AI 구조화 및 검증 완료", state["origin_id"])
         return {"status": "SUCCESS"}
 
@@ -204,7 +204,7 @@ class PolicySyncAgent:
         file_url = state["file_url"]
 
         if state["debug_mode"] and state["parse_retry_count"] == 0:
-            self._write_debug_file("debug_1_api_raw.json", json.dumps(state["raw_api_data"], ensure_ascii=False, indent=4))
+            self._write_debug_file("1_api_raw.json", json.dumps(state["raw_api_data"], ensure_ascii=False, indent=4), origin_id=origin_id)
 
         # [버그 수정 & 최적화] 파일 URL이 없으면 재시도 없이 즉시 실패 처리 (Fail-Fast)
         # 3번이나 빈 URL을 다운로드하려 시도하는 무의미한 루프를 방지합니다.
@@ -229,7 +229,7 @@ class PolicySyncAgent:
                 extracted = f"[이미지 {len(doc_result['data'])}장 → Vision AI 처리]"
 
             if state["debug_mode"]:
-                self._write_debug_file("debug_2_extracted_text.txt", extracted)
+                self._write_debug_file("2_extracted_text.txt", extracted, origin_id=origin_id)
 
             return {
                 "doc_result": doc_result,
@@ -387,9 +387,14 @@ class PolicySyncAgent:
         return json.loads(response.choices[0].message.content)
 
     @staticmethod
-    def _write_debug_file(filename: str, content: str) -> None:
+    def _write_debug_file(filename: str, content: str, origin_id: str = "") -> None:
+        import os
         try:
-            with open(filename, "w", encoding="utf-8") as f:
+            debug_dir = os.path.join("debug_output", origin_id) if origin_id else "debug_output"
+            os.makedirs(debug_dir, exist_ok=True)
+            filepath = os.path.join(debug_dir, filename)
+            with open(filepath, "w", encoding="utf-8") as f:
                 f.write(content)
+            logger.debug("[DEBUG] 파일 저장 완료: %s", filepath)
         except OSError as exc:
             logger.warning("[DEBUG] 파일 저장 실패 (%s): %s", filename, exc)

@@ -19,6 +19,7 @@ from src.app.domains.auth.exception import (
     auth_unauthorized,
     invalid_social_token,
     social_api_error,
+    unsupported_provider,
 )
 from src.app.domains.auth.model import SocialProvider, User
 from src.app.domains.auth.repository import AuthRepository
@@ -26,8 +27,10 @@ from src.app.domains.auth.schema import (
     MyProfileData,
     ProfilePatchRequest,
     ProfilePatchResponseData,
+    SocialAuthRequest,
     SocialLoginRequest,
     SocialLoginResponseData,
+    TestLoginRequest,
 )
 
 if TYPE_CHECKING:
@@ -100,6 +103,26 @@ class AuthService:
             is_new_user=should_redirect_to_onboarding,
         )
 
+    # ── 소셜 로그인 통합 퍼사드 ───────────────────────────
+
+    async def social_login(self, body: SocialAuthRequest) -> SocialLoginResponseData:
+        """provider 필드로 카카오/네이버 로그인을 분기하는 통합 진입점.
+
+        라우터는 이 메서드만 호출한다. 내부 구현 교체 시 라우터를 건드릴 필요 없음.
+        """
+        login_req = SocialLoginRequest(
+            access_token=body.access_token,
+            device_type=body.device_type,
+        )
+        if body.provider == SocialProvider.KAKAO:
+            return await self.kakao_login(login_req)
+        if body.provider == SocialProvider.NAVER:
+            return await self.naver_login(login_req)
+
+        # SocialProvider enum이 Pydantic 레이어에서 먼저 검증되므로 실질적으로 도달 불가.
+        # 향후 enum 확장 시 누락 분기 방지용 방어 코드.
+        raise unsupported_provider(body.provider.value)
+
     # ── 카카오 로그인 ──────────────────────────────────────
 
     async def kakao_login(self, body: SocialLoginRequest) -> SocialLoginResponseData:
@@ -134,57 +157,8 @@ class AuthService:
             profile_image_url=image,
         )
 
-    # # ── 네이버 로그인 실제코드 ──────────────────────────────────────
-
-    # async def naver_login(self, body: SocialLoginRequest) -> SocialLoginResponseData:
-    #     """네이버 Access Token → 유저 프로필 조회 → 로그인/가입."""
-    #     try:
-    #         async with httpx.AsyncClient(timeout=10.0) as client:
-    #             resp = await client.get(
-    #                 NAVER_PROFILE_URL,
-    #                 headers={"Authorization": f"Bearer {body.access_token}"},
-    #             )
-    #     except httpx.RequestError:
-    #         raise social_api_error("네이버")
-
-    #     if resp.status_code == 401:
-    #         raise invalid_social_token("네이버")
-    #     if resp.status_code != 200:
-    #         raise social_api_error("네이버")
-
-    #     data = resp.json()
-    #     if data.get("resultcode") != "00":
-    #         raise invalid_social_token("네이버")
-    #     profile = data.get("response", {})
-    #     social_id: str = str(profile.get("id", ""))
-    #     email: str = profile.get("email", f"{social_id}@naver.local")
-    #     name: str = profile.get("name") or "네이버 사용자"
-    #     image: str | None = profile.get("profile_image")
-
-    #     return await self._social_login(
-    #         social_id=social_id,
-    #         provider=SocialProvider.NAVER,
-    #         email=email,
-    #         name=name,
-    #         profile_image_url=image,
-    #     )
-
-    # ── 네이버 로그인 테스트 추가코드 ──────────────────────────────────────
-
     async def naver_login(self, body: SocialLoginRequest) -> SocialLoginResponseData:
         """네이버 Access Token → 유저 프로필 조회 → 로그인/가입."""
-        # ── [테스트용 뒷문 시작] ────────────────────────────
-
-        # 1. 만약 포스트맨에서 'naver_test'라고 토큰을 보내면 네이버에 안 물어봅니다.
-        if body.access_token == "naver_test":
-            return await self._social_login(
-                social_id="test_12345",
-                provider=SocialProvider.NAVER,
-                email="ryan_test@naver.com",  # 테스트하고 싶은 이메일
-                name="테스터라이언",
-                profile_image_url=None,
-            )
-        # ── [테스트용 뒷문 끝] ──────────────────────────────
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.get(
@@ -214,6 +188,26 @@ class AuthService:
             email=email,
             name=name,
             profile_image_url=image,
+        )
+
+    # ── 테스트 전용 로그인 (개발/스테이징 환경 한정) ──────────
+
+    async def test_login(self, body: TestLoginRequest) -> SocialLoginResponseData:
+        """실제 소셜 서버 없이 즉시 JWT를 발급하는 개발 전용 메서드.
+
+        동일한 test_user_key로 반복 호출하면 항상 같은 유저가 반환되므로
+        특정 유저 상태(신규/기존/온보딩 완료)를 재현하기 용이하다.
+
+        라우터 레이어에서 APP_ENV 검사를 마친 뒤 호출되므로
+        이 메서드 자체는 환경을 재검사하지 않는다.
+        """
+        key = body.test_user_key.strip().lower()
+        return await self._social_login(
+            social_id=f"test_{key}",
+            provider=SocialProvider.KAKAO,
+            email=f"{key}@test.local",
+            name=f"테스트유저_{key}",
+            profile_image_url=None,
         )
 
     # ── 로그아웃 ───────────────────────────────────────────

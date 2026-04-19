@@ -153,6 +153,49 @@ async def search_policies(
     )
 
 
+# ── 4-2. 정책 벡터(하이브리드) 검색 ──────────────────────────────────────────
+# ⚠️ /vector-search 는 /{policy_id} 보다 앞에 선언 (경로 충돌 방지)
+
+
+@router.get("/vector-search")
+async def vector_search_policies(
+    svc: PolicyServiceDep,
+    business_id: OptionalBusinessId,
+    query: str = Query(..., min_length=2, description="자연어 검색 쿼리 (예: 서울 IT 기업 지원금)"),
+    region: str | None = Query(None, description="지역 필터 (예: 서울) — SQL 필터 우선 적용"),
+    category: str | None = Query(None, description="카테고리 필터 (예: 금융)"),
+    status_filter: str | None = Query("RECRUITING", description="공고 상태 (기본: RECRUITING)"),
+    limit: int = Query(10, ge=1, le=50, description="반환할 최대 결과 수"),
+    offset: int = Query(0, ge=0, description="페이지 오프셋"),
+):
+    """
+    [하이브리드 검색] 자연어 쿼리를 임베딩하고 SQL 필터 + 벡터 유사도로 정책을 검색합니다.
+
+    처리 흐름:
+      1. 쿼리를 text-embedding-3-small로 임베딩합니다.
+      2. SQL 필터(지역·카테고리·상태)를 먼저 적용합니다.
+      3. 필터된 범위에서 Cosine Similarity 기준으로 정렬하여 반환합니다.
+
+    일반 키워드 검색(/search)과의 차이:
+      - 동의어·의미적 유사성을 이해합니다. (예: '청년 창업' → '예비창업자 지원')
+      - region/category 필터를 반드시 함께 사용하면 검색 품질이 향상됩니다.
+    """
+    data = await svc.vector_search_policies(
+        query,
+        region=region,
+        category=category,
+        status_filter=status_filter,
+        limit=limit,
+        offset=offset,
+        business_id=business_id,
+    )
+    return api_json(
+        http_status=status.HTTP_200_OK,
+        data=data.model_dump(),
+        message="success",
+    )
+
+
 # ── 5. 정책 상세 정보 조회 ─────────────────────────────────────────────────
 
 

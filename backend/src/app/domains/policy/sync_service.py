@@ -11,8 +11,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import math
+import os
 import asyncio  # 병렬 처리를 위해 추가
 from datetime import date, datetime
 from typing import Any
@@ -24,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.agents.policy_sync_agent import PolicySyncAgent
 from src.app.core.config import BIZINFO_API_KEY
+from src.app.domains.policy.embedding_service import PolicyEmbeddingService
 from src.app.domains.policy.infrastructure import clean_html_text
 from src.app.domains.policy.model import Policy, PolicyStatus
 from src.app.domains.policy.repository import PolicyRepository
@@ -45,10 +48,12 @@ class BizinfoSyncService:
         session: AsyncSession,
         repo: PolicyRepository,
         agent: PolicySyncAgent,
+        embedding_service: PolicyEmbeddingService | None = None,
     ) -> None:
         self._session = session
         self._repo = repo
         self._agent = agent
+        self._embedding_service = embedding_service
 
     async def run_policy_sync(
         self,
@@ -58,6 +63,7 @@ class BizinfoSyncService:
         page_end: int = 1,
         rows_per_page: int = 100,
         with_ai: bool = False,
+        with_embedding: bool = False,
         date_from: str | None = None,
         date_to: str | None = None,
     ) -> dict[str, Any]:
@@ -71,6 +77,10 @@ class BizinfoSyncService:
             total_count=0,
             success_count=0,
             fail_count=0,
+            api_error_count=0,
+            parse_error_count=0,
+            analysis_error_count=0,
+            db_fail_count=0,
         )
         self._session.add(batch)
         await self._session.commit()
@@ -78,6 +88,7 @@ class BizinfoSyncService:
 
         total_items = 0
         success_count = 0
+        api_error_count = 0
         parse_error_count = 0
         analysis_error_count = 0
         db_fail_count = 0
@@ -93,7 +104,8 @@ class BizinfoSyncService:
                         date_to=date_to,
                     )
                 except Exception as page_err:
-                    error_log.append({"page": page_no, "error": str(page_err)})
+                    api_error_count += 1
+                    error_log.append({"stage": "API", "page": page_no, "reason": str(page_err)})
                     continue
 
                 if not raw_items:
@@ -116,22 +128,26 @@ class BizinfoSyncService:
                         return await self._process_single_item(
                             item=item,
                             with_ai=with_ai,
+                            with_embedding=with_embedding,
                             job_name=job_name,
                         )
 
                 results = await asyncio.gather(*[sem_process(item) for item in unique_items])
 
-                # 결과 집계
+                # 결과 집계 — DB 성공 여부와 무관하게 AI 실패도 error_log에 기록
                 for ai_status, db_ok, err_info in results:
                     if db_ok:
-                        # DB 저장이 성공한 경우에만 성공 카운트
                         if with_ai:
                             if ai_status == "SUCCESS":
                                 success_count += 1
                             elif ai_status == "PARSE_ERROR":
                                 parse_error_count += 1
+                                if err_info:
+                                    error_log.append(err_info)
                             elif ai_status == "ANALYSIS_ERROR":
                                 analysis_error_count += 1
+                                if err_info:
+                                    error_log.append(err_info)
                         else:
                             success_count += 1
                     else:
@@ -153,7 +169,16 @@ class BizinfoSyncService:
                 with_ai=with_ai,
             )
 
-            fail_count = parse_error_count + analysis_error_count + db_fail_count
+            fail_count = api_error_count + parse_error_count + analysis_error_count + db_fail_count
+            error_details = {
+                "summary": {
+                    "api": api_error_count,
+                    "parse": parse_error_count,
+                    "analysis": analysis_error_count,
+                    "db": db_fail_count,
+                },
+                "items": error_log[:100],
+            } if error_log else None
             await self._session.execute(
                 sa_update(BatchLog)
                 .where(BatchLog.id == batch_id)
@@ -162,7 +187,11 @@ class BizinfoSyncService:
                     total_count=total_items,
                     success_count=success_count,
                     fail_count=fail_count,
-                    error_details={"errors": error_log[:50]} if error_log else None,
+                    api_error_count=api_error_count,
+                    parse_error_count=parse_error_count,
+                    analysis_error_count=analysis_error_count,
+                    db_fail_count=db_fail_count,
+                    error_details=error_details,
                     finished_at=datetime.utcnow(),
                 )
             )
@@ -172,6 +201,7 @@ class BizinfoSyncService:
                 "status": "success",
                 "total": total_items,
                 "success": success_count,
+                "api_error": api_error_count,
                 "parse_error": parse_error_count,
                 "analysis_error": analysis_error_count,
                 "db_fail": db_fail_count,
@@ -181,7 +211,7 @@ class BizinfoSyncService:
             await self._session.rollback()
             logger.error("[%s] 치명적 오류 — 트랜잭션 롤백: %s", job_name, fatal_err)
             
-            fail_count = parse_error_count + analysis_error_count + db_fail_count
+            fail_count = api_error_count + parse_error_count + analysis_error_count + db_fail_count
             await self._session.execute(
                 sa_update(BatchLog)
                 .where(BatchLog.id == batch_id)
@@ -190,7 +220,20 @@ class BizinfoSyncService:
                     total_count=total_items,
                     success_count=success_count,
                     fail_count=fail_count,
-                    error_details={"fatal_error": str(fatal_err)},
+                    api_error_count=api_error_count,
+                    parse_error_count=parse_error_count,
+                    analysis_error_count=analysis_error_count,
+                    db_fail_count=db_fail_count,
+                    error_details={
+                        "summary": {
+                            "api": api_error_count,
+                            "parse": parse_error_count,
+                            "analysis": analysis_error_count,
+                            "db": db_fail_count,
+                        },
+                        "fatal_error": str(fatal_err),
+                        "items": error_log[:100],
+                    },
                     finished_at=datetime.utcnow(),
                 )
             )
@@ -202,6 +245,7 @@ class BizinfoSyncService:
         *,
         item: dict[str, Any],
         with_ai: bool,
+        with_embedding: bool = False,
         job_name: str,
         debug_mode: bool = False,
     ) -> tuple[str, bool, dict[str, Any] | None]:
@@ -230,6 +274,7 @@ class BizinfoSyncService:
         ai_status = "N/A"
         content_raw = fallback_content_raw
         enriched: dict[str, Any] = {}
+        ai_err_info: dict[str, Any] | None = None
 
         if with_ai:
             agent_state = await self._agent.run(
@@ -244,6 +289,22 @@ class BizinfoSyncService:
             if ai_status == "SUCCESS":
                 enriched = agent_state["structured_data"]
                 content_raw = enriched.get("content_raw", fallback_content_raw)
+            elif ai_status == "PARSE_ERROR":
+                retry_count = agent_state.get("parse_retry_count", 0)
+                ai_err_info = {
+                    "stage": "PARSE",
+                    "origin_id": origin_id,
+                    "title": title,
+                    "reason": f"첨부파일 텍스트 추출 실패 ({retry_count}회 시도) — fallback 저장",
+                }
+            elif ai_status == "ANALYSIS_ERROR":
+                validation_errors = agent_state.get("validation_errors") or []
+                ai_err_info = {
+                    "stage": "ANALYSIS",
+                    "origin_id": origin_id,
+                    "title": title,
+                    "reason": ", ".join(validation_errors) if validation_errors else "AI 검증 실패 (최대 재시도 초과)",
+                }
 
         # [5] DB Upsert - 동적 필드 구성 (기존 데이터 보호 핵심)
         values = {
@@ -298,9 +359,34 @@ class BizinfoSyncService:
                     )
                 )
                 await self._session.execute(stmt)
-            return ai_status, True, None
+
+                # [6] 임베딩 트리거 — DB 저장 성공 후, 내용이 변경된 경우에만 실행
+                # savepoint 내부에서 실행하여 실패 시 upsert도 롤백되도록 격리합니다.
+                if with_embedding and self._embedding_service is not None:
+                    policy = await self._repo.get_policy_by_origin_id(origin_id)
+                    if policy:
+                        try:
+                            await self._embedding_service.sync_policy_chunks(
+                                policy_id=policy.id,
+                                content_raw=content_raw,
+                                policy_title=title,
+                                agency_name=values.get("agency_name", ""),
+                                support_type=values.get("support_type", ""),
+                            )
+                        except Exception as emb_err:
+                            # 임베딩 실패는 경고 로그만 남기고 DB 저장은 유지합니다.
+                            logger.warning(
+                                "[%s] 임베딩 실패 (DB 저장은 유지됨): %s", origin_id, emb_err
+                            )
+
+            return ai_status, True, ai_err_info
         except Exception as db_err:
-            return ai_status, False, {"origin_id": origin_id, "error": str(db_err)}
+            return ai_status, False, {
+                "stage": "DB",
+                "origin_id": origin_id,
+                "title": title,
+                "reason": str(db_err),
+            }
 
     async def bootstrap_historical_policies(self, total_count: int = 1000, *, with_ai: bool = False) -> dict[str, Any]:
         page_end = math.ceil(total_count / 100)
@@ -325,11 +411,71 @@ class BizinfoSyncService:
         raw_items = await self._fetch_single_page(page_no=page_no, rows_per_page=1, date_from=None, date_to=None)
         if not raw_items:
             return {"status": "no_items"}
-        
+
+        item = raw_items[0]
+        origin_id = item.get("pblancId", "UNKNOWN")
+
         ai_status, db_ok, err_info = await self._process_single_item(
-            item=raw_items[0], with_ai=True, job_name=f"TEST_{page_no}", debug_mode=True
+            item=item, with_ai=True, with_embedding=True, job_name=f"TEST_{page_no}", debug_mode=True
         )
-        return {"status": "success" if db_ok else "db_fail", "ai_status": ai_status, "db_saved": db_ok, "error": err_info}
+
+        debug_output_dir = None
+        if db_ok:
+            await self._session.commit()
+            await self._save_debug_db_snapshot(origin_id)
+            debug_output_dir = os.path.join("debug_output", origin_id)
+
+        return {
+            "status": "success" if db_ok else "db_fail",
+            "ai_status": ai_status,
+            "db_saved": db_ok,
+            "error": err_info,
+            "debug_output_dir": debug_output_dir,
+        }
+
+    async def _save_debug_db_snapshot(self, origin_id: str) -> None:
+        """DB에 실제 저장된 policy 레코드를 4_db_saved.json으로 스냅샷합니다."""
+        try:
+            policy = await self._repo.get_policy_by_origin_id(origin_id)
+            if policy is None:
+                logger.warning("[DEBUG] DB 스냅샷 실패 — origin_id=%s 조회 결과 없음", origin_id)
+                return
+
+            snapshot = {
+                "id": str(policy.id),
+                "origin_id": policy.origin_id,
+                "title": policy.title,
+                "agency_name": policy.agency_name,
+                "category": policy.category,
+                "support_type": policy.support_type,
+                "region": policy.region,
+                "start_date": str(policy.start_date) if policy.start_date else None,
+                "end_date": str(policy.end_date) if policy.end_date else None,
+                "closed_at": str(policy.closed_at),
+                "status": policy.status.value if policy.status else None,
+                "apply_url": policy.apply_url,
+                "content_raw": policy.content_raw,
+                "ai_summary": policy.ai_summary,
+                "ai_full_explanation": policy.ai_full_explanation,
+                "target_logic": policy.target_logic,
+                "bonus_logic": policy.bonus_logic,
+                "required_documents": policy.required_documents,
+                "max_support": policy.max_support,
+                "min_support": policy.min_support,
+                "support_amount_desc": policy.support_amount_desc,
+                "is_active": policy.is_active,
+                "view_count": policy.view_count,
+                "created_at": str(policy.created_at) if policy.created_at else None,
+            }
+
+            debug_dir = os.path.join("debug_output", origin_id)
+            os.makedirs(debug_dir, exist_ok=True)
+            filepath = os.path.join(debug_dir, "4_db_saved.json")
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(snapshot, f, ensure_ascii=False, indent=4)
+            logger.info("[DEBUG] DB 스냅샷 저장 완료: %s", filepath)
+        except Exception as exc:
+            logger.warning("[DEBUG] DB 스냅샷 저장 실패 (origin_id=%s): %s", origin_id, exc)
 
     async def _fetch_single_page(self, *, page_no: int, rows_per_page: int, date_from: str | None, date_to: str | None) -> list[dict]:
         params = {"serviceKey": BIZINFO_API_KEY, "dataType": "json", "numOfRows": rows_per_page, "pageNo": page_no}

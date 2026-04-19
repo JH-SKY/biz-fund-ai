@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Optional, Type, TypeVar
 
 from sqlalchemy import select, Select
@@ -64,6 +64,20 @@ class BusinessRepository:
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_verified_business_by_biz_no(self, biz_no: str) -> Business | None:
+        """국세청 API 검증이 완료된(is_biz_no_verified=True) 사업장 조회.
+
+        동일 사업자번호에 대해 이미 검증 이력이 있으면 API 재호출을 생략하기 위해 사용한다.
+        활성 여부(is_active)는 무관하게 조회하므로 _base_query 대신 직접 select를 사용한다.
+        """
+        stmt = (
+            select(Business)
+            .where(Business.biz_no == biz_no, Business.is_biz_no_verified.is_(True))
+            .limit(1)
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def create_business(
         self,
         *,
@@ -80,6 +94,10 @@ class BusinessRepository:
         is_female_ent: bool,
         is_ventured: bool,
         profile_score: int,
+        is_biz_no_verified: bool = False,
+        biz_verified_status: Optional[str] = None,
+        tax_type: Optional[str] = None,
+        biz_verified_at: Optional[datetime] = None,
     ) -> Business:
         """3. 새 사업장 그릇 만들기:
         사장님이 입력한 정보를 바탕으로 새로운 사업장 레코드를 생성하고 '활성(True)' 상태로 저장해요.
@@ -99,11 +117,35 @@ class BusinessRepository:
             is_ventured=is_ventured,
             profile_score=profile_score,
             is_active=True,
+            is_biz_no_verified=is_biz_no_verified,
+            biz_verified_status=biz_verified_status,
+            tax_type=tax_type,
+            biz_verified_at=biz_verified_at,
         )
         self._session.add(biz)
         await self._session.flush()
         await self._session.refresh(biz)
         return biz
+
+    async def update_biz_verification(
+        self,
+        biz: Business,
+        *,
+        is_biz_no_verified: bool,
+        biz_verified_status: Optional[str],
+        tax_type: Optional[str],
+        biz_verified_at: datetime,
+    ) -> None:
+        """국세청 API 검증 결과를 사업장 레코드에 반영한다.
+
+        [설계 의도] Service 레이어에서 API 응답 후 즉시 호출하여
+        다음 요청 시 불필요한 재호출을 막는 캐시 역할을 DB가 수행하도록 한다.
+        """
+        biz.is_biz_no_verified = is_biz_no_verified
+        biz.biz_verified_status = biz_verified_status
+        biz.tax_type = tax_type
+        biz.biz_verified_at = biz_verified_at
+        await self._session.flush()
 
     async def update_business(
         self,

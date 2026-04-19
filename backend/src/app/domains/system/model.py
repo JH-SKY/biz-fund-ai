@@ -84,10 +84,26 @@ class BatchLog(Base):
         Integer, nullable=False, comment="성공 반영 건수"
     )
     fail_count: Mapped[int] = mapped_column(
-        Integer, nullable=False, comment="실패 건수"
+        Integer, nullable=False, comment="실패 건수 (api+parse+analysis+db 합산)"
+    )
+    api_error_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0"),
+        comment="API 페이지 요청 자체 실패 건수",
+    )
+    parse_error_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0"),
+        comment="첨부파일 텍스트 추출 실패 건수",
+    )
+    analysis_error_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0"),
+        comment="AI 분석·검증 실패 건수",
+    )
+    db_fail_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0"),
+        comment="DB upsert 실패 건수",
     )
     error_details: Mapped[Optional[Any]] = mapped_column(
-        JSONB, nullable=True, comment="오류 상세 (JSON)"
+        JSONB, nullable=True, comment="단계별 에러 요약 및 항목 목록 (JSON)"
     )
     started_at: Mapped[datetime] = mapped_column(
         TIMESTAMP,

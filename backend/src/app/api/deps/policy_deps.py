@@ -19,7 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.agents.policy_sync_agent import PolicySyncAgent
 from src.app.database.postgres.database import get_db
-from src.app.domains.policy.interfaces import MockMatchEngine, RDBPolicySearcher
+from src.app.domains.policy.embedding_service import PolicyEmbeddingService
+from src.app.domains.policy.interfaces import MockMatchEngine, RDBPolicySearcher, VectorPolicySearcher
 from src.app.domains.policy.repository import PolicyRepository
 from src.app.domains.policy.service import PolicyService
 from src.app.domains.policy.sync_service import BizinfoSyncService
@@ -39,12 +40,22 @@ async def get_policy_service(
 ) -> PolicyService:
     searcher = RDBPolicySearcher(repo)
     match_engine = MockMatchEngine()
+    vector_searcher = VectorPolicySearcher(repo)
     return PolicyService(
         session=db,
         repo=repo,
         searcher=searcher,
         match_engine=match_engine,
+        vector_searcher=vector_searcher,
     )
+
+
+async def get_embedding_service(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    repo: Annotated[PolicyRepository, Depends(get_policy_repo)],
+) -> PolicyEmbeddingService:
+    """PolicyEmbeddingService — 청킹·임베딩 전용 서비스를 반환합니다."""
+    return PolicyEmbeddingService(db, repo)
 
 
 # ── X-Business-Id 헤더 파싱 ────────────────────────────────────────────────
@@ -88,13 +99,14 @@ async def get_sync_service(
     db: Annotated[AsyncSession, Depends(get_db)],
     repo: Annotated[PolicyRepository, Depends(get_policy_repo)],
 ) -> BizinfoSyncService:
-    """BizinfoSyncService 에 PolicySyncAgent 를 주입하여 반환한다.
+    """BizinfoSyncService 에 PolicySyncAgent 와 PolicyEmbeddingService 를 주입하여 반환한다.
 
     PolicySyncAgent 는 내부에서 AsyncOpenAI 클라이언트를 생성한다.
     그래프는 __init__ 시 1회 컴파일되므로 요청마다 재컴파일 비용이 없다.
     """
     agent = PolicySyncAgent()
-    return BizinfoSyncService(db, repo, agent)
+    embedding_service = PolicyEmbeddingService(db, repo)
+    return BizinfoSyncService(db, repo, agent, embedding_service)
 
 
 # ── 편의 타입 별칭 ─────────────────────────────────────────────────────────
@@ -102,3 +114,4 @@ PolicyServiceDep = Annotated[PolicyService, Depends(get_policy_service)]
 OptionalBusinessId = Annotated[Optional[uuid.UUID], Depends(get_optional_business_id)]
 RequiredBusinessId = Annotated[uuid.UUID, Depends(get_required_business_id)]
 SyncServiceDep = Annotated[BizinfoSyncService, Depends(get_sync_service)]
+EmbeddingServiceDep = Annotated[PolicyEmbeddingService, Depends(get_embedding_service)]

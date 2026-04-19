@@ -128,3 +128,69 @@ class MockMatchEngine(IMatchEngine):
             match_score=round(score, 1),
             reason=reason,
         )
+
+
+# ── 벡터 검색 인터페이스 ───────────────────────────────────────────────────────
+
+
+class IVectorSearcher(ABC):
+    """
+    pgvector 기반 하이브리드 검색 엔진의 표준 인터페이스.
+
+    설계 의도:
+      - SQL 필터(region, category, status) + 벡터 코사인 유사도 검색을 결합합니다.
+      - 미래에 Elasticsearch나 다른 벡터 DB로 교체 시 이 인터페이스만 재구현합니다.
+    """
+
+    @abstractmethod
+    async def search(
+        self,
+        query_vector: list[float],
+        *,
+        region: Optional[str] = None,
+        category: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: int = 10,
+        offset: int = 0,
+    ) -> list[tuple[Policy, float]]:
+        """
+        Returns:
+            [(Policy, cosine_distance), ...] — 유사도 오름차순 정렬.
+        """
+
+
+class VectorPolicySearcher(IVectorSearcher):
+    """
+    pgvector를 사용한 하이브리드 검색 구현체.
+
+    처리 흐름:
+      [1] SQL WHERE 절로 region, category, status를 필터링합니다.
+      [2] 남은 정책의 청크(policy_chunks)에서 쿼리 벡터와의 코사인 거리를 계산합니다.
+      [3] 정책별 최소 거리(MIN)로 집계하여 대표값을 선정합니다.
+      [4] 거리 오름차순 정렬 후 limit만큼 반환합니다.
+    """
+
+    def __init__(self, repo: PolicyRepository) -> None:
+        self._repo = repo
+
+    async def search(
+        self,
+        query_vector: list[float],
+        *,
+        region: Optional[str] = None,
+        category: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: int = 10,
+        offset: int = 0,
+    ) -> list[tuple[Policy, float]]:
+        from src.app.domains.policy.model import PolicyStatus
+
+        status_enum = PolicyStatus(status) if status else None
+        return await self._repo.vector_search(
+            query_vector,
+            region=region,
+            category=category,
+            status=status_enum,
+            limit=limit,
+            offset=offset,
+        )

@@ -10,7 +10,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, Request
 
 from src.app.api.deps.admin_auth import CurrentAdmin, get_admin_service
-from src.app.api.deps.policy_deps import SyncServiceDep
+from src.app.api.deps.policy_deps import EmbeddingServiceDep, PolicyServiceDep, SyncServiceDep
 from src.app.core.response import api_json
 from src.app.domains.admin.schema import (
     AdminLoginRequest,
@@ -286,8 +286,10 @@ async def run_policy_sync(
         "1. API 에서 최신 공고 1건 수집\n"
         "2. 첨부파일(PDF/HWP/이미지) 다운로드 및 파싱\n"
         "3. GPT-4o 로 구조화(target_logic, bonus_logic, ai_summary)\n"
-        "4. DB upsert 후 결과 반환\n\n"
-        "서버 콘솔 로그에서 단계별 진행 상황을 확인할 수 있습니다."
+        "4. DB upsert 후 결과 반환\n"
+        "5. 임베딩 청킹 + 벡터 저장 (pgvector)\n\n"
+        "서버 콘솔 로그에서 단계별 진행 상황을 확인할 수 있습니다.\n"
+        "`debug_output/{origin_id}/` 폴더에 단계별 파일이 저장됩니다."
     ),
 )
 async def test_sync_single_policy_endpoint(
@@ -305,3 +307,69 @@ async def test_sync_single_policy_endpoint(
     # 어떤 페이지를 테스트했는지 결과에 추가해서 반환
     result["tested_page"] = target_page
     return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 임베딩 엔드포인트 (Policy Embedding)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.post(
+    "/policies/embed/all",
+    summary="[임베딩] 미임베딩 정책 일괄 벡터화",
+    tags=["Admin - Embedding"],
+    description=(
+        "content_hash가 없는 정책(아직 임베딩 안 된 것)을 최대 `limit`건 일괄 처리합니다.\n\n"
+        "처리 흐름:\n"
+        "  1. content_hash=NULL 인 정책을 조회합니다.\n"
+        "  2. 각 정책의 content_raw를 섹션별 청킹합니다.\n"
+        "  3. OpenAI text-embedding-3-small API로 벡터를 생성합니다.\n"
+        "  4. policy_chunks 테이블에 저장합니다.\n\n"
+        "처음 서비스를 세팅하거나 DB를 복구한 후에 실행하세요."
+    ),
+)
+async def embed_all_unembedded_policies(
+    _: CurrentAdmin,
+    embedding_svc: EmbeddingServiceDep,
+    limit: int = Query(500, ge=1, le=2000, description="한 번에 처리할 최대 정책 수"),
+):
+    result = await embedding_svc.sync_all_unembedded(limit=limit)
+    return api_json(http_status=200, data=result)
+
+
+@router.post(
+    "/policies/{policy_id}/embed",
+    summary="[임베딩] 특정 정책 단건 재벡터화",
+    tags=["Admin - Embedding"],
+    description=(
+        "특정 정책 1건의 content_raw를 강제로 재임베딩합니다.\n\n"
+        "- `force=true`이면 content_hash 변경 여부와 무관하게 재임베딩합니다.\n"
+        "- 공고 내용이 수동 수정된 후 벡터를 갱신할 때 사용합니다."
+    ),
+)
+async def embed_single_policy(
+    policy_id: uuid.UUID,
+    _: CurrentAdmin,
+    embedding_svc: EmbeddingServiceDep,
+    policy_svc: PolicyServiceDep,
+    force: bool = Query(False, description="True이면 해시 비교 없이 강제 재임베딩"),
+):
+    policy = await policy_svc.get_policy_by_id_internal(policy_id)
+    if policy is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="정책을 찾을 수 없습니다.")
+
+    changed = await embedding_svc.sync_policy_chunks(
+        policy_id=policy_id,
+        content_raw=policy.content_raw,
+        policy_title=policy.title or "",
+        agency_name=policy.agency_name or "",
+        support_type=policy.support_type or "",
+        force=force,
+    )
+    await embedding_svc._session.commit()
+    return api_json(
+        http_status=200,
+        data={"policy_id": str(policy_id), "re_embedded": changed},
+        message="임베딩 완료" if changed else "변경 없음 (스킵)",
+    )

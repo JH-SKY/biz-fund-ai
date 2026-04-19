@@ -15,12 +15,26 @@ RAG/LangGraph 연동 준비:
 
 from __future__ import annotations
 
-import os
+import logging
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import httpx
 from src.app.core.config import NTS_API_KEY
+
+logger = logging.getLogger(__name__)
+
+# 국세청 API 호출 타임아웃 (초). 점검 시 응답 지연을 방어한다.
+_NTS_TIMEOUT_SECONDS: float = 5.0
+
+# 국세청 API 에러 코드 상수 — schema/service에서 분기 판단에 사용
+NTS_ERR_TIMEOUT = "TIMEOUT"            # 응답 없음 / 점검 중
+NTS_ERR_API_ERROR = "API_ERROR"        # HTTP 4xx/5xx
+NTS_ERR_NO_DATA = "NO_DATA"            # 조회 결과 없음
+NTS_ERR_NOT_REGISTERED = "NOT_REGISTERED"  # 국세청 미등록 번호
+NTS_ERR_SERVER_CONFIG = "SERVER_CONFIG"    # 서버 환경 변수 누락
+
+
 # ── 데이터 클래스 (내부 통신 DTO) ──────────────────────────────────────────
 
 
@@ -28,14 +42,18 @@ from src.app.core.config import NTS_API_KEY
 class BizVerificationResult:
     """국세청 진위 확인 / 상태조회 결과.
 
-    - nts_status_row: 공공데이터포털 「사업자등록정보 상태조회 API」 응답의
-      `data` 배열 원소와 동일한 키를 갖는 dict (문서·샘플 기준).
-      실연동 시 파서가 이 dict를 채우고, 프론트는 기존 필드 + 원본 행을 동시에 쓸 수 있다.
+    error_code: 실패 원인 코드. None 이면 정상 응답.
+      - NTS_ERR_TIMEOUT        : 국세청 API 응답 없음 (점검 / 느린 응답)
+      - NTS_ERR_API_ERROR      : HTTP 오류 응답
+      - NTS_ERR_NO_DATA        : data 배열이 비어 있음
+      - NTS_ERR_NOT_REGISTERED : 국세청 미등록 사업자번호
+      - NTS_ERR_SERVER_CONFIG  : NTS_API_KEY 환경변수 미설정
     """
 
     is_valid: bool
     biz_status: str | None = None
     tax_type: str | None = None
+    error_code: str | None = None
 
 
 @dataclass
@@ -101,55 +119,93 @@ class IFileStorageService(ABC):
 
 
 class RealBizVerificationService(IBizVerificationService):
-    """국세청 공공데이터포털 사업자등록정보 상태조회 실연동"""
+    """국세청 공공데이터포털 사업자등록정보 상태조회 실연동.
+
+    설계 원칙:
+      - httpx.TimeoutException 을 별도 처리하여 API 점검 중 상황을 명확히 전달.
+      - 이미 검증된 사업자번호(is_biz_no_verified=True)는 Service 레이어에서 이
+        메서드를 호출하지 않으므로, 여기서는 매번 실제 API를 호출한다.
+    """
 
     async def verify(self, biz_no: str) -> BizVerificationResult:
-
+        # [1] 환경 변수 누락 — 서버 설정 문제
         if not NTS_API_KEY:
-            return BizVerificationResult(is_valid=False, biz_status="서버 설정 오류")
+            logger.error("NTS_API_KEY 환경변수가 설정되지 않았습니다.")
+            return BizVerificationResult(
+                is_valid=False,
+                biz_status="서버 설정 오류",
+                error_code=NTS_ERR_SERVER_CONFIG,
+            )
 
         url = "https://api.odcloud.kr/api/nts-businessman/v1/status"
-
-        # 공공데이터포털은 Decoding 된 키 또는 Encoding 된 키 처리가 까다롭습니다.
-        # 파라미터로 넘길 때 httpx가 자동 인코딩하므로 디코딩된 키를 사용하는 것이 좋습니다.
         params = {"serviceKey": NTS_API_KEY}
         headers = {"Accept": "application/json", "Content-Type": "application/json"}
         payload = {"b_no": [biz_no]}
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=_NTS_TIMEOUT_SECONDS) as client:
             try:
                 response = await client.post(
-                    url, params=params, json=payload, headers=headers, timeout=5.0
+                    url, params=params, json=payload, headers=headers
                 )
                 response.raise_for_status()
                 data = response.json()
 
-                # data 배열이 비어있으면 조회가 안된 것
+                # [2] data 배열 비어있음 — 조회 불가
                 if not data.get("data"):
                     return BizVerificationResult(
-                        is_valid=False, biz_status="조회 결과 없음"
+                        is_valid=False,
+                        biz_status="조회 결과 없음",
+                        error_code=NTS_ERR_NO_DATA,
                     )
 
                 item = data["data"][0]
-                b_stt = item.get("b_stt", "")
-                tax_type = item.get("tax_type", "")
+                b_stt: str = item.get("b_stt", "")
+                tax_type: str = item.get("tax_type", "")
 
-                # 국세청 미등록 번호 처리
-                if b_stt == "국세청에 등록되지 않은 사업자등록번호입니다.":
-                    return BizVerificationResult(is_valid=False, biz_status=b_stt)
+                # [3] 국세청 미등록 번호
+                if "등록되지 않은" in b_stt:
+                    return BizVerificationResult(
+                        is_valid=False,
+                        biz_status=b_stt,
+                        error_code=NTS_ERR_NOT_REGISTERED,
+                    )
 
-                # 기획 정책: '계속사업자'만 valid 처리할 것인지, 휴업/폐업도 통과시킬 것인지 결정
-                # 정책자금 매칭이므로 '계속사업자'만 가입/온보딩 가능하게 설계하는 것을 추천합니다.
+                # [4] 상태별 is_valid 판정
+                #   정책 지원 기준: '계속사업자'만 유효, 휴업·폐업은 False
                 is_valid = b_stt == "계속사업자"
-
                 return BizVerificationResult(
-                    is_valid=is_valid, biz_status=b_stt, tax_type=tax_type
+                    is_valid=is_valid,
+                    biz_status=b_stt,
+                    tax_type=tax_type or None,
                 )
-            except Exception as e:
-                # API 호출 실패 시 (타임아웃 등) Fallback (is_manual=True로 우회할 수 있게)
-                print(f"국세청 API 호출 에러: {e}")
+
+            except httpx.TimeoutException:
+                # [5] 타임아웃 — 국세청 점검 또는 응답 지연
+                logger.warning("국세청 API 타임아웃 (biz_no=%s)", biz_no)
                 return BizVerificationResult(
-                    is_valid=False, biz_status="국세청 서버 통신 지연"
+                    is_valid=False,
+                    biz_status="국세청 서버 응답 지연",
+                    error_code=NTS_ERR_TIMEOUT,
+                )
+            except httpx.HTTPStatusError as exc:
+                # [6] 4xx/5xx HTTP 오류 응답
+                logger.error(
+                    "국세청 API HTTP 오류 (biz_no=%s, status=%s)",
+                    biz_no,
+                    exc.response.status_code,
+                )
+                return BizVerificationResult(
+                    is_valid=False,
+                    biz_status=f"국세청 API 오류 ({exc.response.status_code})",
+                    error_code=NTS_ERR_API_ERROR,
+                )
+            except Exception:
+                # [7] 그 외 네트워크 장애 등
+                logger.exception("국세청 API 알 수 없는 오류 (biz_no=%s)", biz_no)
+                return BizVerificationResult(
+                    is_valid=False,
+                    biz_status="국세청 서버 통신 장애",
+                    error_code=NTS_ERR_API_ERROR,
                 )
 
 

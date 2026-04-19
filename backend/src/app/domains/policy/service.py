@@ -21,6 +21,7 @@ from src.app.domains.policy.exception import (
 from src.app.domains.policy.interfaces import (
     IMatchEngine,
     IPolicySearcher,
+    IVectorSearcher,
 )
 from src.app.domains.policy.model import Policy
 from src.app.domains.policy.repository import PolicyRepository
@@ -86,11 +87,13 @@ class PolicyService:
         repo: PolicyRepository,
         searcher: IPolicySearcher,
         match_engine: IMatchEngine,
+        vector_searcher: IVectorSearcher | None = None,
     ) -> None:
         self._session = session
         self._repo = repo
         self._searcher = searcher
         self._match_engine = match_engine
+        self._vector_searcher = vector_searcher
 
     # ── 목록 및 검색 ──────────────────────────────────────────────────────
 
@@ -303,3 +306,69 @@ class PolicyService:
         await self._repo.patch_policy_internal(policy, **kwargs)
 
     # ── 3. 중복 검증용 조회 ──────────────────────────────────────────────────
+
+    # ── 벡터(하이브리드) 검색 ────────────────────────────────────────────────
+
+    async def vector_search_policies(
+        self,
+        query: str,
+        *,
+        region: Optional[str] = None,
+        category: Optional[str] = None,
+        status_filter: Optional[str] = "RECRUITING",
+        limit: int = 10,
+        offset: int = 0,
+        business_id: Optional[uuid.UUID] = None,
+    ) -> PolicyListResponse:
+        """
+        [하이브리드 검색] 쿼리를 임베딩하고 SQL 필터 + 벡터 코사인 유사도 검색을 수행합니다.
+
+        처리 흐름:
+          [1] 쿼리 텍스트를 OpenAI API로 임베딩합니다.
+          [2] VectorPolicySearcher를 통해 SQL 필터(지역·카테고리·상태) 후 벡터 검색합니다.
+          [3] 결과에 북마크 여부를 포함하여 PolicyListResponse로 반환합니다.
+
+        vector_searcher가 주입되지 않은 경우 HTTPException(503)을 발생시킵니다.
+        """
+        from openai import AsyncOpenAI
+        from fastapi import HTTPException
+        from src.app.core.config import OPENAI_API_KEY
+
+        if self._vector_searcher is None:
+            raise HTTPException(
+                status_code=503,
+                detail="벡터 검색 기능이 활성화되지 않았습니다. (pgvector 미설정)",
+            )
+
+        # [1] 쿼리 임베딩 생성
+        client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+        embed_resp = await client.embeddings.create(
+            model="text-embedding-3-small",
+            input=[query],
+        )
+        query_vector: list[float] = embed_resp.data[0].embedding
+
+        # [2] 하이브리드 검색 실행
+        results = await self._vector_searcher.search(
+            query_vector,
+            region=region,
+            category=category,
+            status=status_filter,
+            limit=limit,
+            offset=offset,
+        )
+
+        # [3] 북마크 여부 포함
+        policies = [row[0] for row in results]
+        bookmarked_ids: set[uuid.UUID] = set()
+        if business_id and policies:
+            bookmarked_ids = await self._repo.get_bookmarked_policy_ids(
+                business_id=business_id, policy_ids=[p.id for p in policies]
+            )
+
+        items = [_to_list_item(p, p.id in bookmarked_ids) for p in policies]
+        return PolicyListResponse(
+            items=items,
+            total_count=len(items),
+            total_pages=1,
+        )

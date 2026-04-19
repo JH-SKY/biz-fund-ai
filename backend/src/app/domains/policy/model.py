@@ -37,6 +37,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from pgvector.sqlalchemy import Vector
 from src.app.database.postgres.base import Base
 
 
@@ -167,6 +168,14 @@ class Policy(Base):
     bonus_logic: Mapped[Optional[Any]] = mapped_column(
         JSONB, nullable=True, comment="가산점 계산 규칙 (우대 사항 점수화)"
     )
+    # 임베딩 변경 감지용 해시 (SHA-256 of content_raw)
+    # 해시가 동일하면 OpenAI API 재호출 없이 스킵하여 비용을 절감합니다.
+    content_hash: Mapped[Optional[str]] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+        comment="content_raw의 SHA-256 해시 (임베딩 변경 감지용)",
+    )
     view_count: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
@@ -202,6 +211,10 @@ class Policy(Base):
     )
     bookmarks: Mapped[list["PolicyBookmark"]] = relationship(
         "PolicyBookmark", back_populates="policy", cascade="all, delete-orphan"
+    )
+    # 1:N 관계 — 정책 삭제 시 청크도 함께 삭제 (CASCADE)
+    chunks: Mapped[list["PolicyChunk"]] = relationship(
+        "PolicyChunk", back_populates="policy", cascade="all, delete-orphan"
     )
 
 
@@ -253,3 +266,65 @@ class PolicyBookmark(Base):
         "Business", back_populates="policy_bookmarks"
     )
     policy: Mapped["Policy"] = relationship("Policy", back_populates="bookmarks")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PolicyChunk — 정책 공고 텍스트 청크 및 벡터 임베딩 (1:N)
+#
+# 설계 의도:
+#   - 공고 원문(content_raw)을 의미 단위(섹션)로 분할하여 각각 임베딩합니다.
+#   - 통째로 임베딩하면 10,000자 이상의 공고에서 검색 품질이 저하됩니다.
+#   - Policy 삭제 시 CASCADE 삭제, content_raw 변경 시 기존 청크 전체 교체 전략.
+# ─────────────────────────────────────────────────────────────────────────────
+class PolicyChunk(Base):
+    """policy_chunks 테이블 — 정책 공고의 섹션별 텍스트 청크 및 pgvector 임베딩."""
+
+    __tablename__ = "policy_chunks"
+    __table_args__ = (
+        # policy_id 기준 빠른 조회 (청크 교체 시 대량 DELETE에도 사용)
+        Index("ix_policy_chunks_policy_id", "policy_id"),
+        # 벡터 IVFFlat 인덱스는 데이터가 충분히 쌓인 후 별도 마이그레이션으로 생성 권장
+        # (현재는 Exact Search로도 수백만 건 내에서 실용적으로 충분함)
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        comment="청크 고유 식별자",
+    )
+    policy_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("policies.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="원본 정책 ID (policies.id 참조)",
+    )
+    chunk_index: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        comment="정책 내 청크 순서 (0-based)",
+    )
+    chunk_type: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        comment="섹션 종류 (지원대상/지원내용/신청방법 등 또는 본문_N)",
+    )
+    chunk_text: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        comment="청크 원문 텍스트",
+    )
+    # text-embedding-3-small 기본 차원 = 1536
+    embedding: Mapped[Optional[list[float]]] = mapped_column(
+        Vector(1536),
+        nullable=True,
+        comment="OpenAI text-embedding-3-small 벡터 (1536차원)",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP,
+        server_default=text("CURRENT_TIMESTAMP"),
+        nullable=False,
+        comment="청크 생성 시점",
+    )
+
+    policy: Mapped["Policy"] = relationship("Policy", back_populates="chunks")
