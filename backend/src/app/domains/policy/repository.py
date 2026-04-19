@@ -4,7 +4,11 @@
 원칙:
   - 비즈니스 판단(예외 발생, 조건 분기)은 Service에서, I/O(쿼리 실행)만 여기에 담습니다.
   - [도메인 규칙 0] 모든 일반 사용자용 조회에는 is_active=True 필터를 강제합니다. (Soft Delete 대응)
-  - [도메인 규칙 2.2] 북마크 조회는 반드시 business_id를 기준으로 격리하여 보안을 유지합니다.
+  -[도메인 규칙 2.2] 북마크 조회는 반드시 business_id를 기준으로 격리하여 보안을 유지합니다.
+
+최적화 전략 (2026.04 적용):
+  - 관리자의 수동 정책 생성 시 AI 분석 필드가 유실되지 않도록 모델 매핑 추가.
+  - patch_policy_internal 에서 의도적인 Null(None) 업데이트를 허용하여 관리자 수정 기능 정상화.
 """
 
 from __future__ import annotations
@@ -161,12 +165,7 @@ class PolicyRepository:
         page: int = 1,
         size: int = 10,
     ) -> tuple[list[Policy], int, int]:
-        """해당 사업장의 북마크 목록을 가져옵니다.
-
-        설계 의도:
-          - 정책 데이터(Policy)와 북마크(PolicyBookmark)를 합쳐서(Join) 조회하며,
-            사용자가 '최근에 찜한 순서'대로 정렬합니다.
-        """
+        """해당 사업장의 북마크 목록을 가져옵니다."""
         base = (
             select(Policy)
             .join(
@@ -201,12 +200,12 @@ class PolicyRepository:
             policy_id=policy_id,
         )
         self._session.add(bookmark)
-        await self._session.flush()  # ID를 즉시 생성하기 위해 flush
+        await self._session.flush()
         await self._session.refresh(bookmark)
         return bookmark
 
     async def delete_bookmark(self, bookmark: PolicyBookmark) -> None:
-        """북마크를 영구히 삭제합니다. (도메인 규칙 A4: 하드 딜리트)"""
+        """북마크를 영구히 삭제합니다."""
         stmt = delete(PolicyBookmark).where(PolicyBookmark.id == bookmark.id)
         await self._session.execute(stmt)
         await self._session.flush()
@@ -230,9 +229,9 @@ class PolicyRepository:
         """조회수 상위 정책 리스트 조회 (실무 랭킹 로직)"""
         stmt = (
             select(Policy)
-            .where(Policy.is_active == True)  # 활성화된 정책만!
-            .order_by(Policy.view_count.desc())  # 조회수 높은 순서대로
-            .limit(limit)  # 딱 5개만
+            .where(Policy.is_active == True)
+            .order_by(Policy.view_count.desc())
+            .limit(limit)
         )
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
@@ -245,24 +244,31 @@ class PolicyRepository:
         category: str,
         agency_name: str = "미정",
         apply_url: str | None = None,
-        status: PolicyStatus = PolicyStatus.RECRUITING,  # [추가] 상태값 받기
-        closed_at: date | None = None,  # [추가] 마감일 받기
+        status: PolicyStatus = PolicyStatus.RECRUITING,
+        closed_at: date | None = None,
         origin_id: str,
-        **kwargs,  # [꿀팁] 그 외 예상치 못한 데이터 방어
+        **kwargs,
     ) -> Policy:
-        """새로운 정책 데이터를 DB 모델로 변환하여 세션에 추가합니다."""
-
+        """새로운 정책 데이터를 DB 모델로 변환하여 세션에 추가합니다.[버그 수정] 관리자가 수동으로 등록 시, kwargs로 넘어오는 AI 필드들도 
+        모델에 매핑하여 서비스에서 정상적으로 보이도록 개선했습니다.
+        """
         new_policy = Policy(
             title=title,
             content_raw=content_raw,
             category=category,
             agency_name=agency_name,
             apply_url=apply_url,
-            status=status,  # 받은 상태값 적용
-            closed_at=closed_at or date(9999, 12, 31),  # 마감일 없으면 무기한
+            status=status,
+            closed_at=closed_at or date(9999, 12, 31),
             is_active=True,
             view_count=0,
-            origin_id=origin_id,  # 고유 식별자
+            origin_id=origin_id,
+            # 아래 AI 관련 및 기타 필드들을 kwargs에서 추출하여 안전하게 저장
+            target_logic=kwargs.get("target_logic"),
+            bonus_logic=kwargs.get("bonus_logic"),
+            ai_summary=kwargs.get("ai_summary"),
+            ai_full_explanation=kwargs.get("ai_full_explanation"),
+            required_documents=kwargs.get("required_documents"),
         )
 
         self._session.add(new_policy)
@@ -272,10 +278,7 @@ class PolicyRepository:
     # ── 3. 중복 검증용 조회 ──────────────────────────────────────────────────
 
     async def get_policy_by_origin_id(self, origin_id: str) -> Optional[Policy]:
-        """
-        [설계 의도] 기업마당 고유 번호(origin_id)로 이미 저장된 공고인지 확인합니다.
-        가장 확실하고 안전한 중복 검사 방식입니다.
-        """
+        """기업마당 고유 번호(origin_id)로 이미 저장된 공고인지 확인합니다."""
         stmt = select(Policy).where(Policy.origin_id == origin_id)
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
@@ -285,8 +288,14 @@ class PolicyRepository:
         policy: Policy,
         **kwargs,
     ) -> None:
-        """[Internal] 관리자 도메인 등에서 정책 정보를 부분 수정(업데이트)합니다."""
+        """[Internal] 관리자 도메인 등에서 정책 정보를 부분 수정(업데이트)합니다.
+        
+        [버그 수정] 기존의 `and value is not None` 조건 삭제.
+        API 스키마 계층(Pydantic)에서 `exclude_unset=True`를 통해 클라이언트가 
+        명시적으로 보낸 필드만 `kwargs`로 들어오도록 통제되므로, 
+        여기로 전달된 `None` 값은 "필드를 지우겠다"는 명시적 의도로 받아들이고 덮어씌웁니다.
+        """
         for key, value in kwargs.items():
-            if hasattr(policy, key) and value is not None:
+            if hasattr(policy, key):
                 setattr(policy, key, value)
         await self._session.flush()
