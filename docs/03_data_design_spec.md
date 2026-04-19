@@ -1,375 +1,574 @@
-## 📊 [비즈업] 서비스 데이터베이스 상세 정의서
+# 03. 데이터 설계 명세 (DB 스키마 + API 전체 목록)
 
-### 0. 공통 규칙
-
-- **ID**: Primary Key (UUID 또는 BIGINT 추천)
-- **Time**: TIMESTAMP (Default: CURRENT_TIMESTAMP)
-- **Soft Delete**: `is_active` 또는 `status` 컬럼을 통한 논리 삭제 적용
-
----
-
-### 1. users (사용자 계정)
-
-- **존재 이유**: 서비스 이용자 식별, 소셜 로그인 연동 및 개인화 매칭(비전공/군필 등)을 위한 기초 데이터 관리
-- **관계성**: 1:N (user_tokens, businesses, chat_logs, chat_rooms, notifications, lead_requests)
-- **상세 명세**:
-
-| 구분     | 컬럼명              | 역할               | 타입/옵션       | 출처        | 비고                                      |
-| :------- | :------------------ | :----------------- | :-------------- | :---------- | :---------------------------------------- |
-| **PK**   | id                  | 사용자 고유 식별자 | UUID, N         | 시스템      | 기본값: uuid4                             |
-| **일반** | email               | 이메일 주소        | VARCHAR(255), N | 소셜 연동   | Unique Index 적용                         |
-| **일반** | name                | 실명               | VARCHAR(50), N  | 소셜 연동   | -                                         |
-| **일반** | phone               | 전화번호           | VARCHAR(20), Y  | 사용자 입력 | -                                         |
-| **일반** | nickname            | 활동명             | VARCHAR(50), Y  | 사용자 입력 | -                                         |
-| **일반** | status              | 계정 상태          | VARCHAR(20), N  | 시스템      | 기본값: 'active'                          |
-| **일반** | social_id           | 소셜 고유 고정 ID  | VARCHAR(255), N | 소셜 연동   | -                                         |
-| **일반** | social_provider     | 소셜 제공자        | ENUM, N         | 소셜 연동   | KAKAO, NAVER (SocialProvider 클래스 연동) |
-| **일반** | profile_image_url   | 프로필 사진 URL    | TEXT, Y         | 소셜 연동   | -                                         |
-| **일반** | is_active           | 활성 계정 여부     | BOOLEAN, N      | 시스템      | 기본값: True (Soft Delete 스위치)         |
-| **일반** | deleted_at          | 탈퇴 시각          | TIMESTAMP, Y    | 시스템      | 5년 후 물리 삭제를 위한 기록용 (UTC)      |
-| **일반** | marketing_agreed_at | 마케팅 동의 일시   | TIMESTAMP, Y    | 시스템      | -                                         |
-| **일반** | interest_sectors    | 관심 업종/분야     | JSONB, Y        | 사용자 입력 | 관심 업종/분야 리스트 (JSONB array)       |
-| **일반** | military_service    | 군필 여부          | VARCHAR(30), Y  | 사용자 입력 | COMPLETED, EXEMPTED, IN_PROGRESS, NA 등   |
-| **일반** | is_non_major        | 비전공 창업자 여부 | BOOLEAN, Y      | 사용자 입력 | 전공자/비전공자 구분 필터                 |
-| **일반** | tech_stack          | 기술 스택          | JSONB, Y        | 사용자 입력 | 기술 스택 리스트 (JSONB array)            |
-| **일반** | created_at          | 가입 일시          | TIMESTAMP, N    | 시스템      | Server Default: CURRENT_TIMESTAMP         |
+> **문서 목적**: 프론트엔드와 백엔드의 완벽한 통신 규약. 실제 코드와 100% 일치하는 DB 스키마와 API 엔드포인트 목록.  
+> 프론트엔드 AI가 이 문서를 보고 즉시 타입 정의와 API 호출 코드를 작성할 수 있도록 상세히 기술합니다.
+>
+> **대상 독자**: 프론트엔드 개발자 (또는 프론트엔드 생성 AI), 백엔드 엔지니어
 
 ---
 
-### 1-2. user_tokens (인증 토큰 관리) - NEW
+## 공통 규칙
 
-- **존재 이유**: 보안을 위한 Refresh Token 저장 및 로그아웃/탈퇴 시 토큰 무효화 처리
-- **관계성**: N:1 (users)
-- **상세 명세**:
+### 공통 응답 포맷
 
-| 구분     | 컬럼명     | 역할               | 타입/옵션    | 출처   | 비고                                                                |
-| :------- | :--------- | :----------------- | :----------- | :----- | :------------------------------------------------------------------ |
-| **PK**   | id         | 토큰 레코드 식별자 | UUID, N      | 시스템 | 기본값: uuid4                                                       |
-| **FK**   | user_id    | 소유 사용자 ID     | UUID, N      | 시스템 | users.id 외래키                                                     |
-| **일반** | token      | Refresh Token 값   | TEXT, N      | 시스템 | Unique Index 적용, opaque Refresh Token 원본값                      |
-| **일반** | expires_at | 토큰 만료 일시     | TIMESTAMP, N | 시스템 | -                                                                   |
-| **일반** | is_revoked | 무효화 여부        | BOOLEAN, N   | 시스템 | 기본값: False, 로그아웃·탈퇴 시 무효화 여부 (Server Default: false) |
-| **일반** | created_at | 발급 일시          | TIMESTAMP, N | 시스템 | Server Default: CURRENT_TIMESTAMP                                   |
+모든 API는 `api_json()` 헬퍼를 통해 아래 구조로 응답합니다.
 
----
+```json
+{
+  "status": 200,
+  "message": "success",
+  "data": { ... }
+}
+```
 
-### 2. businesses (사업장 기본 정보)
+### ID 타입
+모든 PK는 **UUID v4** (문자열 형식으로 응답)
 
-- **존재 이유**: 사장님의 업장 정보 관리 (1유저 다사업장 대응) 및 매칭 필터링의 핵심
-- **관계성**:
-  - **N:1**: users (사용자 계정)
-  - **1:N**: financial_snapshots, match_logs, applications, documents, lead_requests, simulation_logs, chat_rooms, notifications, policy_bookmarks
-- **상세 명세**:
+### 시간 타입
+모든 Timestamp는 **ISO 8601 UTC** (`"2026-04-19T12:00:00Z"` 형식)
 
-| 구분     | 컬럼명              | 역할                 | 타입/옵션          | 출처          | 비고                                                     |
-| :------- | :------------------ | :------------------- | :----------------- | :------------ | :------------------------------------------------------- |
-| **PK**   | id                  | 사업장 식별자        | UUID, N            | 시스템        | 특정 사업장을 구분하는 고유 식별 키                      |
-| **FK**   | user_id             | 소유주 ID            | UUID, N            | 시스템        | 어떤 사용자가 소유한 사업장인지 연결하는 연결 고리       |
-| **일반** | biz_name            | 상호명               | VARCHAR(100), N    | 사용자 입력   | 사장님의 업체 이름으로 서비스 전반에 노출됨              |
-| **일반** | representative_name | 대표자명             | VARCHAR(50), Y     | 사용자 입력   | 정책 자금 신청 서류 작성 시 필수 기입 정보               |
-| **일반** | biz_no              | 사업자등록번호       | VARCHAR(12), Y     | **OCR/입력**  | 기업 실체 확인 및 중복 등록을 방지하는 핵심 키           |
-| **일반** | ksic_code           | 표준산업분류코드     | VARCHAR(20), Y     | **자동 추출** | 산업 분류에 따른 정책 가용성 판단의 필수 기준            |
-| **일반** | sector_code         | 업종 코드            | VARCHAR(20), Y     | **자동 추출** | 세부 업종별 맞춤형 정책 필터링을 위한 보조 코드          |
-| **일반** | region_sido         | 시/도 (표시용)       | VARCHAR(50), Y     | **자동 추출** | 광역 지자체 단위의 정책 자금 매칭 기준                   |
-| **일반** | region_sigungu      | 시/군/구 (표시용)    | VARCHAR(50), Y     | **자동 추출** | 시/군/구 단위의 세부 지역 자금 매칭 기준                 |
-| **일반** | region_code         | 법정동 코드 (계산용) | VARCHAR(10), Y     | **자동 추출** | 시스템 내부적으로 지역을 정확하게 필터링하기 위한 코드   |
-| **일반** | establishment_date  | 설립 일자            | DATE, Y            | **OCR/입력**  | 업력(3년/7년 이내 등)에 따른 지원 자격 판단 기준         |
-| **일반** | has_patent          | 특허 보유 여부       | BOOLEAN, N         | 사용자 입력   | 기술성 가산점 및 특허 관련 정책 매칭을 위한 지표         |
-| **일반** | is_female_ent       | 여성 기업 여부       | BOOLEAN, N         | 사용자 입력   | 여성 기업 우대 정책 매칭을 위한 필수 필터값              |
-| **일반** | is_ventured         | 벤처 기업 여부       | BOOLEAN, N         | 사용자 입력   | 벤처 인증 기업 대상 고액 융자/지원금 매칭 기준           |
-| **일반** | is_active           | 업장 활성 여부       | BOOLEAN, N         | 시스템        | 폐업 여부나 삭제 처리를 관리하는 물리적 스위치           |
-| **일반** | profile_score       | 정보 입력 완성도     | INTEGER, DEFAULT 0 | 시스템        | 0~100점 사이의 점수로, 맞춤 정책 추천 정밀도의 기준이 됨 |
-| **일반** | created_at          | 등록 일시            | TIMESTAMP, N       | 시스템        | 사업장 정보가 시스템에 최초 등록된 시각                  |
+### 인증
+`Authorization: Bearer {ACCESS_TOKEN}` 헤더 필수 (명시 없는 엔드포인트는 공개)
+
+### Soft Delete
+`is_active = false`로 논리 삭제. 물리 삭제 없음.
 
 ---
 
-### 3. business_financial_snapshots (재무 상태 스냅샷)
+## 1. DB 스키마
 
-- **존재 이유**: 사업장의 연도별/분기별 재무 상태를 기록하여 정책자금 지원 자격(매출, 부채비율, 영업이익 등)을 정밀하게 진단하고 AI 분석 리포트를 생성하기 위한 기초 자료로 활용함
-- **관계성**: N:1 (businesses)
-- **상세 명세**:
+### 1.1 users (사용자 계정)
 
-| 구분     | 컬럼명             | 역할                    | 타입/옵션       | 출처        | 비고                                            |
-| :------- | :----------------- | :---------------------- | :-------------- | :---------- | :---------------------------------------------- |
-| **PK**   | id                 | 재무 스냅샷 고유 식별자 | UUID, N         | 시스템      | 기본값: uuid4                                   |
-| **FK**   | business_id        | 대상 사업장 ID          | UUID, N         | 시스템      | businesses.id 외래키 (UniqueConstraint 포함)    |
-| **일반** | snapshot_year      | 재무제표 기준 연도      | INTEGER, N      | 사용자 입력 | business_id와 함께 복합 유니크 제약 적용        |
-| **일반** | snapshot_period    | 기준 시기               | VARCHAR(10), N  | 사용자 입력 | 예: 1Q, 2Q, 상반기, 하반기 등                   |
-| **일반** | term_type          | 공시 주기               | VARCHAR(10), N  | 사용자 입력 | 예: 연간, 분기 등                               |
-| **일반** | annual_revenue     | 연매출액                | BIGINT, Y       | 사용자/OCR  | 단위: 원                                        |
-| **일반** | operating_profit   | 영업이익                | BIGINT, Y       | 사용자/OCR  | 단위: 원 (음수 가능)                            |
-| **일반** | net_income         | 당기순이익              | BIGINT, Y       | 사용자/OCR  | 단위: 원 (음수 가능)                            |
-| **일반** | total_debt         | 총 부채액               | BIGINT, Y       | 사용자/OCR  | 단위: 원                                        |
-| **일반** | capital            | 자본금                  | BIGINT, Y       | 사용자/OCR  | 단위: 원                                        |
-| **일반** | debt_ratio         | 부채 비율               | NUMERIC(5,2), Y | 시스템      | 자동 계산 결과 (%)                              |
-| **일반** | employee_count     | 직원 수                 | INTEGER, Y      | 사용자 입력 | -                                               |
-| **일반** | tax_arrears_yn     | 세금 체납 여부          | BOOLEAN, N      | 사용자 입력 | 기본값: False (Server Default: false)           |
-| **일반** | ai_analysis_report | AI 진단 결과            | JSONB, Y        | 시스템      | 비즈몽 재무 진단 상세 데이터 (JSON)             |
-| **일반** | ocr_status         | 분석 진행 상태          | VARCHAR(20), N  | 시스템      | 대기, 완료 등 진행 상태 관리                    |
-| **일반** | is_verified        | 서류 검증 여부          | BOOLEAN, N      | 시스템      | 기본값: False (공식 서류 대조 완료 여부)        |
-| **일반** | is_active          | 활성 여부               | BOOLEAN, N      | 시스템      | 기본값: True (Soft Delete 적용, 감사 목적 보존) |
-| **일반** | created_at         | 스냅샷 생성 일시        | TIMESTAMP, N    | 시스템      | Server Default: CURRENT_TIMESTAMP               |
+| 컬럼 | 타입 | 제약 | 설명 |
+|:---|:---|:---|:---|
+| id | UUID | PK | 사용자 고유 식별자 |
+| email | VARCHAR(255) | NOT NULL, UNIQUE | 이메일 주소 |
+| name | VARCHAR(50) | NOT NULL | 실명 |
+| phone | VARCHAR(20) | NULL | 전화번호 |
+| nickname | VARCHAR(50) | NULL | 활동명 |
+| status | VARCHAR(20) | NOT NULL | 계정 상태 (기본: 'active') |
+| social_id | VARCHAR(255) | NOT NULL | 소셜 고유 ID |
+| social_provider | ENUM | NOT NULL | KAKAO \| NAVER |
+| profile_image_url | TEXT | NULL | 프로필 이미지 URL |
+| is_active | BOOLEAN | NOT NULL | Soft Delete 스위치 (기본: true) |
+| deleted_at | TIMESTAMP | NULL | 탈퇴 일시 (5년 후 물리 삭제) |
+| marketing_agreed_at | TIMESTAMP | NULL | 마케팅 동의 일시 |
+| interest_sectors | JSONB | NULL | 관심 업종/분야 배열 |
+| military_service | VARCHAR(30) | NULL | 군필 여부 (COMPLETED/EXEMPTED/IN_PROGRESS/NA) |
+| is_non_major | BOOLEAN | NULL | 비전공 창업자 여부 |
+| tech_stack | JSONB | NULL | 기술 스택 배열 |
+| created_at | TIMESTAMP | NOT NULL | 가입 일시 |
 
-- **데이터 무결성 제약 추가**: (business_id, snapshot_year) UNIQUE 제약 조건 적용
+### 1.2 user_tokens (인증 토큰)
 
----
+| 컬럼 | 타입 | 제약 | 설명 |
+|:---|:---|:---|:---|
+| id | UUID | PK | - |
+| user_id | UUID | FK → users.id | - |
+| token | TEXT | NOT NULL, UNIQUE | Refresh Token 원본값 |
+| expires_at | TIMESTAMP | NOT NULL | 만료 일시 |
+| is_revoked | BOOLEAN | NOT NULL | 무효화 여부 (기본: false) |
+| created_at | TIMESTAMP | NOT NULL | 발급 일시 |
 
-### 4. policies (정책 공고 데이터)
+### 1.3 businesses (사업장 기본 정보)
 
-- **존재 이유**: 정부 및 지자체에서 공고하는 정책자금 데이터를 통합 관리하며, RAG 기반 AI 분석(요약, 해설)과 사업장 매칭 로직을 위한 원천 데이터를 제공함
-- **관계성**: 1:N (match_logs, applications, chat_logs, bookmarks)
-- **상세 명세**:
+| 컬럼 | 타입 | 제약 | 설명 |
+|:---|:---|:---|:---|
+| id | UUID | PK | 사업장 고유 식별자 |
+| user_id | UUID | FK → users.id | 소유 사용자 |
+| biz_name | VARCHAR(100) | NOT NULL | 상호명 |
+| representative_name | VARCHAR(50) | NULL | 대표자명 |
+| biz_no | VARCHAR(12) | NULL | 사업자등록번호 |
+| ksic_code | VARCHAR(20) | NULL | 표준산업분류코드 (동종업계 비교용) |
+| sector_code | VARCHAR(20) | NULL | 세부 업종 코드 |
+| region_sido | VARCHAR(50) | NULL | 시·도 (정책 지역 필터용) |
+| region_sigungu | VARCHAR(50) | NULL | 시·군·구 |
+| region_code | VARCHAR(10) | NULL | 법정동 코드 |
+| establishment_date | DATE | NULL | 설립 일자 (업력 계산용) |
+| has_patent | BOOLEAN | NOT NULL | 특허 보유 여부 (기본: false) |
+| is_female_ent | BOOLEAN | NOT NULL | 여성 기업 여부 (기본: false) |
+| is_ventured | BOOLEAN | NOT NULL | 벤처 기업 여부 (기본: false) |
+| profile_score | INTEGER | NOT NULL | 사업장 정보 완성도 0~100 (기본: 0) |
+| is_biz_no_verified | BOOLEAN | NOT NULL | 국세청 API 진위 확인 완료 여부 |
+| biz_verified_status | VARCHAR(30) | NULL | 국세청 반환 사업자 상태 (계속사업자/휴업자/폐업자) |
+| tax_type | VARCHAR(50) | NULL | 과세 유형 (부가가치세 일반과세자 등) |
+| biz_verified_at | TIMESTAMP | NULL | 국세청 API 마지막 검증 시각 |
+| is_active | BOOLEAN | NOT NULL | 업장 활성 여부 (기본: true) |
+| created_at | TIMESTAMP | NOT NULL | 등록 일시 |
 
-| 구분     | 컬럼명              | 역할               | 타입/옵션       | 출처      | 비고                                          |
-| :------- | :------------------ | :----------------- | :-------------- | :-------- | :-------------------------------------------- |
-| **PK**   | id                  | 정책 고유 식별자   | UUID, N         | 시스템    | 기본값: uuid4                                 |
-| **일반** | title               | 공고 제목          | VARCHAR(255), N | 원문      | 검색 최적화 인덱스 적용                       |
-| **일반** | agency_name         | 공고 기관명        | VARCHAR(100), N | 원문      | 주관 부처 검색용 인덱스 적용                  |
-| **일반** | category            | 정책 카테고리      | VARCHAR(50), Y  | 시스템/AI | 금융, 바우처, R&D 등 분류                     |
-| **일반** | support_type        | 지원 유형          | VARCHAR(50), Y  | 시스템/AI | 융자, 출연금, 보조금 등 구분                  |
-| **일반** | region              | 지원 대상 지역     | VARCHAR(100), Y | 원문      | 전국, 서울 등 지역 필터용 인덱스              |
-| **일반** | ai_summary          | 리스트용 요약      | TEXT, Y         | AI 가공   | AI가 생성한 3줄 요약 데이터                   |
-| **일반** | ai_full_explanation | 상세용 쉬운 풀이   | TEXT, Y         | AI 가공   | 비전공자를 위한 AI 해설 텍스트                |
-| **일반** | ai_metadata         | AI 추천 메타데이터 | JSONB, Y        | AI 가공   | 벡터 DB 참조 ID 및 추천 가중치 저장           |
-| **일반** | content_raw         | 공고 원문 전체     | TEXT, N         | 원문      | RAG 엔진 분석용 원천 데이터                   |
-| **일반** | max_support         | 최대 지원 금액     | BIGINT, Y       | 원문/AI   | 원 단위, 통계 및 정렬용 수치                  |
-| **일반** | support_amount_desc | 지원 금액 텍스트   | VARCHAR(100), Y | 원문      | 사용자 노출용 문자열                          |
-| **일반** | required_documents  | 신청 필수 서류     | JSONB, Y        | AI 가공   | AI가 원문에서 추출한 서류 리스트              |
-| **일반** | start_date          | 접수 시작일        | DATE, Y         | 원문      | -                                             |
-| **일반** | end_date            | 접수 종료일        | DATE, Y         | 원문      | 하위 호환성 유지용                            |
-| **일반** | closed_at           | 최종 마감일        | DATE, N         | 시스템    | 기본값: 9999-12-31 (상시접수 대응), 정렬 핵심 |
-| **일반** | status              | 공고 상태          | ENUM, N         | 시스템    | 예정, 접수중, 마감 등 (PolicyStatus 연동)     |
-| **일반** | apply_url           | 원문 신청 URL      | TEXT, Y         | 원문      | 외부 신청 페이지 링크                         |
-| **일반** | target_logic        | 매칭 필터 규칙     | JSONB, Y        | AI 가공   | 사업장 매칭을 위한 AI 판단 기준점             |
-| **일반** | bonus_logic         | 가산점 계산 규칙   | JSONB, Y        | AI 가공   | 우대 사항 점수화 로직                         |
-| **일반** | view_count          | 상세 조회 수       | INTEGER, N      | 시스템    | 기본값: 0, 인기 정책 산출용                   |
-| **일반** | origin_id           | 원천 사이트공고 번호| STR, Y           | 시스템    | 원천 공고 고유 번호 (Unique)                   |
-| **일반** | min_support         | 최소 지원 금액    | INTEGER, Y      | 시스템    | 최소 지원 금액                              |
-| **일반** | is_active           | 활성 여부          | BOOLEAN, N      | 시스템    | 기본값: True (Soft Delete 적용)               |
-| **일반** | created_at          | 데이터 생성 시점   | TIMESTAMP, N    | 시스템    | Server Default: CURRENT_TIMESTAMP             |
+### 1.4 business_financial_snapshots (연도별 재무 스냅샷)
 
----
+**제약**: `(business_id, snapshot_year)` UNIQUE
 
-### 5. match_logs (매칭 결과 기록)
+| 컬럼 | 타입 | 제약 | 설명 |
+|:---|:---|:---|:---|
+| id | UUID | PK | - |
+| business_id | UUID | FK → businesses.id | - |
+| snapshot_year | INTEGER | NOT NULL | 재무제표 기준 연도 |
+| snapshot_period | VARCHAR(10) | NOT NULL | 기준 시기 (1Q, 2Q 등) |
+| term_type | VARCHAR(10) | NOT NULL | 공시 주기 (연간/분기) |
+| annual_revenue | BIGINT | NULL | 연매출액 (원) |
+| operating_profit | BIGINT | NULL | 영업이익 (원, 음수 가능) |
+| net_income | BIGINT | NULL | 당기순이익 (원, 음수 가능) |
+| total_debt | BIGINT | NULL | 총 부채액 (원) |
+| capital | BIGINT | NULL | 자본금 (원) |
+| debt_ratio | NUMERIC(5,2) | NULL | 부채 비율 (%) |
+| employee_count | INTEGER | NULL | 직원 수 |
+| tax_arrears_yn | BOOLEAN | NOT NULL | 세금 체납 여부 (기본: false) |
+| ai_analysis_report | JSONB | NULL | AI 재무 진단 결과 |
+| ocr_status | VARCHAR(20) | NOT NULL | OCR 진행 상태 (PENDING/COMPLETED/FAILED) |
+| is_verified | BOOLEAN | NOT NULL | 공식 서류 기반 검증 여부 |
+| is_active | BOOLEAN | NOT NULL | Soft Delete (기본: true) |
+| created_at | TIMESTAMP | NOT NULL | 생성 일시 |
 
-- **존재 이유**: 사업장 데이터와 정책 간의 매칭 점수 및 근거 저장 (속도/알림용)
-- **관계성**: N:1 (businesses, policies)
-- **상세 명세**:
+### 1.5 documents (서류 파일)
 
-| 구분     | 컬럼명       | 역할                  | 타입/옵션      | 출처   | 비고                                       |
-| :------- | :----------- | :-------------------- | :------------- | :----- | :----------------------------------------- |
-| **PK**   | id           | 매칭 결과 고유 식별자 | UUID, N        | 시스템 | 기본값: uuid4                              |
-| **FK**   | business_id  | 매칭 대상 사업장 ID   | UUID, N        | 시스템 | businesses.id 외래키                       |
-| **FK**   | policy_id    | 매칭 대상 정책 ID     | UUID, N        | 시스템 | policies.id 외래키                         |
-| **일반** | match_score  | 매칭 점수             | INTEGER, N     | 시스템 | 0~100 사이의 적합도 점수                   |
-| **일반** | match_status | 신호등 상태           | VARCHAR(10), N | 시스템 | G(Green), Y(Yellow), R(Red) 등 가독성 지표 |
-| **일반** | reason_json  | 점수 산정 근거        | JSONB, Y       | 시스템 | 매칭/불일치 사유에 대한 상세 데이터 (JSON) |
-| **일반** | created_at   | 매칭 판정 일시        | TIMESTAMP, N   | 시스템 | Server Default: CURRENT_TIMESTAMP          |
+| 컬럼 | 타입 | 제약 | 설명 |
+|:---|:---|:---|:---|
+| id | UUID | PK | 서류 식별자 |
+| business_id | UUID | FK → businesses.id | 소속 사업장 |
+| doc_type | VARCHAR(50) | NOT NULL | 서류 종류 (사업자등록증 등) |
+| file_url | TEXT | NOT NULL | S3 등 파일 경로 |
+| ocr_status | VARCHAR(20) | NOT NULL | PENDING/COMPLETED/FAILED (기본: PENDING) |
+| ocr_result | JSONB | NULL | OCR 추출 원본 데이터 |
+| is_active | BOOLEAN | NOT NULL | Soft Delete (기본: true) |
+| issued_at | DATE | NULL | 서류 발급 일자 |
+| created_at | TIMESTAMP | NOT NULL | 업로드 일시 |
 
----
+### 1.6 policies (정책 공고)
 
-### 6. chat_logs (비즈몽 대화 기록)
+| 컬럼 | 타입 | 제약 | 설명 |
+|:---|:---|:---|:---|
+| id | UUID | PK | 정책 식별자 |
+| origin_id | VARCHAR(100) | NULL | 원본 공고 ID (중복 방지용) |
+| title | VARCHAR(255) | NOT NULL | 공고명 |
+| agency_name | VARCHAR(100) | NULL | 주관 기관명 |
+| category | VARCHAR(50) | NULL | 정책 카테고리 |
+| support_type | VARCHAR(50) | NULL | 지원 유형 (대출/보조금/보증) |
+| region | VARCHAR(255) | NULL | 지원 지역 |
+| max_support | BIGINT | NULL | 최대 지원 금액 (원) |
+| min_support | BIGINT | NULL | 최소 지원 금액 (원) |
+| support_amount_desc | VARCHAR(255) | NULL | 지원금액 텍스트 설명 |
+| apply_url | TEXT | NULL | 신청 URL |
+| opened_at | DATE | NULL | 접수 시작일 |
+| closed_at | DATE | NULL | 접수 마감일 |
+| ai_summary | TEXT | NULL | GPT 생성 요약 (~200자) |
+| ai_full_explanation | TEXT | NULL | GPT 생성 상세 설명 |
+| target_logic | JSONB | NULL | 자격 요건 구조화 JSON |
+| bonus_logic | JSONB | NULL | 가점 항목 구조화 JSON |
+| status | ENUM | NOT NULL | RECRUITING/CLOSED/SCHEDULED |
+| is_active | BOOLEAN | NOT NULL | 활성 여부 |
+| view_count | INTEGER | NOT NULL | 조회수 (FTS 정렬 기준) |
+| created_at | TIMESTAMP | NOT NULL | 등록 일시 |
 
-- **존재 이유**: 대화방 내에서 발생하는 개별 메시지를 기록하며, RAG(검색 증강 생성)에 사용된 참조 데이터와 LLM 추적(Tracing), 비용(Cost) 및 사용자 피드백을 상세히 관리함
-- **관계성**: N:1 (users,chat_rooms, policies)
-- **상세 명세**:
+### 1.7 policy_chunks (정책 임베딩 청크)
 
-| 구분     | 컬럼명            | 역할               | 타입/옵션        | 출처        | 비고                                   |
-| :------- | :---------------- | :----------------- | :--------------- | :---------- | :------------------------------------- |
-| **PK**   | id                | 메시지 고유 식별자 | UUID, N          | 시스템      | 기본값: uuid4                          |
-| **FK**   | user_id           | 대화 사용자 ID     | UUID, N          | 시스템      | users.id 외래키                        |
-| **FK**   | ref_policy_id     | 참조 정책 ID       | UUID, Y          | 시스템      | policies.id 외래키 (일반 상담 시 NULL) |
-| **FK**   | room_id           | 소속 대화방 ID     | UUID, N          | 시스템      | chat_rooms.id 외래키                   |
-| **일반** | role              | 화자 구분          | VARCHAR(20), N   | 시스템      | user 또는 assistant                    |
-| **일반** | content           | 메시지 본문        | TEXT, N          | 사용자/AI   | 실제 대화 내용                         |
-| **일반** | context_type      | 발생 위치          | VARCHAR(20), Y   | 시스템      | 위젯, 특정 페이지 등 유입 경로         |
-| **일반** | trace_id          | LLM 추적 ID        | VARCHAR(100), Y  | 시스템      | LangSmith 등 외부 모니터링 연동 ID     |
-| **일반** | total_cost        | API 사용 비용      | NUMERIC(12,8), Y | 시스템      | 해당 메시지 생성에 소모된 USD 비용     |
-| **일반** | referenced_chunks | RAG 참조 데이터    | JSONB, Y         | 시스템      | 답변 생성 시 참고한 문서 청크 (JSON)   |
-| **일반** | is_disliked       | 싫어요 여부        | BOOLEAN, N       | 사용자 입력 | 기본값: False (Server Default: false)  |
-| **일반** | feedback_code     | 피드백 코드        | VARCHAR(20), Y   | 사용자 입력 | 불만족 사유 분류 코드                  |
-| **일반** | feedback_text     | 피드백 상세        | TEXT, Y          | 사용자 입력 | 사용자가 직접 작성한 피드백 내용       |
-| **일반** | created_at        | 메시지 생성 일시   | TIMESTAMP, N     | 시스템      | Server Default: CURRENT_TIMESTAMP      |
+| 컬럼 | 타입 | 제약 | 설명 |
+|:---|:---|:---|:---|
+| id | UUID | PK | 청크 식별자 |
+| policy_id | UUID | FK → policies.id | 소속 정책 |
+| chunk_index | INTEGER | NOT NULL | 청크 순서 (0부터) |
+| chunk_text | TEXT | NOT NULL | 청크 텍스트 |
+| embedding | VECTOR(1536) | NULL | text-embedding-3-small 벡터 |
+| created_at | TIMESTAMP | NOT NULL | 생성 일시 |
 
----
+### 1.8 chat_rooms (AI 상담 세션)
 
-### 7. applications (정책 신청 현황)
+| 컬럼 | 타입 | 제약 | 설명 |
+|:---|:---|:---|:---|
+| id | UUID | PK | 세션 ID = LangGraph thread_id |
+| business_id | UUID | FK → businesses.id | 소속 사업장 |
+| user_id | UUID | FK → users.id | 세션 소유자 |
+| title | VARCHAR(255) | NULL | 세션 제목 (자동 요약 가능) |
+| is_active | BOOLEAN | NOT NULL | Soft Delete |
+| created_at | TIMESTAMP | NOT NULL | 생성 일시 |
+| updated_at | TIMESTAMP | NOT NULL | 최근 활동 일시 |
 
-- **존재 이유**: 사용자가 관심을 보였거나 실제 신청 중인 공고 트래킹
-- **관계성**: N:1 (businesses, policies)
-- **상세 명세**:
+### 1.9 chat_logs (대화 기록)
 
-| 구분     | 컬럼명      | 역할                  | 타입/옵션      | 출처          | 비고                                |
-| :------- | :---------- | :-------------------- | :------------- | :------------ | :---------------------------------- |
-| **PK**   | id          | 신청 기록 고유 식별자 | UUID, N        | 시스템        | 기본값: uuid4                       |
-| **FK**   | business_id | 신청 사업장 ID        | UUID, N        | 시스템        | businesses.id 외래키                |
-| **FK**   | policy_id   | 대상 정책 ID          | UUID, N        | 시스템        | policies.id 외래키                  |
-| **일반** | status      | 신청 단계             | VARCHAR(20), N | 시스템/사용자 | 관심, 제출, 승인, 반려 등 상태 관리 |
-| **일반** | applied_at  | 실제 신청 일시        | TIMESTAMP, Y   | 시스템        | 실제 '제출' 버튼을 누른 시점 기록   |
-| **일반** | updated_at  | 상태 변경 일시        | TIMESTAMP, N   | 시스템        | Server Default: CURRENT_TIMESTAMP   |
-| **일반** | memo        | 사용자 메모           | TEXT, Y        | 사용자 입력   | 신청 관련 특이사항 기록             |
+| 컬럼 | 타입 | 제약 | 설명 |
+|:---|:---|:---|:---|
+| id | UUID | PK | 메시지 식별자 |
+| user_id | UUID | FK → users.id | - |
+| room_id | UUID | FK → chat_rooms.id | 소속 세션 |
+| role | VARCHAR(20) | NOT NULL | user / assistant / system |
+| content | TEXT | NOT NULL | 메시지 내용 (system: JSON 요약) |
+| context_type | VARCHAR(20) | NULL | agent (에이전트 Write-through 기록) |
+| created_at | TIMESTAMP | NOT NULL | 생성 일시 |
 
----
+### 1.10 applications (정책 신청·관심 이력)
 
-### 8. documents (디지털 서류함)
+| 컬럼 | 타입 | 제약 | 설명 |
+|:---|:---|:---|:---|
+| id | UUID | PK | 신청(관심) 기록 고유 식별자 |
+| business_id | UUID | FK → businesses.id | 신청 사업장 |
+| policy_id | UUID | FK → policies.id | 대상 정책 |
+| status | VARCHAR(20) | NOT NULL | 신청 단계 (INTERESTED / SUBMITTED / APPROVED / REJECTED) |
+| applied_at | TIMESTAMP | NULL | 실제 신청(제출) 일시 |
+| updated_at | TIMESTAMP | NOT NULL | 상태 마지막 변경 일시 |
+| memo | TEXT | NULL | 사용자 메모 |
 
-- **존재 이유**: 사업자등록증 등 서류 파일 관리 및 OCR 연동
-- **관계성**: N:1 (businesses)
-- **상세 명세**:
+### 1.11 policy_bookmarks (정책 북마크)
 
-| 구분     | 컬럼명      | 역할             | 타입/옵션      | 출처        | 비고                                          |
-| :------- | :---------- | :--------------- | :------------- | :---------- | :-------------------------------------------- |
-| **PK**   | id          | 서류 고유 식별자 | UUID, N        | 시스템      | 기본값: uuid4                                 |
-| **FK**   | business_id | 소속 사업장 ID   | UUID, N        | 시스템      | businesses.id 외래키                          |
-| **일반** | doc_type    | 서류 종류        | VARCHAR(50), N | 사용자 입력 | 예: 사업자등록증, 부가가치세과세표준증명 등   |
-| **일반** | file_url    | 파일 저장 경로   | TEXT, N        | 시스템      | S3 등 외부 저장소 URL                         |
-| **일반** | ocr_status  | OCR 분석 상태    | VARCHAR(20), N | 시스템      | PENDING(기본값), COMPLETED, FAILED            |
-| **일반** | ocr_result  | OCR 추출 데이터  | JSONB, Y       | 시스템      | 비동기 분석 완료 시 추출된 원본 데이터 (JSON) |
-| **일반** | is_active   | 활성 여부        | BOOLEAN, N     | 시스템      | 기본값: True (Soft Delete 적용, 법적 보존용)  |
-| **일반** | issued_at   | 서류 발급 일자   | DATE, Y        | OCR/사용자  | 서류상의 공식 발급 날짜                       |
-| **일반** | created_at  | 업로드 일시      | TIMESTAMP, N   | 시스템      | Server Default: CURRENT_TIMESTAMP             |
+**제약**: `(business_id, policy_id)` UNIQUE — 동일 정책 중복 찜 방지
 
----
+| 컬럼 | 타입 | 제약 | 설명 |
+|:---|:---|:---|:---|
+| id | UUID | PK | 북마크 식별자 |
+| business_id | UUID | FK → businesses.id | 북마크 주인 사업장 |
+| policy_id | UUID | FK → policies.id | 북마크 대상 정책 |
+| created_at | TIMESTAMP | NOT NULL | 북마크 클릭 시점 |
 
-### 9. biz_picks (콘텐츠/이슈 관리)
+### 1.12 notifications (알림)
 
-- **존재 이유**: 정책 이슈, 꿀팁 등 정보성 콘텐츠 관리
-- **관계성**: 독립 (JSON 내 policy_ids 참조)
-- **상세 명세**:
+| 컬럼 | 타입 | 제약 | 설명 |
+|:---|:---|:---|:---|
+| id | UUID | PK | 알림 고유 식별자 |
+| user_id | UUID | FK → users.id | 수신 사용자 |
+| business_id | UUID | FK → businesses.id, NULL | 연관 사업장 (사업장 무관 알림은 NULL) |
+| type | VARCHAR(20) | NOT NULL | 알림 유형 (POLICY_MATCH / CHAT_ANSWER / DEADLINE / SYSTEM 등) |
+| title | VARCHAR(255) | NOT NULL | 알림 제목 (사용자에게 노출될 요약) |
+| message | TEXT | NOT NULL | 알림 본문 |
+| is_read | BOOLEAN | NOT NULL | 읽음 여부 (기본: false) |
+| link_url | TEXT | NULL | 클릭 시 이동 URL |
+| created_at | TIMESTAMP | NOT NULL | 알림 생성 일시 |
 
-| 구분     | 컬럼명        | 역할               | 타입/옵션       | 출처        | 비고                                                            |
-| :------- | :------------ | :----------------- | :-------------- | :---------- | :-------------------------------------------------------------- |
-| **PK**   | id            | 콘텐츠 고유 ID     | UUID, N         | 시스템      | 기본값: uuid4                                                   |
-| **일반** | title         | 콘텐츠 제목        | VARCHAR(255), N | 관리자 입력 | -                                                               |
-| **일반** | category      | 콘텐츠 카테고리    | VARCHAR(50), N  | 관리자 입력 | 세무, 정책자금 등 분류 (Index 적용)                             |
-| **일반** | content_html  | HTML 본문          | TEXT, N         | 관리자 입력 | 관리자 도구에서 작성된 원본 HTML 데이터                         |
-| **일반** | thumbnail_url | 썸네일 이미지 주소 | TEXT, Y         | 관리자 입력 | 콘텐츠 목록에 노출될 이미지 경로                                |
-| **일반** | is_published  | 공개 여부          | BOOLEAN, N      | 관리자 설정 | 기본값: True (준비 중인 콘텐츠 숨김 처리, Server Default: true) |
-| **일반** | view_count    | 조회수             | INTEGER, N      | 시스템      | 기본값: 0 (Server Default: 0)                                   |
-| **일반** | like_count    | 좋아요 수          | INTEGER, N      | 시스템      | 기본값: 0 (인기 콘텐츠 정렬 기준, Server Default: 0)            |
-| **일반** | created_at    | 발행 시점          | TIMESTAMP, N    | 시스템      | Server Default: CURRENT_TIMESTAMP                               |
+### 1.13 match_logs (매칭 진단 결과 로그)
 
----
+> **설계 의도**: 비즈몽 에이전트가 생성한 사업장↔정책 적합도 점수를 영구 보존. 재진단 없이도 과거 결과 재조회가 가능하며, 추후 ML 학습 데이터로 활용 가능.
 
-### 10. notifications (알림 기록)
+| 컬럼 | 타입 | 제약 | 설명 |
+|:---|:---|:---|:---|
+| id | UUID | PK | 매칭 결과 고유 식별자 |
+| business_id | UUID | FK → businesses.id | 매칭 대상 사업장 |
+| policy_id | UUID | FK → policies.id | 매칭 대상 정책 |
+| match_score | INTEGER | NOT NULL | 매칭 점수 (0~100) |
+| match_status | VARCHAR(10) | NOT NULL | 신호등 상태 (G / Y / R) |
+| reason_json | JSONB | NULL | 점수 산정 근거 (score_breakdown 등 JSON) |
+| created_at | TIMESTAMP | NOT NULL | 매칭 판정 일시 |
 
-- **존재 이유**: 정책 매칭, 채팅 답변 등 서비스 내 주요 이벤트를 사용자에게 실시간/비동기로 안내하며, 읽음 상태 관리를 통해 앱 내 알림 센터 및 뱃지 UI의 기초 데이터로 활용함
-- **관계성**: N:1 (users, businesses)
-- **상세 명세**:
+### 1.14 simulation_logs (시뮬레이션 결과 로그)
 
-| 구분     | 컬럼명      | 역할             | 타입/옵션       | 출처        | 비고                                                  |
-| :------- | :---------- | :--------------- | :-------------- | :---------- | :---------------------------------------------------- |
-| **PK**   | id          | 알림 고유 식별자 | UUID, N         | 시스템      | 기본값: uuid4 (충돌 방지 우편물 번호)                 |
-| **FK**   | user_id     | 수신 사용자 ID   | UUID, N         | 시스템      | users.id 외래키 (필수 수신인 주소)                    |
-| **FK**   | business_id | 연관 사업장 ID   | UUID, Y         | 시스템      | businesses.id 외래키 (특정 업장 관련 시 기록)         |
-| **일반** | type        | 알림 유형        | VARCHAR(20), N  | 시스템      | 예: POLICY_MATCH, CHAT_ANSWER (아이콘 구분용)         |
-| **일반** | title       | 알림 제목        | VARCHAR(255), N | 시스템      | 기본값: '새로운 알림' (사용자 노출 요약 문구)         |
-| **일반** | message     | 알림 본문        | TEXT, N         | 시스템      | 상세 안내 문구가 담기는 그릇                          |
-| **일반** | is_read     | 읽음 여부        | BOOLEAN, N      | 사용자 입력 | 기본값: False (확인 도장 역할, Server Default: false) |
-| **일반** | link_url    | 이동 URL         | TEXT, Y         | 시스템      | 클릭 시 특정 페이지로 안내하는 지름길                 |
-| **일반** | created_at  | 알림 생성 일시   | TIMESTAMP, N    | 시스템      | Server Default: CURRENT_TIMESTAMP (Timezone 포함)     |
+> **설계 의도**: 비즈몽 시뮬레이션 노드의 가상 시나리오 입력/출력 기록. 사용자가 "특허 취득 시 점수 변화"를 확인한 이력을 보존.
 
----
+| 컬럼 | 타입 | 제약 | 설명 |
+|:---|:---|:---|:---|
+| id | UUID | PK | 시뮬레이션 로그 고유 식별자 |
+| business_id | UUID | FK → businesses.id | 기준 사업장 |
+| sim_type | VARCHAR(50) | NOT NULL | 시뮬레이션 종류 (ADD_POINT / ROI_PREDICT 등) |
+| input_data | JSONB | NOT NULL | 사용자 입력 조건 (가상 변수 JSON) |
+| output_data | JSONB | NOT NULL | 계산·예측 결과 (점수 변화, 이자 절감액 등 JSON) |
+| created_at | TIMESTAMP | NOT NULL | 실행 일시 |
 
-### 11. lead_requests (상담 리드/수익화)
+### 1.15 lead_requests (파트너 상담 연결 요청)
 
-- **존재 이유**: 로봇, 컨설팅 등 외부 파트너사와 사장님 연결 기록 관리
-- **관계성**: N:1 (users, businesses)
-- **상세 명세**:
+> **설계 의도**: 사용자가 세무사·로봇세무 연결을 요청할 때 발생하는 리드(Lead) 데이터를 관리.
 
-| 구분     | 컬럼명      | 역할                  | 타입/옵션      | 출처          | 비고                                  |
-| :------- | :---------- | :-------------------- | :------------- | :------------ | :------------------------------------ |
-| **PK**   | id          | 리드 요청 고유 식별자 | UUID, N        | 시스템        | 기본값: uuid4                         |
-| **FK**   | user_id     | 신청 사용자 ID        | UUID, N        | 시스템        | users.id 외래키                       |
-| **FK**   | business_id | 대상 사업장 ID        | UUID, N        | 시스템        | businesses.id 외래키                  |
-| **일반** | lead_type   | 상담 종류             | VARCHAR(50), N | 사용자 선택   | 로봇 도입, 세무 상담 등 파트너 유형   |
-| **일반** | status      | 처리 상태             | VARCHAR(20), N | 시스템/관리자 | 신청, 검토, 연결완료 등 프로세스 상태 |
-| **일반** | created_at  | 신청 일시             | TIMESTAMP, N   | 시스템        | Server Default: CURRENT_TIMESTAMP     |
+| 컬럼 | 타입 | 제약 | 설명 |
+|:---|:---|:---|:---|
+| id | UUID | PK | 리드 요청 고유 식별자 |
+| user_id | UUID | FK → users.id | 신청 사용자 |
+| business_id | UUID | FK → businesses.id | 상담 대상 사업장 |
+| lead_type | VARCHAR(50) | NOT NULL | 상담 종류 (로봇세무 / 세무사 연결 등) |
+| status | VARCHAR(20) | NOT NULL | 처리 상태 (PENDING / REVIEWED / CONNECTED / CANCELLED) |
+| created_at | TIMESTAMP | NOT NULL | 신청 일시 |
 
----
+### 1.16 batch_logs (배치 작업 실행 이력)
 
-### 12. simulation_logs (가산점 시뮬레이션)
+> **설계 의도**: PolicySyncAgent가 정책 크롤링·동기화를 수행할 때마다 결과를 기록. 오류 발생 시 admin 대시보드에서 실패 원인 추적 가능.
 
-- **존재 이유**: 사용자가 직접 가상 데이터를 넣어본 결과 기록 보존
-- **관계성**: N:1 (businesses)
-- **상세 명세**:
-
-| 구분     | 컬럼명      | 역할                   | 타입/옵션      | 출처        | 비고                                             |
-| :------- | :---------- | :--------------------- | :------------- | :---------- | :----------------------------------------------- |
-| **PK**   | id          | 시뮬레이션 로그 식별자 | UUID, N        | 시스템      | 기본값: uuid4                                    |
-| **FK**   | business_id | 기준 사업장 ID         | UUID, N        | 시스템      | businesses.id 외래키                             |
-| **일반** | sim_type    | 시뮬레이션 종류        | VARCHAR(50), N | 시스템      | 가산점 시뮬레이션, ROI 예측 등 구분              |
-| **일반** | input_data  | 사용자 입력 조건       | JSONB, N       | 사용자 입력 | 시뮬레이션을 위해 입력한 가상 환경 데이터 (JSON) |
-| **일반** | output_data | 계산·예측 결과         | JSONB, N       | 시스템      | 산출된 시뮬레이션 결과값 (JSON)                  |
-| **일반** | created_at  | 실행 일시              | TIMESTAMP, N   | 시스템      | Server Default: CURRENT_TIMESTAMP                |
-
----
-
-### 13. chat_rooms (비즈몽 대화방 세션)
-
-- **존재 이유**: 개별 메시지들을 하나의 상담 주제(세션)로 묶어 관리하고, 답변 속도 최적화 및 만족도 측정을 위함
-- **관계성**: N:1 (users, businesses), 1:N (chat_logs)
-- **상세 명세**:
-
-| 구분     | 컬럼명        | 역할                | 타입/옵션       | 출처        | 비고                                 |
-| :------- | :------------ | :------------------ | :-------------- | :---------- | :----------------------------------- |
-| **PK**   | id            | 대화방 고유 식별자  | UUID, N         | 시스템      | 기본값: uuid4                        |
-| **FK**   | user_id       | 상담 시작 사용자 ID | UUID, N         | 시스템      | users.id 외래키                      |
-| **FK**   | business_id   | 선택된 사업장 ID    | UUID, N         | 시스템      | businesses.id 외래키 (데이터 격리용) |
-| **일반** | title         | 대화방 제목         | VARCHAR(255), Y | 시스템      | AI 요약 또는 첫 질문 기반 생성       |
-| **일반** | user_feedback | 사용자 만족도       | BOOLEAN, Y      | 사용자 입력 | 좋아요/싫어요 등 피드백 기록         |
-| **일반** | status        | 상담 진행 상태      | VARCHAR(20), N  | 시스템      | 진행 중, 종료 등 세션 상태 관리      |
-| **일반** | created_at    | 대화방 생성 일시    | TIMESTAMP, N    | 시스템      | Server Default: CURRENT_TIMESTAMP    |
-
----
-
-### 14. batch_logs (데이터 수집 및 동기화 이력)
-
-- **존재 이유**: 정책 공고 크롤링 및 외부 API 동기화 작업의 성공/실패 여부와 히스토리 관리
-- **관계성**: 독립적 (시스템 운영 로그)
-- **상세 명세**:
-
-| 구분     | 컬럼명        | 역할                  | 타입/옵션       | 출처   | 비고                                  |
-| :------- | :------------ | :-------------------- | :-------------- | :----- | :------------------------------------ |
-| **PK**   | id            | 배치 실행 로그 식별자 | UUID, N         | 시스템 | 기본값: uuid4                         |
-| **일반** | job_name      | 작업 명칭             | VARCHAR(100), N | 시스템 | 예: POLICY_CRAWLING, DATA_SYNC 등     |
-| **일반** | status        | 실행 상태             | VARCHAR(20), N  | 시스템 | SUCCESS, FAILED, RUNNING 등 상태 관리 |
-| **일반** | total_count   | 전체 건수             | INTEGER, N      | 시스템 | 배치 작업이 처리해야 할 총 데이터 수  |
-| **일반** | success_count | 성공 건수             | INTEGER, N      | 시스템 | 성공적으로 반영된 데이터 수           |
-| **일반** | fail_count    | 실패 건수             | INTEGER, N      | 시스템 | 처리 중 오류가 발생한 데이터 수       |
-| **일반** | error_details | 오류 상세             | JSONB, Y        | 시스템 | 실패 원인 및 스택 트레이스 (JSON)     |
-| **일반** | started_at    | 작업 시작 일시        | TIMESTAMP, N    | 시스템 | Server Default: CURRENT_TIMESTAMP     |
-| **일반** | finished_at   | 작업 종료 일시        | TIMESTAMP, Y    | 시스템 | 작업이 최종 완료(또는 중단)된 시점    |
-
-### 15. admins (관리자 계정)
-
-- **존재 이유**: 관리자 페이지 접속 권한 관리 및 작업 주체 식별
-- **관계성**: 1:N (admin_audit_logs)
-- **상세 명세**:
-
-| 구분     | 컬럼명     | 역할               | 타입/옵션      | 출처        | 비고                                                         |
-| :------- | :--------- | :----------------- | :------------- | :---------- | :----------------------------------------------------------- |
-| **PK**   | id         | 관리자 고유 식별자 | UUID, N        | 시스템      | 기본값: uuid4                                                |
-| **일반** | login_id   | 관리자 로그인 ID   | VARCHAR(50), N | 관리자 생성 | Unique Index 적용                                            |
-| **일반** | password   | 비밀번호 해시      | TEXT, N        | 관리자 생성 | 보안을 위해 해싱된 암호값 저장                               |
-| **일반** | role       | 권한 등급          | ENUM, N        | 시스템      | MASTER, OPERATOR, CS 등 (AdminRole 연동)                     |
-| **일반** | is_active  | 계정 활성 여부     | BOOLEAN, N     | 시스템      | 기본값: True (퇴사·차단 시 False 변경, Server Default: true) |
-| **일반** | created_at | 계정 생성 일시     | TIMESTAMP, N   | 시스템      | Server Default: CURRENT_TIMESTAMP                            |
+| 컬럼 | 타입 | 제약 | 설명 |
+|:---|:---|:---|:---|
+| id | UUID | PK | 배치 실행 로그 고유 식별자 |
+| job_name | VARCHAR(100) | NOT NULL | 작업 명칭 (예: POLICY_CRAWLING) |
+| status | VARCHAR(20) | NOT NULL | 실행 상태 (SUCCESS / FAILED / RUNNING) |
+| total_count | INTEGER | NOT NULL | 처리 대상 전체 건수 |
+| success_count | INTEGER | NOT NULL | 성공 반영 건수 |
+| fail_count | INTEGER | NOT NULL | 실패 건수 합산 |
+| api_error_count | INTEGER | NOT NULL | API 요청 실패 건수 |
+| parse_error_count | INTEGER | NOT NULL | 첨부파일 텍스트 추출 실패 건수 |
+| analysis_error_count | INTEGER | NOT NULL | AI 분석·검증 실패 건수 |
+| db_fail_count | INTEGER | NOT NULL | DB upsert 실패 건수 |
+| error_details | JSONB | NULL | 단계별 에러 요약 및 항목 목록 |
+| started_at | TIMESTAMP | NOT NULL | 작업 시작 일시 |
+| finished_at | TIMESTAMP | NULL | 작업 종료 일시 |
 
 ---
 
-### 16. admin_audit_logs (관리자 활동 로그)
+## 1-A. 테이블 관계도 (ER 요약)
 
-- **존재 이유**: 시스템 보안 및 추적성을 위해 관리자가 수행한 주요 작업(정책 업데이트, 데이터 수정 등)의 이력을 기록하고 관리함
-- **관계성**: N:1 (admins)
-- **상세 명세**:
+```
+users (1) ─────────────── (N) user_tokens
+users (1) ─────────────── (N) businesses
+users (1) ─────────────── (N) notifications
+users (1) ─────────────── (N) lead_requests
 
-| 구분     | 컬럼명      | 역할                  | 타입/옵션      | 출처   | 비고                                |
-| :------- | :---------- | :-------------------- | :------------- | :----- | :---------------------------------- |
-| **PK**   | id          | 감사 로그 고유 식별자 | UUID, N        | 시스템 | 기본값: uuid4                       |
-| **FK**   | admin_id    | 작업 수행 관리자 ID   | UUID, N        | 시스템 | admins.id 외래키                    |
-| **일반** | action_type | 작업 유형             | VARCHAR(50), N | 시스템 | 예: POLICY_UPDATE, USER_BAN 등      |
-| **일반** | target_id   | 대상 엔티티 PK        | UUID, Y        | 시스템 | 변경 대상이 된 데이터의 고유 식별자 |
-| **일반** | changes     | 변경 내역 스냅샷      | JSONB, Y       | 시스템 | 변경 전·후 데이터 비교 정보 (JSON)  |
-| **일반** | ip_address  | 요청 IP 주소          | VARCHAR(45), Y | 시스템 | 작업자의 IPv4/IPv6 주소 기록        |
-| **일반** | created_at  | 작업 발생 일시        | TIMESTAMP, N   | 시스템 | Server Default: CURRENT_TIMESTAMP   |
+businesses (1) ─────────── (N) business_financial_snapshots
+businesses (1) ─────────── (N) documents
+businesses (1) ─────────── (N) applications
+businesses (1) ─────────── (N) policy_bookmarks
+businesses (1) ─────────── (N) match_logs
+businesses (1) ─────────── (N) simulation_logs
+businesses (1) ─────────── (N) chat_rooms
+businesses (1) ─────────── (N) lead_requests
+businesses (1) ─────────── (N) notifications
+
+policies (1) ──────────── (N) policy_chunks        [CASCADE DELETE]
+policies (1) ──────────── (N) policy_bookmarks     [CASCADE DELETE]
+policies (1) ──────────── (N) applications
+policies (1) ──────────── (N) match_logs
+
+chat_rooms (1) ──────────── (N) chat_logs
+
+[Unique Constraints]
+  business_financial_snapshots: (business_id, snapshot_year)
+  policy_bookmarks: (business_id, policy_id)
+```
+
+---
+
+## 2. API 엔드포인트 전체 목록
+
+### 2.1 인증 (Auth)
+
+| Method | Endpoint | 설명 | 인증 필요 |
+|:---|:---|:---|:---|
+| POST | `/api/v1/auth/social-login` | 소셜 로그인 (카카오/네이버) | 없음 |
+| POST | `/api/v1/auth/refresh` | Access Token 갱신 | Refresh Cookie |
+| POST | `/api/v1/auth/logout` | 로그아웃 (Refresh Token 무효화) | Bearer |
+| DELETE | `/api/v1/auth/withdraw` | 회원 탈퇴 (Soft Delete) | Bearer |
+
+### 2.2 사용자 (Users)
+
+| Method | Endpoint | 설명 | 인증 필요 |
+|:---|:---|:---|:---|
+| GET | `/api/v1/users/me` | 내 프로필 조회 | Bearer |
+| PATCH | `/api/v1/users/me` | 프로필 수정 (닉네임, 마케팅 동의 등) | Bearer |
+
+### 2.3 사업장 (Business) — `business.md` 참조
+
+| Method | Endpoint | 설명 | 가드 |
+|:---|:---|:---|:---|
+| POST | `/api/v1/onboarding/verify-biz` | 사업자번호 진위 확인 | CurrentUser |
+| POST | `/api/v1/onboarding/register` | 온보딩 사업장 최초 등록 | CurrentUser |
+| GET | `/api/v1/businesses/me` | 사업장 정보 조회 | CurrentUser |
+| POST | `/api/v1/businesses/validate` | 입력값 이상치 검증 | CurrentUser |
+| PATCH | `/api/v1/businesses/me` | 사업장 정보 수정 | ActiveBusiness |
+| POST | `/api/v1/businesses/finance` | 재무 스냅샷 등록 | ActiveBusiness |
+| GET | `/api/v1/businesses/finance/history` | 재무 이력 조회 | ActiveBusiness |
+| PATCH | `/api/v1/businesses/finance/{year}` | 재무 수정 | ActiveBusiness |
+| DELETE | `/api/v1/businesses/finance/{year}` | 재무 삭제 (Soft Delete) | ActiveBusiness |
+| POST | `/api/v1/documents` | 서류 업로드 | ActiveBusiness |
+| GET | `/api/v1/documents` | 서류 목록 조회 | ActiveBusiness |
+| GET | `/api/v1/documents/{document_id}` | 서류 상세 조회 | ActiveBusiness |
+| DELETE | `/api/v1/documents/{document_id}` | 서류 파기 (Soft Delete) | ActiveBusiness |
+
+### 2.4 채팅 / BizMong 에이전트 (Chat) — `chat.md` 참조
+
+| Method | Endpoint | 설명 | 핵심 |
+|:---|:---|:---|:---|
+| POST | `/api/v1/chats/sessions` | AI 상담 세션 생성 | - |
+| GET | `/api/v1/chats/sessions` | 세션 목록 조회 | - |
+| POST | `/api/v1/chats/sessions/{id}/messages` | 일반 메시지 전송 | - |
+| GET | `/api/v1/chats/sessions/{id}/messages` | 대화 내역 조회 | - |
+| PATCH | `/api/v1/chats/sessions/{id}/summary` | 세션 제목 자동 요약 | GPT |
+| DELETE | `/api/v1/chats/sessions/{id}` | 세션 삭제 (Soft Delete) | - |
+| **POST** | **`/api/v1/chats/sessions/{id}/agent-message`** | **BizMong 멀티 에이전트** | **핵심** |
+
+### 2.5 정책 (Policies) — `policies.md` 참조
+
+| Method | Endpoint | 설명 |
+|:---|:---|:---|
+| GET | `/api/v1/policies` | 정책 목록 조회 (필터/검색) |
+| GET | `/api/v1/policies/{id}` | 정책 상세 조회 |
+| POST | `/api/v1/policies/{id}/bookmark` | 정책 북마크 토글 |
+| GET | `/api/v1/policies/bookmarks` | 북마크한 정책 목록 |
+
+### 2.6 비즈-픽 (Biz-Pick) — `biz_pick.md` 참조
+
+| Method | Endpoint | 설명 |
+|:---|:---|:---|
+| GET | `/api/v1/biz-picks` | 큐레이션 카드 뉴스 목록 |
+| GET | `/api/v1/biz-picks/{id}` | 카드 뉴스 상세 |
+
+### 2.7 알림 (Notification) — `notification.md` 참조
+
+| Method | Endpoint | 설명 |
+|:---|:---|:---|
+| GET | `/api/v1/notifications` | 알림 목록 조회 |
+| PATCH | `/api/v1/notifications/{id}/read` | 알림 읽음 처리 |
+| GET | `/api/v1/notifications/settings` | 알림 설정 조회 |
+| PATCH | `/api/v1/notifications/settings` | 알림 설정 변경 |
+
+### 2.8 관리자 (Admin)
+
+| Method | Endpoint | 설명 | 가드 |
+|:---|:---|:---|:---|
+| POST | `/api/v1/admin/policies/sync` | 정책 공고 동기화 트리거 | AdminAuth |
+| GET | `/api/v1/admin/policies` | 전체 정책 관리 목록 | AdminAuth |
+| PATCH | `/api/v1/admin/policies/{id}` | 정책 수동 수정 | AdminAuth |
+
+---
+
+## 3. BizMong 에이전트 응답 상세 스키마
+
+`POST /api/v1/chats/sessions/{session_id}/agent-message` 의 `data` 필드 전체 타입 정의.  
+프론트엔드 AI는 이 섹션을 기반으로 TypeScript 타입을 즉시 정의할 수 있습니다.
+
+### 3.1 AgentMessageResponse (최상위)
+
+```typescript
+interface AgentMessageResponse {
+  session_id: string;       // UUID
+  message_id: string;       // UUID (ChatLog.id)
+  role: "assistant";
+  content: string;          // 사용자에게 보여줄 한국어 요약 텍스트
+  agent_type: "diagnosis" | "simulator" | "rag" | "stats";
+  diagnosis_report: DiagnosisReport | null;   // agent_type === "diagnosis" 시
+  simulation_report: SimulationReport | null; // agent_type === "simulator" 시
+  stats_insight: StatsInsight | null;         // agent_type === "stats" 시
+  rag_results: RagResult[] | null;            // agent_type === "rag" 시
+  created_at: string;       // ISO 8601
+}
+```
+
+### 3.2 DiagnosisReport
+
+```typescript
+interface DiagnosisReport {
+  score: number;            // 평균 적합도 점수 (0~100, 소수점 1자리)
+  top_policy: string;       // 1순위 정책명
+  top_score: number;        // 1순위 정책 점수 (0~100)
+  reason: string;           // 1순위 정책이 적합한 이유 (1~2문장)
+  advice: string;           // 전체 결과에 대한 개선 방향 텍스트
+  ranked_policies: RankedPolicy[];  // 상위 10개 정책 (점수 내림차순)
+  total_candidates: number; // 최소 점수(40점) 이상 통과 정책 수
+}
+
+interface RankedPolicy {
+  policy_id: string;        // UUID
+  title: string;            // 공고명
+  agency_name: string;      // 주관 기관
+  category: string | null;  // 정책 카테고리
+  support_type: string | null; // 지원 유형
+  region: string | null;    // 지원 지역
+  max_support: number | null;  // 최대 지원금액 (원)
+  min_support: number | null;  // 최소 지원금액 (원)
+  support_amount_desc: string | null; // 지원금액 텍스트
+  end_date: string;         // 마감일 (ISO 8601)
+  apply_url: string;        // 신청 URL
+  score: number;            // 적합도 총점 (0~100)
+  score_breakdown: {
+    기술력: number;          // 0~40점
+    고용: number;            // 0~30점
+    안정성: number;          // 0~30점
+  };
+  reason: string;           // 이 정책이 적합한 이유
+  recommendation: string;   // 신청 시 주의/준비사항
+}
+```
+
+### 3.3 SimulationReport
+
+```typescript
+interface SimulationReport {
+  original_score: number;   // 변경 전 점수
+  virtual_score: number;    // 변경 후 점수
+  diff: number;             // virtual_score - original_score (양수면 향상)
+  virtual_state: {          // 변경된 변수들 (변경된 것만 포함)
+    has_patent?: boolean;
+    is_ventured?: boolean;
+    employee_count?: number;
+    annual_revenue?: number;
+  };
+  benefit_amount: number | null; // 이자 절감액 (원, 대환 대출 시뮬레이션 시)
+  insights: string[];       // 개선 인사이트 최대 3개
+  changed_variables: string[]; // 변경된 변수명 목록 ["has_patent", ...]
+}
+```
+
+### 3.4 StatsInsight
+
+```typescript
+interface StatsInsight {
+  peer_count: number;       // 비교 대상 동종 사업장 수
+  ksic_code: string | null; // 비교에 사용된 업종 코드
+  avg_revenue: number | null;    // 동종업계 평균 연매출 (원)
+  avg_employees: number | null;  // 동종업계 평균 직원 수
+  avg_debt_ratio: number | null; // 동종업계 평균 부채비율 (%)
+  percentile: {
+    revenue_percentile: number | null;   // 매출 상위 % (10/25/50/75)
+    employee_percentile: number | null;  // 직원수 상위 %
+  };
+  market_trend: string;     // 시장 동향 텍스트
+  peer_comparison: string;  // 동종업계 대비 현재 위치 텍스트
+}
+```
+
+### 3.5 RagResult
+
+```typescript
+interface RagResult {
+  policy_id: string;        // UUID
+  title: string;            // 공고명
+  agency_name: string;      // 주관 기관
+  ai_summary: string;       // GPT 생성 요약
+  support_amount_desc: string; // 지원금액 설명
+  max_support: number | null;  // 최대 지원금액 (원)
+  region: string;           // 지원 지역
+  end_date: string;         // 마감일
+  apply_url: string;        // 신청 URL
+  rrf_score: number;        // RRF 융합 점수 (랭킹 참고용)
+  relevant_chunk: string;   // 검색에 매칭된 청크 텍스트 (출처 표시용)
+}
+```
+
+---
+
+## 4. Request 스키마 (주요 엔드포인트)
+
+### 4.1 에이전트 메시지 요청
+
+```typescript
+// POST /api/v1/chats/sessions/{id}/agent-message
+interface SendMessageRequest {
+  message: string;  // 사용자 자연어 입력
+}
+```
+
+### 4.2 사업장 온보딩 등록
+
+```typescript
+// POST /api/v1/onboarding/register
+interface OnboardingRegisterRequest {
+  biz_name: string;
+  biz_no?: string;
+  representative_name?: string;
+  ksic_code?: string;
+  region_sido?: string;
+  region_sigungu?: string;
+  establishment_date?: string;  // "YYYY-MM-DD"
+  has_patent?: boolean;
+  is_female_ent?: boolean;
+  is_ventured?: boolean;
+  employee_count?: number;
+}
+```
+
+### 4.3 재무 스냅샷 등록
+
+```typescript
+// POST /api/v1/businesses/finance
+interface FinanceCreateRequest {
+  snapshot_year: number;
+  snapshot_period: string;       // "1Q" | "2Q" | "3Q" | "4Q" | "연간"
+  term_type: string;             // "연간" | "분기"
+  annual_revenue?: number;       // 연매출 (원)
+  operating_profit?: number;     // 영업이익 (원)
+  net_income?: number;           // 당기순이익 (원)
+  total_debt?: number;           // 총 부채 (원)
+  capital?: number;              // 자본금 (원)
+  employee_count?: number;       // 직원 수
+  tax_arrears_yn?: boolean;      // 세금 체납 여부
+}
+```
