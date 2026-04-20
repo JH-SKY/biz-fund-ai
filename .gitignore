@@ -5,6 +5,7 @@
 .env
 *.env
 .env.*
+!frontend/.env.local.example
 # 특정 OS 설정 파일 차단
 .DS_Store
 Thumbs.db
