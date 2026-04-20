@@ -1,0 +1,127 @@
+/*
+ * Biz-Up 글로벌 스타일.
+ *
+ * 1) Pretendard Variable: 한국어에 최적화된 가변 폰트 (CDN 로드 — 별도 패키지 불요).
+ * 2) CSS 변수: 런타임 테마 토큰. 다크모드는 prefers-color-scheme 로 자동 전환.
+ * 3) Tailwind base 위에 필수 리셋만 최소 추가 (Next.js 기본 reset 은 없음).
+ */
+
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── 디자인 토큰 (Semantic Variables) ──────────────────── */
+:root {
+  --background: 0 0% 100%;
+  --foreground: 222 47% 11%; /* #0F172A (ink.DEFAULT) */
+
+  --muted: 210 40% 96%; /* #F1F5F9 */
+  --muted-foreground: 215 16% 47%; /* #475569 (ink.secondary) */
+
+  --border: 214 32% 91%; /* #E2E8F0 (surface.border) */
+  --ring: 217 91% 60%;   /* primary-500 focus ring */
+
+  /* 페이지 최대 폭·레이아웃 여백 */
+  --content-max: 1200px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: 222 47% 7%;
+    --foreground: 210 40% 98%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+    --border: 217 33% 20%;
+  }
+}
+
+/* ── 기본 리셋 ───────────────────────────────────────────── */
+@layer base {
+  * {
+    box-sizing: border-box;
+    padding: 0;
+    margin: 0;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  html,
+  body {
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  body {
+    @apply bg-surface text-ink font-sans text-base leading-relaxed;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11", "tnum";
+  }
+
+  /* 타이틀 계층: 모든 제목의 기본 자간·자체 */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply font-bold tracking-tight text-ink;
+  }
+
+  h1 {
+    @apply text-4xl sm:text-5xl;
+  }
+  h2 {
+    @apply text-2xl sm:text-3xl;
+  }
+  h3 {
+    @apply text-xl sm:text-2xl;
+  }
+  h4 {
+    @apply text-lg sm:text-xl;
+  }
+
+  /* 숫자·금액 표기는 tabular-nums 로 세로 정렬을 맞춰 읽기 쉽게 */
+  .numeric,
+  [data-numeric="true"] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-primary-500 ring-offset-2 ring-offset-white rounded-sm;
+  }
+
+  ::selection {
+    background-color: rgb(219 234 254); /* primary-100 */
+    color: rgb(30 58 138); /* primary-900 */
+  }
+}
+
+/* ── 커스텀 유틸리티 ─────────────────────────────────────── */
+@layer utilities {
+  .safe-pb {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .safe-pt {
+    padding-top: env(safe-area-inset-top);
+  }
+  /* 앱 쉘 컨테이너: GNB/사이드바/하단탭바를 뺀 콘텐츠 영역 */
+  .app-content-area {
+    min-height: calc(100dvh - theme("spacing.header"));
+  }
+}
+
+/* ── 토스트 프로그레스 바 (Tailwind 키프레임과 별도로 선언) ─── */
+@keyframes shrink-width {
+  from { width: 100%; }
+  to   { width: 0%; }
+}
