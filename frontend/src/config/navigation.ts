@@ -14,11 +14,12 @@ import {
   History,
   type LucideIcon,
 } from "lucide-react";
+import type { Route } from "next";
 
 export interface NavItem {
   key: string;
   label: string;
-  href: string;
+  href: Route;
   icon: LucideIcon;
   /** 모바일 하단 탭바에도 노출할지 */
   showInBottomTab?: boolean;

@@ -7,6 +7,7 @@
  */
 
 import * as React from "react";
+import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { Bell, Clock, Zap, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -64,7 +65,7 @@ export function NotificationItem({ item, onRead }: NotificationItemProps) {
 
   function handleClick() {
     if (!item.is_read) onRead();
-    if (item.deep_link) router.push(item.deep_link);
+    if (item.deep_link) router.push(item.deep_link as Route);
   }
 
   return (

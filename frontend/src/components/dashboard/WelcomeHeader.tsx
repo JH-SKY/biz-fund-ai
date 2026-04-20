@@ -45,7 +45,7 @@ export function WelcomeHeader({ business, isLoading, isOnboarded }: Props) {
           </p>
         </div>
         <Button asChild variant="accent" size="lg">
-          <Link href="/auth/onboarding">
+          <Link href="/onboarding">
             시작하기 <ArrowRight />
           </Link>
         </Button>

@@ -21,12 +21,13 @@ import {
   Newspaper,
   TrendingUp,
 } from "lucide-react";
+import type { Route } from "next";
 
 import type { NavItem } from "./navigation";
 
 export interface AdminNavSection {
   section: string;
-  items: NavItem[];
+  items: Array<NavItem & { href: Route }>;
 }
 
 export const ADMIN_NAV_SECTIONS: AdminNavSection[] = [
