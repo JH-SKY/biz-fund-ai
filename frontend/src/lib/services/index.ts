@@ -3,6 +3,7 @@ export * from "./policy.service";
 export * from "./diagnosis.service";
 export * from "./document.service";
 export * from "./chat.service";
+export * from "./admin.service";
 export * from "./biz-pick.service";
 export * from "./profile.service";
 export * from "./notification.service";
