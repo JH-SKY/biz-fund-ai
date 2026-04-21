@@ -47,6 +47,20 @@ async def request_validation_exception_handler(
     )
 
 
+async def base_app_exception_handler(
+    _request: Request,
+    exc: "BaseAppException",
+) -> JSONResponse:
+    """도메인 예외를 공통 응답 형식으로 변환한다."""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "status": exc.status_code,
+            "message": exc.message,
+        },
+    )
+
+
 # --- 커스텀 예외 정의 구간 ---
 
 class BaseAppException(Exception):

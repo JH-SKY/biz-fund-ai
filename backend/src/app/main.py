@@ -23,7 +23,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.api.v1.router import api_router
 from src.app.core.config import FRONTEND_ORIGINS
-from src.app.core.exceptions import request_validation_exception_handler
+from src.app.core.exceptions import (
+    BaseAppException,
+    base_app_exception_handler,
+    request_validation_exception_handler,
+)
 from src.app.database.postgres.database import get_db
 from src.app.worker.scheduler import shutdown_scheduler, start_scheduler
 
@@ -59,6 +63,10 @@ app.add_middleware(
 app.add_exception_handler(
     RequestValidationError,
     request_validation_exception_handler,
+)
+app.add_exception_handler(
+    BaseAppException,
+    base_app_exception_handler,
 )
 app.include_router(api_router)
 
