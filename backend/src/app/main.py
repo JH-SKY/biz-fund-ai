@@ -17,10 +17,12 @@ import src.app.domains.policy.model  # noqa: F401
 import src.app.domains.system.model  # noqa: F401
 from fastapi import Depends, FastAPI
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.api.v1.router import api_router
+from src.app.core.config import FRONTEND_ORIGINS
 from src.app.core.exceptions import request_validation_exception_handler
 from src.app.database.postgres.database import get_db
 from src.app.worker.scheduler import shutdown_scheduler, start_scheduler
@@ -44,6 +46,14 @@ app = FastAPI(
     description="소상공인 맞춤형 정책 매칭 및 AI 에이전트 서비스",
     version="0.1.0",
     lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=FRONTEND_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.add_exception_handler(

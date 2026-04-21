@@ -11,6 +11,11 @@ load_dotenv()
 # .env에서 APP_ENV=production 으로 설정하면 테스트 전용 API가 비활성화된다.
 APP_ENV: str = os.getenv("APP_ENV", "development")
 
+
+def _parse_csv_env(name: str, default: str) -> list[str]:
+    raw = os.getenv(name, default)
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
 # ── 관리자 JWT ─────────────────────────────────────────
 # 운영 시 반드시 강한 시크릿으로 교체.
 ADMIN_JWT_SECRET: str = os.getenv("ADMIN_JWT_SECRET", "dev-admin-jwt-change-me")
@@ -42,3 +47,9 @@ BIZINFO_API_KEY: str = os.getenv("BIZINFO_API_KEY", "")
 
 # 오픈 AI API
 OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+
+# 프론트엔드 배포/개발 주소. 여러 개면 콤마로 구분.
+FRONTEND_ORIGINS: list[str] = _parse_csv_env(
+    "FRONTEND_ORIGINS",
+    "http://localhost:3000,http://127.0.0.1:3000",
+)
