@@ -8,7 +8,8 @@
  * - 성공 후 분기: 신규 유저 → /onboarding / 기존 유저 → /dashboard (백엔드 응답 기준)
  */
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AlertCircle, ShieldCheck } from "lucide-react";
 
 import {
@@ -21,7 +22,15 @@ import {
 import { SocialLoginButtons } from "@/features/auth/SocialLoginButtons";
 
 export default function LoginPage() {
+  const searchParams = useSearchParams();
   const [error, setError] = useState<string | null>(null);
+  const redirectTo = useMemo(() => {
+    const raw = searchParams.get("callbackUrl");
+    if (!raw || !raw.startsWith("/")) {
+      return "/dashboard";
+    }
+    return raw;
+  }, [searchParams]);
 
   return (
     <Card className="w-full max-w-md">
@@ -33,7 +42,7 @@ export default function LoginPage() {
       </CardHeader>
 
       <CardContent className="space-y-5">
-        <SocialLoginButtons onError={setError} />
+        <SocialLoginButtons redirectTo={redirectTo} onError={setError} />
 
         {error && (
           <div
