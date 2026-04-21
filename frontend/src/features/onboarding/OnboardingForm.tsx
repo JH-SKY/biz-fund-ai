@@ -1,18 +1,5 @@
 "use client";
 
-/**
- * OnboardingForm — 신규 유저 최초 정보 수집 폼.
- *
- * 입력 필드 (기획서 §2)
- *  - 사업자등록번호: 10자리 숫자 + 하이픈 자동 포맷 (123-45-67890)
- *  - 업종: IndustryCombobox 자동완성
- *  - 상시 근로자 수: 숫자 (0 이상 허용)
- *
- * 유효성
- *  - 실시간: 사업자번호 형식 불일치 시 FieldHint(error) 노출
- *  - 제출: 모든 필드 필수. 통과 시 /api/v1/onboarding/register 호출(TODO) → /dashboard 이동
- */
-
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { ArrowRight } from "lucide-react";
@@ -21,95 +8,192 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label, FieldHint } from "@/components/ui/label";
 import { IndustryCombobox } from "./IndustryCombobox";
+import { businessService } from "@/lib/services";
+import { useAuthStore } from "@/stores/auth-store";
+import { useBusinessStore } from "@/stores/business-store";
 
-/** 10자리 숫자로 정규화 */
-function normalizeBizNo(v: string): string {
-  return v.replace(/\D/g, "").slice(0, 10);
+type SubmitPhase = "idle" | "verify" | "register";
+
+function normalizeBizNo(value: string): string {
+  return value.replace(/\D/g, "").slice(0, 10);
 }
 
-/** 입력값에 하이픈 자동 삽입 (123-45-67890) */
-function formatBizNo(v: string): string {
-  const d = normalizeBizNo(v);
-  if (d.length < 4) return d;
-  if (d.length < 6) return `${d.slice(0, 3)}-${d.slice(3)}`;
-  return `${d.slice(0, 3)}-${d.slice(3, 5)}-${d.slice(5)}`;
+function formatBizNo(value: string): string {
+  const digits = normalizeBizNo(value);
+  if (digits.length < 4) return digits;
+  if (digits.length < 6) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 5)}-${digits.slice(5)}`;
 }
 
-function isValidBizNo(v: string): boolean {
-  return /^\d{10}$/.test(normalizeBizNo(v));
+function isValidBizNo(value: string): boolean {
+  return /^\d{10}$/.test(normalizeBizNo(value));
+}
+
+function getVerifyFailureMessage(result: {
+  is_valid: boolean;
+  biz_status: string | null;
+  error_code: string | null;
+}): string {
+  if (result.error_code === "TIMEOUT") {
+    return "사업자번호 확인 응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.";
+  }
+  if (result.error_code === "SERVER_CONFIG" || result.error_code === "API_ERROR") {
+    return "사업자번호 확인 서비스에 일시적인 문제가 있습니다. 잠시 후 다시 시도해 주세요.";
+  }
+  if (result.error_code === "NO_DATA" || result.error_code === "NOT_REGISTERED") {
+    return "등록된 사업자번호를 찾지 못했습니다. 입력한 번호를 다시 확인해 주세요.";
+  }
+  if (result.biz_status === "폐업") {
+    return "폐업 상태의 사업자는 현재 등록할 수 없습니다.";
+  }
+  if (result.biz_status === "휴업") {
+    return "휴업 상태의 사업자는 현재 등록할 수 없습니다.";
+  }
+  return "유효한 사업자번호인지 확인하지 못했습니다. 입력값을 다시 확인해 주세요.";
 }
 
 export function OnboardingForm() {
   const router = useRouter();
+  const setOnboarded = useAuthStore((state) => state.setOnboarded);
+  const setActiveBusiness = useBusinessStore((state) => state.setActiveBusiness);
 
+  const [bizName, setBizName] = useState("");
   const [bizNo, setBizNo] = useState("");
   const [industry, setIndustry] = useState("");
-  const [employeeCount, setEmployeeCount] = useState<string>("");
+  const [employeeCount, setEmployeeCount] = useState("");
+  const [submitPhase, setSubmitPhase] = useState<SubmitPhase>("idle");
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [verifySuccessMessage, setVerifySuccessMessage] = useState<string | null>(null);
 
   const [touched, setTouched] = useState({
+    bizName: false,
     bizNo: false,
     industry: false,
     employeeCount: false,
   });
-  const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const bizNameError = useMemo(() => {
+    if (!touched.bizName) return null;
+    if (!bizName.trim()) return "상호명을 입력해 주세요.";
+    if (bizName.trim().length > 100) return "상호명은 100자 이하로 입력해 주세요.";
+    return null;
+  }, [bizName, touched.bizName]);
 
   const bizNoError = useMemo(() => {
     if (!touched.bizNo) return null;
-    if (!bizNo) return "사업자번호를 입력해주세요.";
-    if (!isValidBizNo(bizNo)) return "올바른 사업자번호를 입력해주세요. (10자리 숫자)";
+    if (!bizNo) return "사업자등록번호를 입력해 주세요.";
+    if (!isValidBizNo(bizNo)) {
+      return "올바른 사업자등록번호를 입력해 주세요. (10자리 숫자)";
+    }
     return null;
   }, [bizNo, touched.bizNo]);
 
   const industryError =
-    touched.industry && !industry ? "업종을 선택해주세요." : null;
+    touched.industry && !industry ? "업종을 선택해 주세요." : null;
 
-  const employeeError = (() => {
+  const employeeError = useMemo(() => {
     if (!touched.employeeCount) return null;
-    if (employeeCount === "") return "근로자 수를 입력해주세요. (0명 입력 가능)";
-    const n = Number(employeeCount);
-    if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n))
-      return "0 이상의 정수로 입력해주세요.";
+    if (employeeCount === "") {
+      return "상시 근로자 수를 입력해 주세요. (0명 입력 가능)";
+    }
+    const count = Number(employeeCount);
+    if (!Number.isFinite(count) || count < 0 || !Number.isInteger(count)) {
+      return "0 이상의 정수로 입력해 주세요.";
+    }
     return null;
-  })();
+  }, [employeeCount, touched.employeeCount]);
 
-  const isValid =
+  const isFormValid =
+    bizName.trim().length > 0 &&
+    bizName.trim().length <= 100 &&
     isValidBizNo(bizNo) &&
-    !!industry &&
+    Boolean(industry) &&
     employeeCount !== "" &&
+    Number.isInteger(Number(employeeCount)) &&
     Number(employeeCount) >= 0;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setTouched({ bizNo: true, industry: true, employeeCount: true });
-    if (!isValid) return;
+  const isSubmitting = submitPhase !== "idle";
+  const buttonLabel =
+    submitPhase === "verify"
+      ? "사업자번호 확인 중..."
+      : submitPhase === "register"
+        ? "사업 정보 등록 중..."
+        : "분석 결과 확인하기";
 
-    setSubmitting(true);
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setTouched({
+      bizName: true,
+      bizNo: true,
+      industry: true,
+      employeeCount: true,
+    });
     setSubmitError(null);
+    setVerifySuccessMessage(null);
+
+    if (!isFormValid) {
+      return;
+    }
+
+    const normalizedBizNo = normalizeBizNo(bizNo);
 
     try {
-      // TODO(API 연동):
-      // await apiClient.post<OnboardingRegisterResponseData>(
-      //   "/onboarding/register",
-      //   {
-      //     biz_no: normalizeBizNo(bizNo),
-      //     sector_code: industry,
-      //     employee_count: Number(employeeCount),
-      //     // biz_name 등은 다음 단계에서 국세청 검증 후 수집 예정
-      //   } satisfies OnboardingRegisterRequest
-      // );
-      await new Promise((r) => setTimeout(r, 700));
-      router.push("/dashboard");
-    } catch {
-      setSubmitError("정보 저장에 실패했어요. 잠시 후 다시 시도해주세요.");
+      setSubmitPhase("verify");
+      const verifyResult = await businessService.verifyBizNumber({
+        biz_no: normalizedBizNo,
+      });
+
+      if (!verifyResult.is_valid) {
+        setSubmitError(getVerifyFailureMessage(verifyResult));
+        return;
+      }
+
+      setVerifySuccessMessage("사업자번호 확인이 완료되었습니다. 등록을 계속 진행합니다.");
+
+      setSubmitPhase("register");
+      const registered = await businessService.registerBusiness({
+        biz_name: bizName.trim(),
+        biz_no: normalizedBizNo,
+        sector_code: industry,
+        employee_count: Number(employeeCount),
+      });
+
+      setOnboarded();
+      setActiveBusiness(registered.biz_id, registered.biz_name);
+      router.replace("/dashboard");
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "온보딩 정보를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+      setSubmitError(message);
     } finally {
-      setSubmitting(false);
+      setSubmitPhase("idle");
     }
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      {/* 사업자번호 */}
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="ob-biz-name" required>
+          상호명
+        </Label>
+        <Input
+          id="ob-biz-name"
+          autoComplete="organization"
+          placeholder="예: 비즈업 스튜디오"
+          value={bizName}
+          onChange={(event) => setBizName(event.target.value)}
+          onBlur={() => setTouched((prev) => ({ ...prev, bizName: true }))}
+          invalid={Boolean(bizNameError)}
+        />
+        {bizNameError ? (
+          <FieldHint tone="error">{bizNameError}</FieldHint>
+        ) : (
+          <FieldHint>대시보드와 프로필에 표시될 사업장 이름입니다.</FieldHint>
+        )}
+      </div>
+
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="ob-biz-no" required>
           사업자등록번호
@@ -120,18 +204,23 @@ export function OnboardingForm() {
           autoComplete="off"
           placeholder="123-45-67890"
           value={bizNo}
-          onChange={(e) => setBizNo(formatBizNo(e.target.value))}
-          onBlur={() => setTouched((t) => ({ ...t, bizNo: true }))}
-          invalid={!!bizNoError}
+          onChange={(event) => {
+            setBizNo(formatBizNo(event.target.value));
+            setVerifySuccessMessage(null);
+            setSubmitError(null);
+          }}
+          onBlur={() => setTouched((prev) => ({ ...prev, bizNo: true }))}
+          invalid={Boolean(bizNoError)}
         />
         {bizNoError ? (
           <FieldHint tone="error">{bizNoError}</FieldHint>
+        ) : verifySuccessMessage ? (
+          <FieldHint tone="success">{verifySuccessMessage}</FieldHint>
         ) : (
           <FieldHint>하이픈은 자동으로 입력됩니다.</FieldHint>
         )}
       </div>
 
-      {/* 업종 */}
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="ob-industry" required>
           업종
@@ -141,18 +230,17 @@ export function OnboardingForm() {
           value={industry}
           onChange={(code) => {
             setIndustry(code);
-            setTouched((t) => ({ ...t, industry: true }));
+            setTouched((prev) => ({ ...prev, industry: true }));
           }}
-          invalid={!!industryError}
+          invalid={Boolean(industryError)}
         />
         {industryError ? (
           <FieldHint tone="error">{industryError}</FieldHint>
         ) : (
-          <FieldHint>키워드를 입력하면 자동으로 검색돼요.</FieldHint>
+          <FieldHint>키워드를 입력하면 업종 후보를 바로 찾을 수 있습니다.</FieldHint>
         )}
       </div>
 
-      {/* 상시 근로자 수 */}
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="ob-employee" required>
           상시 근로자 수
@@ -165,12 +253,18 @@ export function OnboardingForm() {
           step={1}
           placeholder="본인 제외, 0명 입력 가능"
           value={employeeCount}
-          onChange={(e) => setEmployeeCount(e.target.value)}
-          onBlur={() => setTouched((t) => ({ ...t, employeeCount: true }))}
-          invalid={!!employeeError}
+          onChange={(event) => setEmployeeCount(event.target.value)}
+          onBlur={() =>
+            setTouched((prev) => ({ ...prev, employeeCount: true }))
+          }
+          invalid={Boolean(employeeError)}
           rightIcon={<span className="text-xs">명</span>}
         />
-        {employeeError && <FieldHint tone="error">{employeeError}</FieldHint>}
+        {employeeError ? (
+          <FieldHint tone="error">{employeeError}</FieldHint>
+        ) : (
+          <FieldHint>현재 고용 인원은 이후 매칭 정확도 계산에 활용됩니다.</FieldHint>
+        )}
       </div>
 
       {submitError && (
@@ -184,18 +278,17 @@ export function OnboardingForm() {
 
       <Button
         type="submit"
-        variant="primary"
         size="lg"
         className="w-full"
-        loading={submitting}
-        disabled={!isValid || submitting}
+        loading={isSubmitting}
+        disabled={!isFormValid || isSubmitting}
       >
-        분석 결과 확인하기
-        {!submitting && <ArrowRight />}
+        {buttonLabel}
+        {!isSubmitting && <ArrowRight />}
       </Button>
 
       <p className="text-center text-xs text-ink-tertiary">
-        입력하신 정보는 정책자금 매칭에만 사용되며 외부에 공개되지 않습니다.
+        입력하신 정보는 정책자금 분석과 대시보드 초기 설정에만 사용됩니다.
       </p>
     </form>
   );
