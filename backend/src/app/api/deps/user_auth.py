@@ -63,6 +63,36 @@ async def get_current_user(
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
+async def get_optional_current_user(
+    cred: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> User | None:
+    """공개 API에서 선택적으로 사용자 정보를 읽는다. 실패 시 None을 반환한다."""
+    if cred is None or not cred.credentials:
+        return None
+    try:
+        payload = decode_user_access_token(cred.credentials)
+    except jwt.PyJWTError:
+        return None
+
+    if payload.get("type") != "access":
+        return None
+
+    sub = payload.get("sub")
+    if not sub:
+        return None
+    try:
+        uid = uuid.UUID(str(sub))
+    except ValueError:
+        return None
+
+    repo = AuthRepository(db)
+    return await repo.get_user_by_id(uid)
+
+
+OptionalCurrentUser = Annotated[User | None, Depends(get_optional_current_user)]
+
+
 async def get_auth_service(
     db: Annotated[AsyncSession, Depends(get_db)],
     repo: Annotated[AuthRepository, Depends(get_auth_repo)],
