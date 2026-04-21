@@ -8,11 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 # - .env 파일의 DATABASE_URL(보안 정보)을 시스템 환경 변수로 등록
 load_dotenv()
 SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL")
+SQL_ECHO = os.getenv("SQL_ECHO", "false").lower() == "true"
 
 # 2. 비동기 엔진 생성 (고속도로):
 # - asyncpg 드라이버를 사용한 PostgreSQL 비동기 연결 수행
 # - echo=True: 실행되는 SQL 쿼리를 터미널에 실시간 기록 (디버깅 용도)
-engine = create_async_engine(SQLALCHEMY_DATABASE_URL, echo=True)
+engine = create_async_engine(SQLALCHEMY_DATABASE_URL, echo=SQL_ECHO)
 
 # 3. 세션 팩토리 설정 (대화권):
 # - AsyncSession 기반의 비동기 세션 생성기 정의
