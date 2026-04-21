@@ -36,6 +36,14 @@ class SocialLoginResponseData(BaseModel):
     is_new_user: bool
 
 
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str = Field(..., description="재발급에 사용할 Refresh Token")
+
+
+class RefreshTokenResponseData(BaseModel):
+    access_token: str
+
+
 # ── 테스트 전용 로그인 (개발/스테이징 환경 한정) ──────────
 
 class TestLoginRequest(BaseModel):

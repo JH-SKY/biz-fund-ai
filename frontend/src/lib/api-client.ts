@@ -17,7 +17,7 @@ import axios, {
   InternalAxiosRequestConfig,
 } from "axios";
 
-import type { ApiError, ApiResponse } from "@/types";
+import type { ApiError, ApiResponse, RefreshTokenResponseData } from "@/types";
 import { getActiveBizIdNonReactive } from "@/stores/business-store";
 import {
   getAccessTokenNonReactive,
@@ -94,7 +94,7 @@ async function refreshAccessToken(): Promise<string | null> {
   if (!refresh) return null;
 
   try {
-    const resp = await axios.post<ApiResponse<{ access_token: string }>>(
+    const resp = await axios.post<ApiResponse<RefreshTokenResponseData>>(
       `${BASE_URL}/auth/refresh`,
       { refresh_token: refresh },
       { headers: { "Content-Type": "application/json" } }

@@ -27,6 +27,7 @@ from src.app.domains.auth.schema import (
     MyProfileData,
     ProfilePatchRequest,
     ProfilePatchResponseData,
+    RefreshTokenResponseData,
     SocialAuthRequest,
     SocialLoginRequest,
     SocialLoginResponseData,
@@ -222,6 +223,21 @@ class AuthService:
             raise auth_unauthorized("유효하지 않은 리프레시 토큰입니다.")
         await self._repo.revoke_token(token_row)
         await self._session.commit()
+
+    async def refresh_access_token(
+        self, *, refresh_token: str
+    ) -> RefreshTokenResponseData:
+        """유효한 Refresh Token으로 새 Access Token만 재발급한다."""
+        token_row = await self._repo.get_valid_token(refresh_token)
+        if token_row is None:
+            raise auth_unauthorized("유효하지 않거나 만료된 리프레시 토큰입니다.")
+
+        user = await self._repo.get_user_by_id(token_row.user_id)
+        if user is None:
+            raise auth_unauthorized("존재하지 않거나 비활성화된 계정입니다.")
+
+        access_token = create_user_access_token(user_id=user.id)
+        return RefreshTokenResponseData(access_token=access_token)
 
     # ── 회원 탈퇴 ─────────────────────────────────────────
 

@@ -73,6 +73,10 @@ export interface SocialLoginResponseData {
   is_new_user: boolean;
 }
 
+export interface RefreshTokenResponseData {
+  access_token: string;
+}
+
 export interface MyProfile {
   user_id: string;
   name: string;

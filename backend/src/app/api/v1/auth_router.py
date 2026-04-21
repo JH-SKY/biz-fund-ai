@@ -10,7 +10,11 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from src.app.api.deps.user_auth import CurrentUser, get_auth_service
 from src.app.core.config import APP_ENV
 from src.app.core.response import api_json
-from src.app.domains.auth.schema import SocialAuthRequest, TestLoginRequest
+from src.app.domains.auth.schema import (
+    RefreshTokenRequest,
+    SocialAuthRequest,
+    TestLoginRequest,
+)
 from src.app.domains.auth.service import AuthService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -68,3 +72,13 @@ async def logout(
     """Refresh Token DB 무효화. Access Token은 만료까지 Stateless 유효."""
     await svc.logout(refresh_token=refresh_token)
     return api_json(http_status=200, message="성공적으로 로그아웃되었습니다.")
+
+
+@router.post("/refresh")
+async def refresh_access_token(
+    body: RefreshTokenRequest,
+    svc: Annotated[AuthService, Depends(get_auth_service)],
+):
+    """유효한 Refresh Token으로 새 Access Token을 발급한다."""
+    data = await svc.refresh_access_token(refresh_token=body.refresh_token)
+    return api_json(http_status=200, data=data.model_dump())
