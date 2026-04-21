@@ -5,8 +5,9 @@ from typing import Annotated
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.app.core.config import OPENAI_API_KEY
 from src.app.database.postgres.database import get_db
-from src.app.domains.chat.interfaces import MockLLMEngine
+from src.app.domains.chat.interfaces import OpenAILLMEngine
 from src.app.domains.chat.repository import ChatRepository
 from src.app.domains.chat.service import ChatService
 from src.app.api.deps.policy_deps import get_policy_service
@@ -24,7 +25,7 @@ async def get_chat_service(
     repo: Annotated[ChatRepository, Depends(get_chat_repo)],
     policy_service: Annotated[PolicyService, Depends(get_policy_service)],
 ) -> ChatService:
-    llm_engine = MockLLMEngine()
+    llm_engine = OpenAILLMEngine(api_key=OPENAI_API_KEY)
     return ChatService(
         session=db,
         repo=repo,
