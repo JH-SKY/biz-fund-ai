@@ -66,6 +66,10 @@ export interface SocialAuthRequest {
   device_type: "WEB" | "IOS" | "ANDROID";
 }
 
+export interface TestLoginRequest {
+  test_user_key: string;
+}
+
 export interface SocialLoginResponseData {
   access_token: string;
   refresh_token: string;
