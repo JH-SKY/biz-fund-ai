@@ -7,3 +7,4 @@ export * from "./admin.service";
 export * from "./biz-pick.service";
 export * from "./profile.service";
 export * from "./notification.service";
+export * from "./auth.service";
