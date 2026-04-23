@@ -25,6 +25,7 @@ export interface AdminProfile {
 interface AdminAuthState {
   adminToken: string | null;
   admin: AdminProfile | null;
+  hasHydrated: boolean;
 
   readonly isAdminAuthenticated: boolean;
 
@@ -32,6 +33,7 @@ interface AdminAuthState {
   logoutAdmin: () => void;
   setAdminToken: (token: string) => void;
   patchAdmin: (partial: Partial<AdminProfile>) => void;
+  setHasHydrated: (value: boolean) => void;
 }
 
 function safeStorage() {
@@ -50,21 +52,22 @@ export const useAdminAuthStore = create<AdminAuthState>()(
     (set, get) => ({
       adminToken: null,
       admin: null,
+      hasHydrated: false,
 
       get isAdminAuthenticated() {
         return Boolean(get().adminToken);
       },
 
       loginAdmin(token, profile) {
-        set({ adminToken: token, admin: profile });
+        set({ adminToken: token, admin: profile, hasHydrated: true });
       },
 
       logoutAdmin() {
-        set({ adminToken: null, admin: null });
+        set({ adminToken: null, admin: null, hasHydrated: true });
       },
 
       setAdminToken(token) {
-        set({ adminToken: token });
+        set({ adminToken: token, hasHydrated: true });
       },
 
       patchAdmin(partial) {
@@ -72,10 +75,17 @@ export const useAdminAuthStore = create<AdminAuthState>()(
           admin: s.admin ? { ...s.admin, ...partial } : s.admin,
         }));
       },
+
+      setHasHydrated(value) {
+        set({ hasHydrated: value });
+      },
     }),
     {
       name: "biz_up_admin_auth",
       storage: createJSONStorage(safeStorage),
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
+      },
     }
   )
 );

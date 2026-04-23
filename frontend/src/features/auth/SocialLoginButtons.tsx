@@ -13,6 +13,9 @@ import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth-store";
 import type { SocialProvider } from "@/types";
 
+const NAVER_CLIENT_ID = process.env.NEXT_PUBLIC_NAVER_CLIENT_ID ?? "";
+const NAVER_REDIRECT_URI = process.env.NEXT_PUBLIC_NAVER_REDIRECT_URI ?? "";
+
 interface SocialLoginButtonsProps {
   redirectTo?: string;
   onError?: (message: string) => void;
@@ -27,46 +30,32 @@ export function SocialLoginButtons({
 
   const [loading, setLoading] = useState<SocialProvider | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [selectedProvider, setSelectedProvider] = useState<SocialProvider | null>(
-    null
-  );
   const [socialAccessToken, setSocialAccessToken] = useState("");
 
-  const openTokenDialog = (provider: SocialProvider) => {
-    setSelectedProvider(provider);
+  // ── 카카오: 기존 토큰 입력 방식 유지 ──────────────────────
+  const openKakaoDialog = () => {
     setSocialAccessToken("");
     setDialogOpen(true);
   };
 
-  const handleLogin = async () => {
-    if (!selectedProvider) {
-      return;
-    }
-
+  const handleKakaoLogin = async () => {
     const trimmedToken = socialAccessToken.trim();
     if (!trimmedToken) {
-      onError?.("소셜 액세스 토큰을 입력해 주세요.");
+      onError?.("카카오 액세스 토큰을 입력해 주세요.");
       return;
     }
 
-    setLoading(selectedProvider);
+    setLoading("KAKAO");
     try {
       const data = await authService.socialLogin({
         access_token: trimmedToken,
-        provider: selectedProvider,
+        provider: "KAKAO",
         device_type: "WEB",
       });
 
       login(
-        {
-          access: data.access_token,
-          refresh: data.refresh_token,
-        },
-        {
-          userId: data.user_id,
-          provider: selectedProvider === "KAKAO" ? "kakao" : "naver",
-          isOnboarded: !data.is_new_user,
-        }
+        { access: data.access_token, refresh: data.refresh_token },
+        { userId: data.user_id, provider: "kakao", isOnboarded: !data.is_new_user }
       );
 
       setDialogOpen(false);
@@ -75,11 +64,35 @@ export function SocialLoginButtons({
       const message =
         err instanceof Error
           ? err.message
-          : "소셜 로그인 처리 중 오류가 발생했습니다. 다시 시도해 주세요.";
+          : "카카오 로그인 처리 중 오류가 발생했습니다. 다시 시도해 주세요.";
       onError?.(message);
     } finally {
       setLoading(null);
     }
+  };
+
+  // ── 네이버: OAuth 인가 코드 플로우 ────────────────────────
+  const handleNaverLogin = () => {
+    if (!NAVER_CLIENT_ID || !NAVER_REDIRECT_URI) {
+      onError?.("네이버 로그인 설정이 완료되지 않았습니다. 관리자에게 문의해 주세요.");
+      return;
+    }
+
+    const state = crypto.randomUUID();
+    sessionStorage.setItem("naver_oauth_state", state);
+    if (redirectTo !== "/dashboard") {
+      sessionStorage.setItem("naver_oauth_redirect", redirectTo);
+    }
+
+    // URLSearchParams는 값을 자동 인코딩하므로 redirect_uri만 수동 조립
+    const query = [
+      "response_type=code",
+      `client_id=${encodeURIComponent(NAVER_CLIENT_ID)}`,
+      `redirect_uri=${encodeURIComponent(NAVER_REDIRECT_URI)}`,
+      `state=${encodeURIComponent(state)}`,
+    ].join("&");
+
+    window.location.href = `https://nid.naver.com/oauth2.0/authorize?${query}`;
   };
 
   return (
@@ -87,7 +100,7 @@ export function SocialLoginButtons({
       <div className="flex flex-col gap-3">
         <button
           type="button"
-          onClick={() => openTokenDialog("KAKAO")}
+          onClick={openKakaoDialog}
           disabled={loading !== null}
           aria-label="카카오로 시작하기"
           className={cn(
@@ -102,7 +115,7 @@ export function SocialLoginButtons({
 
         <button
           type="button"
-          onClick={() => openTokenDialog("NAVER")}
+          onClick={handleNaverLogin}
           disabled={loading !== null}
           aria-label="네이버로 시작하기"
           className={cn(
@@ -112,15 +125,16 @@ export function SocialLoginButtons({
           )}
         >
           <NaverIcon />
-          {loading === "NAVER" ? "로그인 중..." : "네이버로 시작하기"}
+          네이버로 시작하기
         </button>
       </div>
 
+      {/* 카카오 액세스 토큰 입력 다이얼로그 */}
       <Dialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        title={`${selectedProvider === "KAKAO" ? "카카오" : "네이버"} 액세스 토큰 입력`}
-        description="현재 프론트는 소셜 제공자에서 받은 액세스 토큰을 백엔드 /auth/social-login 으로 전달해 로그인합니다."
+        title="카카오 액세스 토큰 입력"
+        description="카카오에서 발급받은 액세스 토큰을 입력하면 백엔드 /auth/social-login 으로 전달해 로그인합니다."
         footer={
           <>
             <Button
@@ -133,8 +147,8 @@ export function SocialLoginButtons({
             <Button
               type="button"
               variant="primary"
-              onClick={handleLogin}
-              loading={loading === selectedProvider}
+              onClick={handleKakaoLogin}
+              loading={loading === "KAKAO"}
             >
               로그인
             </Button>
@@ -144,7 +158,7 @@ export function SocialLoginButtons({
         <div className="space-y-3">
           <div className="space-y-1.5">
             <Label htmlFor="social-access-token" required>
-              소셜 액세스 토큰
+              카카오 액세스 토큰
             </Label>
             <Input
               id="social-access-token"

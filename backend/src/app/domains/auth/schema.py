@@ -11,6 +11,17 @@ from src.app.domains.auth.model import SocialProvider
 
 # ── 소셜 로그인 공통 ────────────────────────────────────
 
+class NaverCallbackRequest(BaseModel):
+    """POST /auth/naver/callback 전용 요청 Body.
+
+    네이버 OAuth 인가 코드 플로우에서 프론트가 전달하는 code + state.
+    백엔드에서 네이버 토큰 교환 후 우리 서비스 JWT를 발급한다.
+    """
+
+    code: str = Field(..., description="네이버 인가 서버에서 전달한 인증 코드")
+    state: str = Field(..., description="CSRF 방지용 state 값")
+
+
 class SocialLoginRequest(BaseModel):
     """카카오·네이버 공통 로그인 요청 Body. (내부 메서드용)"""
 

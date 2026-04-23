@@ -1,9 +1,24 @@
-import { redirect } from "next/navigation";
+"use client";
 
-/**
- * /admin → /admin/dashboard 기본 리다이렉트.
- * 관리자 허브의 진입 경로는 항상 /admin/dashboard 로 통일한다.
- */
+import * as React from "react";
+import { useRouter } from "next/navigation";
+
+import { useAdminAuthStore } from "@/stores/admin-auth-store";
+
 export default function AdminRootPage() {
-  redirect("/admin/dashboard");
+  const router = useRouter();
+  const hasHydrated = useAdminAuthStore((s) => s.hasHydrated);
+  const isAdminAuthenticated = useAdminAuthStore((s) => Boolean(s.adminToken));
+  const setHasHydrated = useAdminAuthStore((s) => s.setHasHydrated);
+
+  React.useEffect(() => {
+    if (!hasHydrated) {
+      setHasHydrated(true);
+      return;
+    }
+
+    router.replace(isAdminAuthenticated ? "/admin/dashboard" : "/admin/login");
+  }, [hasHydrated, isAdminAuthenticated, router, setHasHydrated]);
+
+  return null;
 }

@@ -66,6 +66,11 @@ export interface SocialAuthRequest {
   device_type: "WEB" | "IOS" | "ANDROID";
 }
 
+export interface NaverCallbackRequest {
+  code: string;
+  state: string;
+}
+
 export interface TestLoginRequest {
   test_user_key: string;
 }

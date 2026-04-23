@@ -12,13 +12,31 @@
  */
 
 import type { ReactNode } from "react";
+import { useEffect } from "react";
 import { QueryProvider } from "./QueryProvider";
 import { ToastProvider } from "./ToastProvider";
+import { useAuthStore } from "@/stores/auth-store";
+
+function HydrationBridge() {
+  const hasHydrated = useAuthStore((state) => state.hasHydrated);
+  const setHasHydrated = useAuthStore((state) => state.setHasHydrated);
+
+  useEffect(() => {
+    if (!hasHydrated) {
+      setHasHydrated(true);
+    }
+  }, [hasHydrated, setHasHydrated]);
+
+  return null;
+}
 
 export function Providers({ children }: { children: ReactNode }) {
   return (
     <QueryProvider>
-      <ToastProvider>{children}</ToastProvider>
+      <ToastProvider>
+        <HydrationBridge />
+        {children}
+      </ToastProvider>
     </QueryProvider>
   );
 }

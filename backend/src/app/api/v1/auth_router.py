@@ -11,6 +11,7 @@ from src.app.api.deps.user_auth import CurrentUser, get_auth_service
 from src.app.core.config import APP_ENV
 from src.app.core.response import api_json
 from src.app.domains.auth.schema import (
+    NaverCallbackRequest,
     RefreshTokenRequest,
     SocialAuthRequest,
     TestLoginRequest,
@@ -26,6 +27,21 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 async def _dev_only() -> None:
     if APP_ENV == "production":
         raise HTTPException(status_code=404, detail="Not Found")
+
+
+@router.post("/naver/callback")
+async def naver_oauth_callback(
+    body: NaverCallbackRequest,
+    svc: Annotated[AuthService, Depends(get_auth_service)],
+):
+    """네이버 OAuth 인가 코드 플로우 콜백.
+
+    프론트 /auth/naver/callback 페이지에서 code + state를 전달하면
+    네이버 토큰 서버와 교환 후 우리 서비스 JWT(access + refresh)를 발급한다.
+    - `is_new_user=True` 응답 시 프론트에서 온보딩 페이지로 이동.
+    """
+    data = await svc.naver_callback(body)
+    return api_json(http_status=200, data=data.model_dump())
 
 
 # ── 소셜 로그인 ────────────────────────────────────────────

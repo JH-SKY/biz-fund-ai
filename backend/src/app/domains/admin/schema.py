@@ -17,8 +17,11 @@ class AdminLoginRequest(BaseModel):
 
 
 class AdminLoginResponseData(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
+    admin_token: str
+    admin_id: str
+    name: str
+    role: str
+    expires_at: str
 
 
 class PolicyCreateRequest(BaseModel):

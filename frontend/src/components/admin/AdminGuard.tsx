@@ -36,25 +36,27 @@ function AdminLoadingScreen() {
 export function AdminGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [ready, setReady] = React.useState(false);
 
   const isAdminAuthenticated = useAdminAuthStore((s) =>
     Boolean(s.adminToken)
   );
+  const hasHydrated = useAdminAuthStore((s) => s.hasHydrated);
+  const setHasHydrated = useAdminAuthStore((s) => s.setHasHydrated);
 
   React.useEffect(() => {
-    if (pathname === "/admin/login") {
-      setReady(true);
+    if (!hasHydrated) {
+      setHasHydrated(true);
       return;
     }
-    if (!isAdminAuthenticated) {
+    if (pathname !== "/admin/login" && !isAdminAuthenticated) {
       router.replace("/admin/login");
-      return;
     }
-    setReady(true);
-  }, [isAdminAuthenticated, pathname, router]);
+  }, [hasHydrated, isAdminAuthenticated, pathname, router, setHasHydrated]);
 
-  if (!ready) return <AdminLoadingScreen />;
+  if (!hasHydrated) return <AdminLoadingScreen />;
+  if (pathname !== "/admin/login" && !isAdminAuthenticated) {
+    return <AdminLoadingScreen />;
+  }
   return <>{children}</>;
 }
 
@@ -65,20 +67,24 @@ export function AdminPublicGuard({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const [ready, setReady] = React.useState(false);
 
   const isAdminAuthenticated = useAdminAuthStore((s) =>
     Boolean(s.adminToken)
   );
+  const hasHydrated = useAdminAuthStore((s) => s.hasHydrated);
+  const setHasHydrated = useAdminAuthStore((s) => s.setHasHydrated);
 
   React.useEffect(() => {
-    if (isAdminAuthenticated) {
-      router.replace("/admin/dashboard");
+    if (!hasHydrated) {
+      setHasHydrated(true);
       return;
     }
-    setReady(true);
-  }, [isAdminAuthenticated, router]);
+    if (isAdminAuthenticated) {
+      router.replace("/admin/dashboard");
+    }
+  }, [hasHydrated, isAdminAuthenticated, router, setHasHydrated]);
 
-  if (!ready) return <AdminLoadingScreen />;
+  if (!hasHydrated) return <AdminLoadingScreen />;
+  if (isAdminAuthenticated) return <AdminLoadingScreen />;
   return <>{children}</>;
 }

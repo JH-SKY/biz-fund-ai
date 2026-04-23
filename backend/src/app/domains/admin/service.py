@@ -5,13 +5,13 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.app.core.config import ADMIN_POLICY_AGENCY_NAME
+from src.app.core.config import ADMIN_JWT_EXPIRE_HOURS, ADMIN_POLICY_AGENCY_NAME
 from src.app.core.security import create_admin_access_token, verify_password
 from src.app.domains.admin.model import Admin
 from src.app.domains.admin.repository import AdminRepository, utc_start_of_today
@@ -79,7 +79,16 @@ class AdminService:
                 status_code=401, detail="로그인 정보가 올바르지 않습니다."
             )
         token = create_admin_access_token(admin_id=admin.id)
-        return {"access_token": token, "token_type": "bearer"}
+        expires_at = (
+            datetime.now(timezone.utc) + timedelta(hours=ADMIN_JWT_EXPIRE_HOURS)
+        ).isoformat().replace("+00:00", "Z")
+        return {
+            "admin_token": token,
+            "admin_id": str(admin.id),
+            "name": admin.login_id,
+            "role": str(admin.role),
+            "expires_at": expires_at,
+        }
 
     async def create_policy(
         self,
@@ -238,7 +247,14 @@ class AdminService:
         new_users = await self._auth_service.count_new_users_since(start)
         active_chats = await self._chat_service.count_chat_logs_since(start)
         top = await self._policy_service.list_top_policies_by_views(5)
-        popular = [{"id": str(p.id), "hits": p.view_count} for p in top]
+        popular = [
+            {
+                "policy_id": str(p.id),
+                "title": p.title,
+                "view_count": p.view_count,
+            }
+            for p in top
+        ]
         return DashboardStatsData(
             new_users_today=new_users,
             active_chats_today=active_chats,

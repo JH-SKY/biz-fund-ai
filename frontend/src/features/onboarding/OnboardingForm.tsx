@@ -64,6 +64,7 @@ export function OnboardingForm() {
   const [submitPhase, setSubmitPhase] = useState<SubmitPhase>("idle");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [verifySuccessMessage, setVerifySuccessMessage] = useState<string | null>(null);
+  const [allowManualRegistration, setAllowManualRegistration] = useState(false);
 
   const [touched, setTouched] = useState({
     bizName: false,
@@ -120,6 +121,24 @@ export function OnboardingForm() {
         ? "사업 정보 등록 중..."
         : "분석 결과 확인하기";
 
+  const submitRegistration = async (
+    normalizedBizNo: string,
+    manualRegistration: boolean
+  ) => {
+    setSubmitPhase("register");
+    const registered = await businessService.registerBusiness({
+      biz_name: bizName.trim(),
+      biz_no: normalizedBizNo,
+      sector_code: industry,
+      employee_count: Number(employeeCount),
+      is_manual: manualRegistration,
+    });
+
+    setOnboarded();
+    setActiveBusiness(registered.biz_id, registered.biz_name);
+    router.replace("/dashboard");
+  };
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setTouched({
@@ -130,6 +149,7 @@ export function OnboardingForm() {
     });
     setSubmitError(null);
     setVerifySuccessMessage(null);
+    setAllowManualRegistration(false);
 
     if (!isFormValid) {
       return;
@@ -144,28 +164,46 @@ export function OnboardingForm() {
       });
 
       if (!verifyResult.is_valid) {
+        if (
+          verifyResult.error_code === "TIMEOUT" ||
+          verifyResult.error_code === "SERVER_CONFIG" ||
+          verifyResult.error_code === "API_ERROR"
+        ) {
+          setAllowManualRegistration(true);
+        }
         setSubmitError(getVerifyFailureMessage(verifyResult));
         return;
       }
 
       setVerifySuccessMessage("사업자번호 확인이 완료되었습니다. 등록을 계속 진행합니다.");
-
-      setSubmitPhase("register");
-      const registered = await businessService.registerBusiness({
-        biz_name: bizName.trim(),
-        biz_no: normalizedBizNo,
-        sector_code: industry,
-        employee_count: Number(employeeCount),
-      });
-
-      setOnboarded();
-      setActiveBusiness(registered.biz_id, registered.biz_name);
-      router.replace("/dashboard");
+      await submitRegistration(normalizedBizNo, false);
     } catch (error) {
       const message =
         error instanceof Error
           ? error.message
           : "온보딩 정보를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+      setSubmitError(message);
+    } finally {
+      setSubmitPhase("idle");
+    }
+  };
+
+  const handleManualRegistration = async () => {
+    if (!isFormValid || isSubmitting) {
+      return;
+    }
+
+    const normalizedBizNo = normalizeBizNo(bizNo);
+    setSubmitError(null);
+    setVerifySuccessMessage(null);
+
+    try {
+      await submitRegistration(normalizedBizNo, true);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "수동 등록을 진행하지 못했습니다. 잠시 후 다시 시도해 주세요.";
       setSubmitError(message);
     } finally {
       setSubmitPhase("idle");
@@ -281,6 +319,18 @@ export function OnboardingForm() {
         >
           {submitError}
         </div>
+      )}
+
+      {allowManualRegistration && (
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          onClick={handleManualRegistration}
+          disabled={isSubmitting}
+        >
+          수동 등록으로 계속하기
+        </Button>
       )}
 
       <Button

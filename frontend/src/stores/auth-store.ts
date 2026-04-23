@@ -64,6 +64,7 @@ export const useAuthStore = create<AuthState>()(
           accessToken: access,
           refreshToken: refresh,
           user,
+          hasHydrated: true,
         });
       },
 
@@ -72,6 +73,7 @@ export const useAuthStore = create<AuthState>()(
           accessToken: null,
           refreshToken: null,
           user: null,
+          hasHydrated: true,
         });
         import("@/stores/business-store").then(({ useBusinessStore }) => {
           useBusinessStore.getState().clear();
@@ -82,6 +84,7 @@ export const useAuthStore = create<AuthState>()(
         set((state) => ({
           accessToken: access,
           refreshToken: refresh ?? state.refreshToken,
+          hasHydrated: true,
         }));
       },
 

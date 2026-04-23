@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
-from src.app.core.config import KAKAO_PROFILE_URL, NAVER_PROFILE_URL
+from src.app.core.config import KAKAO_PROFILE_URL, NAVER_CLIENT_ID, NAVER_CLIENT_SECRET, NAVER_PROFILE_URL, NAVER_TOKEN_URL
 from src.app.core.security import (
     create_user_access_token,
     generate_refresh_token,
@@ -25,6 +25,7 @@ from src.app.domains.auth.model import SocialProvider, User
 from src.app.domains.auth.repository import AuthRepository
 from src.app.domains.auth.schema import (
     MyProfileData,
+    NaverCallbackRequest,
     ProfilePatchRequest,
     ProfilePatchResponseData,
     RefreshTokenResponseData,
@@ -59,6 +60,7 @@ class AuthService:
         email: str,
         name: str,
         profile_image_url: str | None,
+        force_is_new_user: bool | None = None,
     ) -> SocialLoginResponseData:
         """소셜 정보로 로그인 또는 가입 처리 후, 온보딩 대상 여부를 판단하여 토큰 발급.
 
@@ -83,7 +85,11 @@ class AuthService:
         # 단순히 신규 생성이었거나, 기존 유저라도 필수 정보(예: 관심분야)가 없다면 신규 유저로 간주
         # user.interest_sectors가 None이거나 빈 리스트([])인 경우 체크
         is_profile_incomplete = not user.nickname
-        should_redirect_to_onboarding = is_new or is_profile_incomplete
+        should_redirect_to_onboarding = (
+            force_is_new_user
+            if force_is_new_user is not None
+            else is_new or is_profile_incomplete
+        )
 
         access_token = create_user_access_token(user_id=user.id)
         refresh_token = generate_refresh_token()
@@ -191,7 +197,38 @@ class AuthService:
             profile_image_url=image,
         )
 
-    # ── 테스트 전용 로그인 (개발/스테이징 환경 한정) ──────────
+    async def naver_callback(self, body: NaverCallbackRequest) -> SocialLoginResponseData:
+        """네이버 OAuth 인가 코드 → access_token 교환 → 로그인/가입.
+
+        프론트 콜백 페이지에서 code + state를 받아 네이버 토큰 서버와 교환하고,
+        기존 naver_login() 로직으로 프로필을 조회한 뒤 우리 서비스 JWT를 발급한다.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(
+                    NAVER_TOKEN_URL,
+                    params={
+                        "grant_type": "authorization_code",
+                        "client_id": NAVER_CLIENT_ID,
+                        "client_secret": NAVER_CLIENT_SECRET,
+                        "code": body.code,
+                        "state": body.state,
+                    },
+                )
+        except httpx.RequestError:
+            raise social_api_error("네이버")
+
+        if resp.status_code != 200:
+            raise social_api_error("네이버")
+
+        token_data = resp.json()
+        access_token: str | None = token_data.get("access_token")
+        if not access_token:
+            raise invalid_social_token("네이버")
+
+        return await self.naver_login(
+            SocialLoginRequest(access_token=access_token, device_type="WEB")
+        )
 
     async def test_login(self, body: TestLoginRequest) -> SocialLoginResponseData:
         """실제 소셜 서버 없이 즉시 JWT를 발급하는 개발 전용 메서드.
@@ -209,6 +246,7 @@ class AuthService:
             email=f"{key}@test.local",
             name=f"테스트유저_{key}",
             profile_image_url=None,
+            force_is_new_user=False,
         )
 
     # ── 로그아웃 ───────────────────────────────────────────
