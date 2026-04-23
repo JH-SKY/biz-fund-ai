@@ -28,12 +28,13 @@ import logging
 import uuid
 from typing import Any
 
-from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 from langgraph.types import Command
 from openai import AsyncOpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.app.agents.biz_mong.checkpointer import get_langgraph_checkpointer
+from src.app.agents.biz_mong.checkpointer import initialize_langgraph_checkpointer
 from src.app.agents.biz_mong.nodes.hard_filter import hard_filter_node
 from src.app.agents.biz_mong.nodes.llm_evaluator import llm_evaluator_node
 from src.app.agents.biz_mong.nodes.router_node import router_node
@@ -50,9 +51,6 @@ from src.app.agents.biz_mong.tools.policy_rag import policy_rag_search
 logger = logging.getLogger(__name__)
 
 # ── MemorySaver 싱글톤 (프로세스 생애 동안 유지) ──────────────────────────────
-_MEMORY_SAVER = MemorySaver()
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # BizMongAgent
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -77,6 +75,11 @@ class BizMongAgent:
         self._session = session
         self._client = AsyncOpenAI(api_key=OPENAI_API_KEY)
         self._graph = self._build_graph()
+
+    @classmethod
+    async def create(cls, session: AsyncSession) -> "BizMongAgent":
+        await initialize_langgraph_checkpointer()
+        return cls(session=session)
 
     # ── 공개 API ──────────────────────────────────────────────────────────
 
@@ -209,7 +212,7 @@ class BizMongAgent:
         builder.add_edge("rag", END)
         builder.add_edge("stats", END)
 
-        return builder.compile(checkpointer=_MEMORY_SAVER)
+        return builder.compile(checkpointer=get_langgraph_checkpointer())
 
     # ── Write-through 내부 함수는 클로저로 노드에서 호출 ─────────────────
 

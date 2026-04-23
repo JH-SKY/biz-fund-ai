@@ -47,7 +47,7 @@ async def get_biz_mong_agent(
         FastAPI 앱 초기화 시 DATABASE_URL 없이 임포트되는 경우 오류를 방지한다.
     """
     from src.app.agents.biz_mong.graph import BizMongAgent
-    return BizMongAgent(session=db)
+    return await BizMongAgent.create(session=db)
 
 
 ChatServiceDep = Annotated[ChatService, Depends(get_chat_service)]
