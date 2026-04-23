@@ -72,7 +72,10 @@ export function TestLoginCard({
   };
 
   return (
-    <Card className="border-dashed border-primary-200 bg-primary-50/50">
+    <Card
+      className="border-dashed border-primary-200 bg-primary-50/50"
+      data-testid="test-login-card"
+    >
       <CardHeader className="space-y-2 pb-4">
         <div className="flex items-center gap-2 text-primary-700">
           <FlaskConical className="h-4 w-4" />
@@ -90,6 +93,7 @@ export function TestLoginCard({
           </Label>
           <Input
             id="test-user-key"
+            data-testid="test-login-input"
             value={testUserKey}
             onChange={(event) => setTestUserKey(event.target.value)}
             placeholder="예: demo-owner"
@@ -107,6 +111,7 @@ export function TestLoginCard({
 
         <Button
           type="button"
+          data-testid="test-login-submit"
           className="w-full"
           loading={loading}
           onClick={handleTestLogin}

@@ -173,13 +173,18 @@ export function OnboardingForm() {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
+    <form
+      onSubmit={handleSubmit}
+      className="space-y-5"
+      data-testid="onboarding-form"
+    >
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="ob-biz-name" required>
           상호명
         </Label>
         <Input
           id="ob-biz-name"
+          data-testid="onboarding-biz-name"
           autoComplete="organization"
           placeholder="예: 비즈업 스튜디오"
           value={bizName}
@@ -200,6 +205,7 @@ export function OnboardingForm() {
         </Label>
         <Input
           id="ob-biz-no"
+          data-testid="onboarding-biz-no"
           inputMode="numeric"
           autoComplete="off"
           placeholder="123-45-67890"
@@ -247,6 +253,7 @@ export function OnboardingForm() {
         </Label>
         <Input
           id="ob-employee"
+          data-testid="onboarding-employee-count"
           type="number"
           inputMode="numeric"
           min={0}
@@ -278,6 +285,7 @@ export function OnboardingForm() {
 
       <Button
         type="submit"
+        data-testid="onboarding-submit"
         size="lg"
         className="w-full"
         loading={isSubmitting}
