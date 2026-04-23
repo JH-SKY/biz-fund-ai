@@ -11,11 +11,11 @@
 
 from __future__ import annotations
 
+import asyncio  # 병렬 처리를 위해 추가
 import json
 import logging
 import math
 import os
-import asyncio  # 병렬 처리를 위해 추가
 from datetime import date, datetime
 from typing import Any
 
@@ -23,7 +23,6 @@ import httpx
 from sqlalchemy import update as sa_update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.app.agents.policy_sync_agent import PolicySyncAgent
 from src.app.core.config import BIZINFO_API_KEY
 from src.app.domains.policy.embedding_service import PolicyEmbeddingService
@@ -105,7 +104,9 @@ class BizinfoSyncService:
                     )
                 except Exception as page_err:
                     api_error_count += 1
-                    error_log.append({"stage": "API", "page": page_no, "reason": str(page_err)})
+                    error_log.append(
+                        {"stage": "API", "page": page_no, "reason": str(page_err)}
+                    )
                     continue
 
                 if not raw_items:
@@ -132,7 +133,9 @@ class BizinfoSyncService:
                             job_name=job_name,
                         )
 
-                results = await asyncio.gather(*[sem_process(item) for item in unique_items])
+                results = await asyncio.gather(
+                    *[sem_process(item) for item in unique_items]
+                )
 
                 # 결과 집계 — DB 성공 여부와 무관하게 AI 실패도 error_log에 기록
                 for ai_status, db_ok, err_info in results:
@@ -169,16 +172,25 @@ class BizinfoSyncService:
                 with_ai=with_ai,
             )
 
-            fail_count = api_error_count + parse_error_count + analysis_error_count + db_fail_count
-            error_details = {
-                "summary": {
-                    "api": api_error_count,
-                    "parse": parse_error_count,
-                    "analysis": analysis_error_count,
-                    "db": db_fail_count,
-                },
-                "items": error_log[:100],
-            } if error_log else None
+            fail_count = (
+                api_error_count
+                + parse_error_count
+                + analysis_error_count
+                + db_fail_count
+            )
+            error_details = (
+                {
+                    "summary": {
+                        "api": api_error_count,
+                        "parse": parse_error_count,
+                        "analysis": analysis_error_count,
+                        "db": db_fail_count,
+                    },
+                    "items": error_log[:100],
+                }
+                if error_log
+                else None
+            )
             await self._session.execute(
                 sa_update(BatchLog)
                 .where(BatchLog.id == batch_id)
@@ -210,8 +222,13 @@ class BizinfoSyncService:
         except Exception as fatal_err:
             await self._session.rollback()
             logger.error("[%s] 치명적 오류 — 트랜잭션 롤백: %s", job_name, fatal_err)
-            
-            fail_count = api_error_count + parse_error_count + analysis_error_count + db_fail_count
+
+            fail_count = (
+                api_error_count
+                + parse_error_count
+                + analysis_error_count
+                + db_fail_count
+            )
             await self._session.execute(
                 sa_update(BatchLog)
                 .where(BatchLog.id == batch_id)
@@ -256,8 +273,12 @@ class BizinfoSyncService:
         # [1] 기본 필드 파싱
         start_dt, end_dt = self._parse_period(item.get("reqstBeginEndDe", ""))
         today = datetime.now().date()
-        closed_at = end_dt if end_dt else date(9999, 12, 31)
-        status = PolicyStatus.CLOSED if (end_dt and end_dt < today) else PolicyStatus.RECRUITING
+        base_closed_at = end_dt if end_dt else date(9999, 12, 31)
+        status = (
+            PolicyStatus.CLOSED
+            if (end_dt and end_dt < today)
+            else PolicyStatus.RECRUITING
+        )
 
         # [2] HTML 정제 및 Fallback 구성
         summary_clean = clean_html_text(item.get("bsnsSumryCn") or "")
@@ -303,21 +324,41 @@ class BizinfoSyncService:
                     "stage": "ANALYSIS",
                     "origin_id": origin_id,
                     "title": title,
-                    "reason": ", ".join(validation_errors) if validation_errors else "AI 검증 실패 (최대 재시도 초과)",
+                    "reason": ", ".join(validation_errors)
+                    if validation_errors
+                    else "AI 검증 실패 (최대 재시도 초과)",
                 }
+
+        ai_fields: dict[str, Any] = {}
+        if ai_status == "SUCCESS":
+            ai_fields = self._extract_ai_policy_fields(enriched)
+
+        resolved_title = ai_fields.get("title") or title
+        resolved_agency_name = ai_fields.get("agency_name") or item.get("jrsdInsttNm") or "기관명 없음"
+        resolved_category = ai_fields.get("category") or item.get("pldirSportRealmLclasCodeNm") or "기타"
+        resolved_support_type = ai_fields.get("support_type") or item.get("bsnsSupportTypeCd")
+        resolved_region = ai_fields.get("region") or item.get("areaNm")
+        resolved_start_dt = ai_fields.get("start_date") or start_dt
+        resolved_end_dt = ai_fields.get("end_date") or end_dt
+        resolved_closed_at = resolved_end_dt if resolved_end_dt else date(9999, 12, 31)
+        resolved_status = (
+            PolicyStatus.CLOSED
+            if (resolved_end_dt and resolved_end_dt < today)
+            else PolicyStatus.RECRUITING
+        )
 
         # [5] DB Upsert - 동적 필드 구성 (기존 데이터 보호 핵심)
         values = {
             "origin_id": origin_id,
-            "title": title,
-            "agency_name": item.get("jrsdInsttNm") or "기관명 없음",
-            "category": item.get("pldirSportRealmLclasCodeNm") or "기타",
-            "region": item.get("areaNm"),
-            "support_type": item.get("bsnsSupportTypeCd"),
-            "start_date": start_dt,
-            "end_date": end_dt,
-            "closed_at": closed_at,
-            "status": status,
+            "title": resolved_title,
+            "agency_name": resolved_agency_name,
+            "category": resolved_category,
+            "region": resolved_region,
+            "support_type": resolved_support_type,
+            "start_date": resolved_start_dt,
+            "end_date": resolved_end_dt,
+            "closed_at": resolved_closed_at,
+            "status": resolved_status,
             "apply_url": apply_url,
             "content_raw": content_raw,
             "is_active": True,
@@ -325,14 +366,15 @@ class BizinfoSyncService:
 
         # 업데이트 대상 필드 (공통 필드)
         update_set = {
-            "title": title,
+            "title": values["title"],
             "agency_name": values["agency_name"],
             "category": values["category"],
             "region": values["region"],
-            "start_date": start_dt,
-            "end_date": end_dt,
-            "closed_at": closed_at,
-            "status": status,
+            "support_type": values["support_type"],
+            "start_date": values["start_date"],
+            "end_date": values["end_date"],
+            "closed_at": values["closed_at"],
+            "status": values["status"],
             "apply_url": apply_url,
             "content_raw": content_raw,
         }
@@ -344,6 +386,10 @@ class BizinfoSyncService:
                 "bonus_logic": enriched.get("bonus_logic"),
                 "ai_summary": enriched.get("ai_summary"),
                 "ai_full_explanation": enriched.get("ai_full_explanation"),
+                "required_documents": enriched.get("required_documents"),
+                "max_support": self._coerce_int((enriched.get("support_amount") or {}).get("max")),
+                "min_support": self._coerce_int((enriched.get("support_amount") or {}).get("min")),
+                "support_amount_desc": (enriched.get("support_amount") or {}).get("description"),
             }
             values.update(ai_fields)
             update_set.update(ai_fields)
@@ -376,19 +422,27 @@ class BizinfoSyncService:
                         except Exception as emb_err:
                             # 임베딩 실패는 경고 로그만 남기고 DB 저장은 유지합니다.
                             logger.warning(
-                                "[%s] 임베딩 실패 (DB 저장은 유지됨): %s", origin_id, emb_err
+                                "[%s] 임베딩 실패 (DB 저장은 유지됨): %s",
+                                origin_id,
+                                emb_err,
                             )
 
             return ai_status, True, ai_err_info
         except Exception as db_err:
-            return ai_status, False, {
-                "stage": "DB",
-                "origin_id": origin_id,
-                "title": title,
-                "reason": str(db_err),
-            }
+            return (
+                ai_status,
+                False,
+                {
+                    "stage": "DB",
+                    "origin_id": origin_id,
+                    "title": title,
+                    "reason": str(db_err),
+                },
+            )
 
-    async def bootstrap_historical_policies(self, total_count: int = 1000, *, with_ai: bool = False) -> dict[str, Any]:
+    async def bootstrap_historical_policies(
+        self, total_count: int = 1000, *, with_ai: bool = False
+    ) -> dict[str, Any]:
         page_end = math.ceil(total_count / 100)
         return await self.run_policy_sync(
             job_name="POLICY_BOOTSTRAP",
@@ -408,7 +462,9 @@ class BizinfoSyncService:
         )
 
     async def test_sync_single_policy(self, page_no: int = 1) -> dict[str, Any]:
-        raw_items = await self._fetch_single_page(page_no=page_no, rows_per_page=1, date_from=None, date_to=None)
+        raw_items = await self._fetch_single_page(
+            page_no=page_no, rows_per_page=1, date_from=None, date_to=None
+        )
         if not raw_items:
             return {"status": "no_items"}
 
@@ -416,7 +472,11 @@ class BizinfoSyncService:
         origin_id = item.get("pblancId", "UNKNOWN")
 
         ai_status, db_ok, err_info = await self._process_single_item(
-            item=item, with_ai=True, with_embedding=True, job_name=f"TEST_{page_no}", debug_mode=True
+            item=item,
+            with_ai=True,
+            with_embedding=True,
+            job_name=f"TEST_{page_no}",
+            debug_mode=True,
         )
 
         debug_output_dir = None
@@ -438,7 +498,9 @@ class BizinfoSyncService:
         try:
             policy = await self._repo.get_policy_by_origin_id(origin_id)
             if policy is None:
-                logger.warning("[DEBUG] DB 스냅샷 실패 — origin_id=%s 조회 결과 없음", origin_id)
+                logger.warning(
+                    "[DEBUG] DB 스냅샷 실패 — origin_id=%s 조회 결과 없음", origin_id
+                )
                 return
 
             snapshot = {
@@ -475,27 +537,53 @@ class BizinfoSyncService:
                 json.dump(snapshot, f, ensure_ascii=False, indent=4)
             logger.info("[DEBUG] DB 스냅샷 저장 완료: %s", filepath)
         except Exception as exc:
-            logger.warning("[DEBUG] DB 스냅샷 저장 실패 (origin_id=%s): %s", origin_id, exc)
+            logger.warning(
+                "[DEBUG] DB 스냅샷 저장 실패 (origin_id=%s): %s", origin_id, exc
+            )
 
-    async def _fetch_single_page(self, *, page_no: int, rows_per_page: int, date_from: str | None, date_to: str | None) -> list[dict]:
-        params = {"serviceKey": BIZINFO_API_KEY, "dataType": "json", "numOfRows": rows_per_page, "pageNo": page_no}
-        if date_from: params["pblancBgnDe"] = date_from
-        if date_to: params["pblancEndDe"] = date_to
+    async def _fetch_single_page(
+        self,
+        *,
+        page_no: int,
+        rows_per_page: int,
+        date_from: str | None,
+        date_to: str | None,
+    ) -> list[dict]:
+        params = {
+            "serviceKey": BIZINFO_API_KEY,
+            "dataType": "json",
+            "numOfRows": rows_per_page,
+            "pageNo": page_no,
+        }
+        if date_from:
+            params["pblancBgnDe"] = date_from
+        if date_to:
+            params["pblancEndDe"] = date_to
 
         async with httpx.AsyncClient() as client:
             response = await client.get(self._API_URL, params=params, timeout=30.0)
             response.raise_for_status()
             data = response.json()
 
-        items = data.get("response", {}).get("body", {}).get("items", {}).get("item", [])
-        return [items] if isinstance(items, dict) else (items if isinstance(items, list) else [])
+        items = (
+            data.get("response", {}).get("body", {}).get("items", {}).get("item", [])
+        )
+        return (
+            [items]
+            if isinstance(items, dict)
+            else (items if isinstance(items, list) else [])
+        )
 
-    def _select_primary_file(self, *, print_flpth_nm: str | None, print_file_nm: str | None) -> tuple[str, str]:
-        if not print_flpth_nm: return "", ""
+    def _select_primary_file(
+        self, *, print_flpth_nm: str | None, print_file_nm: str | None
+    ) -> tuple[str, str]:
+        if not print_flpth_nm:
+            return "", ""
         urls = [u.strip() for u in print_flpth_nm.split("@") if u.strip()]
         names = [n.strip() for n in (print_file_nm or "").split("@") if n.strip()]
-        if not urls: return "", ""
-        
+        if not urls:
+            return "", ""
+
         for ext in _FILE_PRIORITY:
             for i, name in enumerate(names):
                 if name.lower().endswith(ext):
@@ -503,20 +591,57 @@ class BizinfoSyncService:
         return urls[0], names[0] if names else ""
 
     def _parse_period(self, period_str: str) -> tuple[date | None, date | None]:
-        if "~" not in period_str: return None, None
+        if "~" not in period_str:
+            return None, None
         parts = period_str.split("~", 1)
         return self._parse_date(parts[0].strip()), self._parse_date(parts[1].strip())
 
     def _parse_date(self, date_str: str) -> date | None:
-        if not date_str: return None
+        if not date_str:
+            return None
         try:
             return datetime.strptime(date_str.split()[0], "%Y-%m-%d").date()
-        except: return None
+        except:
+            return None
+
+    def _extract_ai_policy_fields(self, enriched: dict[str, Any]) -> dict[str, Any]:
+        """AI 구조화 결과를 Policy 테이블 컬럼 기준으로 정규화한다."""
+        dates = enriched.get("dates") or {}
+        return {
+            "title": enriched.get("title"),
+            "agency_name": enriched.get("agency_name"),
+            "category": enriched.get("category"),
+            "support_type": enriched.get("support_type"),
+            "region": enriched.get("region"),
+            "start_date": self._parse_date(dates.get("start_date")),
+            "end_date": self._parse_date(dates.get("end_date")),
+        }
+
+    @staticmethod
+    def _coerce_int(value: Any) -> int | None:
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return int(value)
+        if isinstance(value, (int, float)):
+            return int(value)
+        if isinstance(value, str):
+            try:
+                return int(float(value.replace(",", "").strip()))
+            except ValueError:
+                return None
+        return None
 
     @staticmethod
     def _print_batch_report(
-        *, job_name: str, total_items: int, success_count: int, 
-        parse_error_count: int, analysis_error_count: int, db_fail_count: int, with_ai: bool
+        *,
+        job_name: str,
+        total_items: int,
+        success_count: int,
+        parse_error_count: int,
+        analysis_error_count: int,
+        db_fail_count: int,
+        with_ai: bool,
     ) -> None:
         report = (
             f"\n{'=' * 50}\n[리포트] {job_name}\n{'=' * 50}\n"
