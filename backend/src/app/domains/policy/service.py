@@ -12,9 +12,9 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.domains.business.model import Business
+from src.app.domains.business.exception import business_not_found
 from src.app.domains.policy.exception import (
     policy_not_found,
 )
@@ -94,6 +94,15 @@ class PolicyService:
         self._searcher = searcher
         self._match_engine = match_engine
         self._vector_searcher = vector_searcher
+
+    @staticmethod
+    def _ensure_business_access(
+        business: Business,
+        requested_business_id: uuid.UUID,
+    ) -> None:
+        """헤더 X-Business-Id와 실제 활성 사업장 객체의 정합성을 검증한다."""
+        if business.id != requested_business_id:
+            raise business_not_found()
 
     # ── 목록 및 검색 ──────────────────────────────────────────────────────
 
@@ -200,10 +209,7 @@ class PolicyService:
           - 일치하지 않을 경우, 권한 없는 데이터 접근으로 간주하여 에러를 발생시킵니다.
         """
         # 1. 권한 검증 (라우터에서 이관된 로직)
-        if business.id != requested_business_id:
-            from src.app.domains.business.exception import business_not_found
-
-            raise business_not_found()
+        self._ensure_business_access(business, requested_business_id)
 
         # 2. 정책 데이터 로드
         policies, _, _ = await self._repo.get_active_policies(page=page, size=size)
@@ -236,20 +242,49 @@ class PolicyService:
 
         return PolicyRecommendResponse(items=items)
 
+    async def get_bookmarked_policies(
+        self,
+        *,
+        business: Business,
+        requested_business_id: uuid.UUID,
+        page: int = 1,
+        size: int = 10,
+    ) -> PolicyListResponse:
+        """특정 사업장 기준 북마크 정책 목록을 반환한다."""
+        self._ensure_business_access(business, requested_business_id)
+
+        policies, total_count, total_pages = await self._repo.get_bookmarked_policies(
+            business_id=business.id,
+            page=page,
+            size=size,
+        )
+
+        items = [_to_list_item(policy, True) for policy in policies]
+        return PolicyListResponse(
+            items=items,
+            total_count=total_count,
+            total_pages=total_pages,
+        )
+
     # ── 북마크 토글 ──────────────────────────────────────────────────────
 
     async def toggle_bookmark(
         self,
         policy_id: uuid.UUID,
-        business_id: uuid.UUID,
+        *,
+        business: Business,
+        requested_business_id: uuid.UUID,
     ) -> BookmarkToggleResponse:
         """북마크 상태를 변경합니다. (도메인 규칙: 존재 시 삭제, 미존재 시 생성)"""
+        self._ensure_business_access(business, requested_business_id)
+
         policy = await self._repo.get_policy_by_id(policy_id)
         if not policy or not policy.is_active:
             raise policy_not_found()
 
         is_bookmarked = await self._repo.toggle_bookmark(
-            business_id=business_id, policy_id=policy_id
+            business_id=business.id,
+            policy_id=policy_id,
         )
         await self._session.commit()
 

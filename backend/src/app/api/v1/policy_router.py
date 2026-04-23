@@ -20,18 +20,16 @@
 from __future__ import annotations
 
 import uuid
-from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Query, status
 
 from src.app.api.deps.policy_deps import (
     OptionalBusinessId,
     PolicyServiceDep,
     RequiredBusinessId,
 )
-from src.app.api.deps.user_auth import CurrentUser
-from src.app.core.response import api_json
 from src.app.api.deps.business_deps import ActiveBusiness
+from src.app.core.response import api_json
 
 router = APIRouter(prefix="/policies", tags=["policies"])
 
@@ -45,7 +43,6 @@ async def get_all_policies(
     business_id: OptionalBusinessId,
     page: int = Query(1, ge=1),
     size: int = Query(10, ge=1, le=100),
-    sort: str = Query("latest"),
 ):
     """시스템에 등록된 전체 정책 목록 (최신순, 페이징).
 
@@ -84,7 +81,7 @@ async def get_recommended_policies(
     # 💡 설계 의도: business_id와 biz 객체 간의 정합성 검증은 Service 내부에서 수행하여 
     #    라우터는 요청 전달과 응답 반환에만 집중하게 함.
     data = await svc.get_recommended_policies(
-        biz=biz, 
+        business=biz,
         requested_business_id=business_id, 
         page=page, 
         size=size
@@ -104,7 +101,7 @@ async def get_recommended_policies(
 async def get_bookmarked_policies(
     svc: PolicyServiceDep,
     business_id: RequiredBusinessId,
-    _current_user: CurrentUser,
+    biz: ActiveBusiness,
     page: int = Query(1, ge=1),
     size: int = Query(10, ge=1, le=100),
 ):
@@ -114,7 +111,10 @@ async def get_bookmarked_policies(
       - [도메인 규칙 2.2] 특정 사업장에 귀속된 북마크만 격리 조회.
     """
     data = await svc.get_bookmarked_policies(
-        business_id, page=page, size=size
+        business=biz,
+        requested_business_id=business_id,
+        page=page,
+        size=size,
     )
     return api_json(
         http_status=status.HTTP_200_OK,
@@ -227,14 +227,18 @@ async def toggle_bookmark(
     policy_id: uuid.UUID,
     svc: PolicyServiceDep,
     business_id: RequiredBusinessId,
-    _current_user: CurrentUser,
+    biz: ActiveBusiness,
 ):
     """정책 북마크 토글 — 이미 있으면 삭제, 없으면 추가.
 
     수정 사항:
       - [A4 물리 삭제] 취소 시 즉시 반영되며, 응답 규격을 명세서와 일치시킴.
     """
-    data = await svc.toggle_bookmark(policy_id, business_id)
+    data = await svc.toggle_bookmark(
+        policy_id,
+        business=biz,
+        requested_business_id=business_id,
+    )
     return api_json(
         http_status=status.HTTP_200_OK,
         data=data.model_dump(),
