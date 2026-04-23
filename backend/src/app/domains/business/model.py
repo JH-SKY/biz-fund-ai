@@ -106,7 +106,7 @@ class Business(Base):
         comment="국세청 반환 과세 유형 (부가가치세 일반과세자 등)",
     )
     biz_verified_at: Mapped[Optional[datetime]] = mapped_column(
-        TIMESTAMP,
+        TIMESTAMP(timezone=True),
         nullable=True,
         comment="국세청 API 마지막 검증 시각 (UTC)",
     )
