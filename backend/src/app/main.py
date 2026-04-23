@@ -40,9 +40,9 @@ async def lifespan(app: FastAPI):
     shutdown : 실행 중인 배치가 완료되기를 기다리지 않고 스케줄러를 즉시 종료한다.
               (wait=False — 서버 재시작 시 응답 지연 방지)
     """
-    start_scheduler()
+    await start_scheduler()
     yield
-    shutdown_scheduler()
+    await shutdown_scheduler()
 
 
 app = FastAPI(
