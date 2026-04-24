@@ -273,8 +273,8 @@ class BizinfoSyncService:
         # [1] 기본 필드 파싱
         start_dt, end_dt = self._parse_period(item.get("reqstBeginEndDe", ""))
         today = datetime.now().date()
-        base_closed_at = end_dt if end_dt else date(9999, 12, 31)
-        status = (
+        base_closed_at = end_dt if end_dt else date(9999, 12, 31)  # noqa: F841
+        _status = (
             PolicyStatus.CLOSED
             if (end_dt and end_dt < today)
             else PolicyStatus.RECRUITING
@@ -601,7 +601,7 @@ class BizinfoSyncService:
             return None
         try:
             return datetime.strptime(date_str.split()[0], "%Y-%m-%d").date()
-        except:
+        except Exception:
             return None
 
     def _extract_ai_policy_fields(self, enriched: dict[str, Any]) -> dict[str, Any]:

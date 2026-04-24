@@ -1,7 +1,7 @@
 """정밀진단 도메인 비즈니스 로직."""
 
 import uuid
-from typing import Any, Dict, List
+from typing import Any, List
 
 from sqlalchemy.ext.asyncio import AsyncSession
 

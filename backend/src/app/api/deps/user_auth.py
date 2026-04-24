@@ -15,7 +15,6 @@ from src.app.database.postgres.database import get_db
 from src.app.domains.auth.exception import auth_unauthorized
 from src.app.domains.auth.model import User
 from src.app.domains.auth.repository import AuthRepository
-from src.app.domains.business.service import BusinessService
 
 if TYPE_CHECKING:
     from src.app.domains.auth.model import User

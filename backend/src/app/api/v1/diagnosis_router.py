@@ -1,9 +1,8 @@
 """정밀진단 API 라우터."""
 
 import uuid
-from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, status
 
 from src.app.api.deps.business_deps import ActiveBusiness
 from src.app.api.deps.diagnosis_deps import DiagnosisServiceDep

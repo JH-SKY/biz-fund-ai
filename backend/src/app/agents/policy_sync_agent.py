@@ -277,7 +277,7 @@ class PolicySyncAgent:
         [품질 강화] 비즈니스 로직에 필요한 핵심 필드들이 GPT 응답에 잘 포함되었는지 검사합니다.
         누락된 필드가 있으면 analysis_retry_count를 올리고 다시 Extractor로 보냅니다.
         """
-        origin_id = state["origin_id"]
+        _ = state["origin_id"]
         data = state["structured_data"]
         errors: list[str] =[]
 

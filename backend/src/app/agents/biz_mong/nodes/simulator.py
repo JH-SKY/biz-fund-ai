@@ -251,8 +251,8 @@ async def _generate_insights(
         )
         raw = response.choices[0].message.content.strip()
         # 번호 목록 파싱
-        lines = [l.strip().lstrip("0123456789.-) ") for l in raw.split("\n") if l.strip()]
-        return [l for l in lines if len(l) > 10][:3]
+        lines = [line.strip().lstrip("0123456789.-) ") for line in raw.split("\n") if line.strip()]
+        return [line for line in lines if len(line) > 10][:3]
     except Exception as exc:
         logger.warning("[simulator] 인사이트 생성 실패: %s", exc)
         if diff > 0:

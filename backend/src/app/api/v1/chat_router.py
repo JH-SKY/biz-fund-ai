@@ -143,8 +143,6 @@ async def send_agent_message(
     biz: ActiveBusiness,
 ):
     """BizMong 멀티 에이전트에 메시지를 전달하고 결과를 반환한다."""
-    import json
-    from datetime import datetime, timezone
 
     # 1. 세션 소유권 검증 (기존 ChatService 활용)
     room = await svc._repo.get_chat_room_by_id(session_id)
@@ -153,7 +151,7 @@ async def send_agent_message(
         raise HTTPException(status_code=403, detail="세션에 접근 권한이 없습니다.")
 
     # 2. 사용자 메시지 ChatLog 저장
-    user_log = await svc._repo.create_chat_log(
+    await svc._repo.create_chat_log(
         user_id=biz.user_id,
         room_id=room.id,
         role="user",

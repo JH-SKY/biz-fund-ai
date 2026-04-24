@@ -35,3 +35,16 @@ dev = [
     "pytest-asyncio>=1.3.0",
     "ruff>=0.15.7",
 ]
+
+[tool.ruff]
+exclude = [
+    "migrations",
+    "test_embed.py",
+]
+
+[tool.ruff.lint]
+ignore = ["E402", "E712"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "strict"

@@ -1,6 +1,5 @@
 """채팅(비즈몽) 도메인 Pydantic 스키마."""
 
-import uuid
 from datetime import datetime
 from typing import List, Optional
 
