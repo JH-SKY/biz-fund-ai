@@ -71,14 +71,11 @@ export interface NaverCallbackRequest {
   state: string;
 }
 
-export interface TestLoginRequest {
-  test_user_key: string;
-}
-
 export interface SocialLoginResponseData {
   access_token: string;
   refresh_token: string;
   user_id: string;
+  name: string;
   is_new_user: boolean;
 }
 

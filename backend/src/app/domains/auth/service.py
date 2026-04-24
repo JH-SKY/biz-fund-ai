@@ -32,7 +32,6 @@ from src.app.domains.auth.schema import (
     SocialAuthRequest,
     SocialLoginRequest,
     SocialLoginResponseData,
-    TestLoginRequest,
 )
 
 if TYPE_CHECKING:
@@ -107,6 +106,7 @@ class AuthService:
             access_token=access_token,
             refresh_token=refresh_token,
             user_id=str(user.id),
+            name=user.name,
             is_new_user=should_redirect_to_onboarding,
         )
 
@@ -228,25 +228,6 @@ class AuthService:
 
         return await self.naver_login(
             SocialLoginRequest(access_token=access_token, device_type="WEB")
-        )
-
-    async def test_login(self, body: TestLoginRequest) -> SocialLoginResponseData:
-        """실제 소셜 서버 없이 즉시 JWT를 발급하는 개발 전용 메서드.
-
-        동일한 test_user_key로 반복 호출하면 항상 같은 유저가 반환되므로
-        특정 유저 상태(신규/기존/온보딩 완료)를 재현하기 용이하다.
-
-        라우터 레이어에서 APP_ENV 검사를 마친 뒤 호출되므로
-        이 메서드 자체는 환경을 재검사하지 않는다.
-        """
-        key = body.test_user_key.strip().lower()
-        return await self._social_login(
-            social_id=f"test_{key}",
-            provider=SocialProvider.KAKAO,
-            email=f"{key}@test.local",
-            name=f"테스트유저_{key}",
-            profile_image_url=None,
-            force_is_new_user=False,
         )
 
     # ── 로그아웃 ───────────────────────────────────────────

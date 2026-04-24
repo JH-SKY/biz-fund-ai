@@ -56,7 +56,12 @@ export default function NaverCallbackPage() {
       .then((data) => {
         login(
           { access: data.access_token, refresh: data.refresh_token },
-          { userId: data.user_id, provider: "naver", isOnboarded: !data.is_new_user }
+          {
+            userId: data.user_id,
+            name: data.name,
+            provider: "naver",
+            isOnboarded: !data.is_new_user,
+          }
         );
 
         const savedRedirect = sessionStorage.getItem("naver_oauth_redirect");

@@ -20,7 +20,7 @@ async function mockDashboardApis(page) {
       biz_id: "biz-001",
       biz_name: "데모 상점",
       biz_no: "1234567890",
-      sector_code: "RETAIL",
+      sector_code: "G",
     });
   });
 
@@ -37,26 +37,9 @@ async function mockDashboardApis(page) {
   });
 }
 
-test("테스트 계정 로그인 후 대시보드로 이동한다", async ({ page }) => {
-  await mockDashboardApis(page);
-
-  await page.route(`${API_BASE}/auth/test-login`, async (route) => {
-    await fulfillApi(route, {
-      access_token: "access-token",
-      refresh_token: "refresh-token",
-      user_id: "user-001",
-      is_new_user: false,
-    });
-  });
-
-  await page.goto("/login?callbackUrl=%2Fdashboard");
-  await page.getByTestId("test-login-input").fill("demo-owner");
-  await page.getByTestId("test-login-submit").click();
-
-  await expect(page).toHaveURL(/\/dashboard$/);
-});
-
-test("온보딩이 verify-biz 후 register로 이어지고 대시보드로 이동한다", async ({ page }) => {
+test("온보딩이 verify-biz 후 register로 이어지고 대시보드로 이동한다", async ({
+  page,
+}) => {
   let verifyCalled = false;
   let registerCalled = false;
 
@@ -71,7 +54,7 @@ test("온보딩이 verify-biz 후 register로 이어지고 대시보드로 이�
             userId: "user-002",
             provider: "kakao",
             isOnboarded: false,
-            name: "신규 사용자",
+            name: "홍길동",
           },
           hasHydrated: true,
         },
@@ -87,6 +70,7 @@ test("온보딩이 verify-biz 후 register로 이어지고 대시보드로 이�
     await fulfillApi(route, {
       is_valid: true,
       biz_status: "계속사업자",
+      tax_type: null,
       error_code: null,
     });
   });
@@ -95,17 +79,21 @@ test("온보딩이 verify-biz 후 register로 이어지고 대시보드로 이�
     registerCalled = true;
     await fulfillApi(route, {
       biz_id: "biz-002",
-      biz_name: "새로운 가게",
+      biz_name: "새로온 가게",
       biz_no: "1234567890",
+      is_manual: false,
+      profile_score: 55,
     });
   });
 
   await page.goto("/onboarding");
-  await page.getByTestId("onboarding-biz-name").fill("새로운 가게");
+  await page.getByTestId("onboarding-biz-name").fill("새로온 가게");
   await page.getByTestId("onboarding-biz-no").fill("123-45-67890");
-  await page.locator("#ob-industry").fill("소매");
+  await page.locator("#ob-industry").fill("도매");
   await page.locator("#ob-industry").press("ArrowDown");
   await page.locator("#ob-industry").press("Enter");
+  await page.locator("#ob-region-sido").selectOption("11");
+  await page.getByTestId("onboarding-region-sigungu").fill("강남구");
   await page.getByTestId("onboarding-employee-count").fill("3");
   await page.getByTestId("onboarding-submit").click();
 

@@ -238,7 +238,7 @@ class BusinessService:
             user_id=user.id,
             biz_name=body.biz_name,
             biz_no=body.biz_no,
-            representative_name=body.representative_name,
+            representative_name=(body.representative_name or user.name),
             ksic_code=body.ksic_code,
             sector_code=body.sector_code,
             region_sido=body.region_sido,

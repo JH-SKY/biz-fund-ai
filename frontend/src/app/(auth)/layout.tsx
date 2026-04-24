@@ -1,38 +1,52 @@
 "use client";
 
-/**
- * (auth) route group layout — 로그인·온보딩 공통 쉘.
- *
- * PublicGuard 가 다음을 처리:
- *  - 이미 로그인 + 온보딩 완료 → /dashboard 리다이렉트
- *  - 로그인 + 온보딩 미완료 → /onboarding 으로 유도 (/login 접근 시)
- */
-
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { Rocket } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { LogOut, Rocket } from "lucide-react";
+
 import { PublicGuard } from "@/components/auth/AuthGuard";
+import { Button } from "@/components/ui/button";
+import { useAuthStore } from "@/stores/auth-store";
 
 export default function AuthLayout({ children }: { children: ReactNode }) {
+  const router = useRouter();
+  const isAuthenticated = useAuthStore((state) => Boolean(state.accessToken));
+  const logout = useAuthStore((state) => state.logout);
+
+  function handleLogout() {
+    logout();
+    router.replace("/login");
+  }
+
   return (
     <PublicGuard>
-      <div className="min-h-dvh bg-gradient-to-b from-primary-50 to-surface flex flex-col">
+      <div className="flex min-h-dvh flex-col bg-gradient-to-b from-primary-50 to-surface">
         <header className="py-6">
-          <div className="mx-auto flex max-w-[var(--content-max)] items-center justify-center px-4">
-            <Link
-              href="/"
-              className="flex items-center gap-2"
-              aria-label="Biz-Up 홈"
-            >
+          <div className="mx-auto flex max-w-[var(--content-max)] items-center justify-between gap-3 px-4">
+            <Link href="/" className="flex items-center gap-2" aria-label="Go home">
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-600 text-white">
                 <Rocket className="h-5 w-5" />
               </div>
               <span className="text-lg font-bold">Biz-Up</span>
             </Link>
+
+            {isAuthenticated && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleLogout}
+                className="gap-2 rounded-full px-3"
+                aria-label="Log out"
+              >
+                <LogOut className="h-4 w-4" />
+                <span className="hidden sm:inline">Log out</span>
+              </Button>
+            )}
           </div>
         </header>
 
-        <main className="flex-1 flex items-center justify-center px-4 pb-16 pt-4">
+        <main className="flex flex-1 items-center justify-center px-4 pb-16 pt-4">
           {children}
         </main>
       </div>

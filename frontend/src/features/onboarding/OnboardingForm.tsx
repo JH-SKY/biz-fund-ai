@@ -7,7 +7,9 @@ import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label, FieldHint } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { IndustryCombobox } from "./IndustryCombobox";
+import { REGION_OPTIONS, getSigunguOptions } from "@/constants/regions";
 import { businessService } from "@/lib/services";
 import { useAuthStore } from "@/stores/auth-store";
 import { useBusinessStore } from "@/stores/business-store";
@@ -37,10 +39,16 @@ function getVerifyFailureMessage(result: {
   if (result.error_code === "TIMEOUT") {
     return "사업자번호 확인 응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.";
   }
-  if (result.error_code === "SERVER_CONFIG" || result.error_code === "API_ERROR") {
+  if (
+    result.error_code === "SERVER_CONFIG" ||
+    result.error_code === "API_ERROR"
+  ) {
     return "사업자번호 확인 서비스에 일시적인 문제가 있습니다. 잠시 후 다시 시도해 주세요.";
   }
-  if (result.error_code === "NO_DATA" || result.error_code === "NOT_REGISTERED") {
+  if (
+    result.error_code === "NO_DATA" ||
+    result.error_code === "NOT_REGISTERED"
+  ) {
     return "등록된 사업자번호를 찾지 못했습니다. 입력한 번호를 다시 확인해 주세요.";
   }
   if (result.biz_status === "폐업") {
@@ -54,29 +62,43 @@ function getVerifyFailureMessage(result: {
 
 export function OnboardingForm() {
   const router = useRouter();
+  const user = useAuthStore((state) => state.user);
   const setOnboarded = useAuthStore((state) => state.setOnboarded);
   const setActiveBusiness = useBusinessStore((state) => state.setActiveBusiness);
 
   const [bizName, setBizName] = useState("");
   const [bizNo, setBizNo] = useState("");
+  const [regionSido, setRegionSido] = useState("");
+  const [regionSigungu, setRegionSigungu] = useState("");
   const [industry, setIndustry] = useState("");
   const [employeeCount, setEmployeeCount] = useState("");
   const [submitPhase, setSubmitPhase] = useState<SubmitPhase>("idle");
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [verifySuccessMessage, setVerifySuccessMessage] = useState<string | null>(null);
+  const [verifySuccessMessage, setVerifySuccessMessage] = useState<string | null>(
+    null
+  );
   const [allowManualRegistration, setAllowManualRegistration] = useState(false);
 
   const [touched, setTouched] = useState({
     bizName: false,
     bizNo: false,
+    regionSido: false,
+    regionSigungu: false,
     industry: false,
     employeeCount: false,
   });
 
+  const sigunguOptions = useMemo(
+    () => getSigunguOptions(regionSido),
+    [regionSido]
+  );
+
   const bizNameError = useMemo(() => {
     if (!touched.bizName) return null;
     if (!bizName.trim()) return "상호명을 입력해 주세요.";
-    if (bizName.trim().length > 100) return "상호명은 100자 이하로 입력해 주세요.";
+    if (bizName.trim().length > 100) {
+      return "상호명은 100자 이하로 입력해 주세요.";
+    }
     return null;
   }, [bizName, touched.bizName]);
 
@@ -89,8 +111,23 @@ export function OnboardingForm() {
     return null;
   }, [bizNo, touched.bizNo]);
 
-  const industryError =
-    touched.industry && !industry ? "업종을 선택해 주세요." : null;
+  const regionSidoError = useMemo(() => {
+    if (!touched.regionSido) return null;
+    if (!regionSido) return "지역(시도)을 선택해 주세요.";
+    return null;
+  }, [regionSido, touched.regionSido]);
+
+  const regionSigunguError = useMemo(() => {
+    if (!touched.regionSigungu) return null;
+    if (!regionSigungu) return "시군구를 선택해 주세요.";
+    return null;
+  }, [regionSigungu, touched.regionSigungu]);
+
+  const industryError = useMemo(() => {
+    if (!touched.industry) return null;
+    if (!industry) return "업종을 선택해 주세요.";
+    return null;
+  }, [industry, touched.industry]);
 
   const employeeError = useMemo(() => {
     if (!touched.employeeCount) return null;
@@ -108,6 +145,8 @@ export function OnboardingForm() {
     bizName.trim().length > 0 &&
     bizName.trim().length <= 100 &&
     isValidBizNo(bizNo) &&
+    Boolean(regionSido) &&
+    Boolean(regionSigungu) &&
     Boolean(industry) &&
     employeeCount !== "" &&
     Number.isInteger(Number(employeeCount)) &&
@@ -126,10 +165,15 @@ export function OnboardingForm() {
     manualRegistration: boolean
   ) => {
     setSubmitPhase("register");
+
     const registered = await businessService.registerBusiness({
       biz_name: bizName.trim(),
       biz_no: normalizedBizNo,
+      representative_name: user?.name?.trim() || undefined,
+      ksic_code: industry,
       sector_code: industry,
+      region_sido: regionSido,
+      region_sigungu: regionSigungu,
       employee_count: Number(employeeCount),
       is_manual: manualRegistration,
     });
@@ -144,6 +188,8 @@ export function OnboardingForm() {
     setTouched({
       bizName: true,
       bizNo: true,
+      regionSido: true,
+      regionSigungu: true,
       industry: true,
       employeeCount: true,
     });
@@ -151,9 +197,7 @@ export function OnboardingForm() {
     setVerifySuccessMessage(null);
     setAllowManualRegistration(false);
 
-    if (!isFormValid) {
-      return;
-    }
+    if (!isFormValid) return;
 
     const normalizedBizNo = normalizeBizNo(bizNo);
 
@@ -175,7 +219,9 @@ export function OnboardingForm() {
         return;
       }
 
-      setVerifySuccessMessage("사업자번호 확인이 완료되었습니다. 등록을 계속 진행합니다.");
+      setVerifySuccessMessage(
+        "사업자번호 확인이 완료되었습니다. 등록을 계속 진행합니다."
+      );
       await submitRegistration(normalizedBizNo, false);
     } catch (error) {
       const message =
@@ -189,9 +235,7 @@ export function OnboardingForm() {
   };
 
   const handleManualRegistration = async () => {
-    if (!isFormValid || isSubmitting) {
-      return;
-    }
+    if (!isFormValid || isSubmitting) return;
 
     const normalizedBizNo = normalizeBizNo(bizNo);
     setSubmitError(null);
@@ -233,7 +277,7 @@ export function OnboardingForm() {
         {bizNameError ? (
           <FieldHint tone="error">{bizNameError}</FieldHint>
         ) : (
-          <FieldHint>대시보드와 프로필에 표시될 사업장 이름입니다.</FieldHint>
+          <FieldHint>대시보드와 프로필에 표시되는 사업장 이름입니다.</FieldHint>
         )}
       </div>
 
@@ -285,6 +329,59 @@ export function OnboardingForm() {
         )}
       </div>
 
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="ob-region-sido" required>
+            지역(시도)
+          </Label>
+          <Select
+            id="ob-region-sido"
+            value={regionSido}
+            onChange={(event) => {
+              setRegionSido(event.target.value);
+              setRegionSigungu("");
+              setTouched((prev) => ({
+                ...prev,
+                regionSido: true,
+                regionSigungu: false,
+              }));
+            }}
+            options={REGION_OPTIONS.filter((region) => region.value !== "ALL")}
+            placeholder="시도 선택"
+            invalid={Boolean(regionSidoError)}
+          />
+          {regionSidoError ? (
+            <FieldHint tone="error">{regionSidoError}</FieldHint>
+          ) : (
+            <FieldHint>정책 매칭과 프로필 분석에 쓰이는 기본 지역입니다.</FieldHint>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="ob-region-sigungu" required>
+            시군구
+          </Label>
+          <Select
+            id="ob-region-sigungu"
+            data-testid="onboarding-region-sigungu"
+            value={regionSigungu}
+            onChange={(event) => setRegionSigungu(event.target.value)}
+            onBlur={() =>
+              setTouched((prev) => ({ ...prev, regionSigungu: true }))
+            }
+            invalid={Boolean(regionSigunguError)}
+            disabled={!regionSido}
+            options={sigunguOptions}
+            placeholder={regionSido ? "시군구 선택" : "먼저 시도를 선택해 주세요"}
+          />
+          {regionSigunguError ? (
+            <FieldHint tone="error">{regionSigunguError}</FieldHint>
+          ) : (
+            <FieldHint>선택한 시도에 맞는 시군구만 고를 수 있습니다.</FieldHint>
+          )}
+        </div>
+      </div>
+
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="ob-employee" required>
           상시 근로자 수
@@ -308,7 +405,7 @@ export function OnboardingForm() {
         {employeeError ? (
           <FieldHint tone="error">{employeeError}</FieldHint>
         ) : (
-          <FieldHint>현재 고용 인원은 이후 매칭 정확도 계산에 활용됩니다.</FieldHint>
+          <FieldHint>현재 고용 인원은 이후 매칭 정확도 계산에 사용됩니다.</FieldHint>
         )}
       </div>
 

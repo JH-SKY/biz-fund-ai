@@ -55,7 +55,12 @@ export function SocialLoginButtons({
 
       login(
         { access: data.access_token, refresh: data.refresh_token },
-        { userId: data.user_id, provider: "kakao", isOnboarded: !data.is_new_user }
+        {
+          userId: data.user_id,
+          name: data.name,
+          provider: "kakao",
+          isOnboarded: !data.is_new_user,
+        }
       );
 
       setDialogOpen(false);

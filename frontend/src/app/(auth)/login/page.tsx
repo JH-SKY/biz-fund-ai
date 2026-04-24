@@ -13,7 +13,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { SocialLoginButtons } from "@/features/auth/SocialLoginButtons";
-import { TestLoginCard } from "@/features/auth/TestLoginCard";
 import { authService } from "@/lib/services";
 import { useAuthStore } from "@/stores/auth-store";
 
@@ -71,7 +70,12 @@ export default function LoginPage() {
       .then((data) => {
         login(
           { access: data.access_token, refresh: data.refresh_token },
-          { userId: data.user_id, provider: "naver", isOnboarded: !data.is_new_user }
+          {
+            userId: data.user_id,
+            name: data.name,
+            provider: "naver",
+            isOnboarded: !data.is_new_user,
+          }
         );
 
         const savedRedirect = sessionStorage.getItem("naver_oauth_redirect");
@@ -164,8 +168,6 @@ export default function LoginPage() {
           </p>
         </CardContent>
       </Card>
-
-      <TestLoginCard redirectTo={redirectTo} onError={setError} />
     </div>
   );
 }
