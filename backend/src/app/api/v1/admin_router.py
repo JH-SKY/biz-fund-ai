@@ -254,7 +254,7 @@ async def run_policy_sync(
     svc: Annotated[AdminService, Depends(get_admin_service)],
     page_start: int = Query(1, ge=1, description="수집 시작 페이지"),
     page_end: int = Query(1, ge=1, description="수집 종료 페이지 (포함)"),
-    rows_per_page: int = Query(100, ge=10, le=1000, description="페이지당 공고 수"),
+    rows_per_page: int = Query(100, ge=1, le=1000, description="페이지당 공고 수"),
     with_ai: bool = Query(
         False, description="True 이면 첨부파일 파싱 + AI 구조화 실행"
     ),
