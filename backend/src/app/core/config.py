@@ -38,6 +38,10 @@ USER_REFRESH_TOKEN_EXPIRE_DAYS: int = int(
 )
 
 KAKAO_PROFILE_URL: str = "https://kapi.kakao.com/v2/user/me"
+KAKAO_TOKEN_URL: str = "https://kauth.kakao.com/oauth/token"
+KAKAO_CLIENT_ID: str = os.getenv("KAKAO_CLIENT_ID", "")
+KAKAO_CLIENT_SECRET: str = os.getenv("KAKAO_CLIENT_SECRET", "")
+
 NAVER_PROFILE_URL: str = "https://openapi.naver.com/v1/nid/me"
 NAVER_TOKEN_URL: str = "https://nid.naver.com/oauth2.0/token"
 NAVER_AUTHORIZE_URL: str = "https://nid.naver.com/oauth2.0/authorize"

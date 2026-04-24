@@ -66,6 +66,11 @@ export interface SocialAuthRequest {
   device_type: "WEB" | "IOS" | "ANDROID";
 }
 
+export interface KakaoCallbackRequest {
+  code: string;
+  redirect_uri: string;
+}
+
 export interface NaverCallbackRequest {
   code: string;
   state: string;

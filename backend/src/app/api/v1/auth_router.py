@@ -10,6 +10,7 @@ from fastapi import APIRouter, Body, Depends
 from src.app.api.deps.user_auth import CurrentUser, get_auth_service
 from src.app.core.response import api_json
 from src.app.domains.auth.schema import (
+    KakaoCallbackRequest,
     NaverCallbackRequest,
     RefreshTokenRequest,
     SocialAuthRequest,
@@ -17,6 +18,16 @@ from src.app.domains.auth.schema import (
 from src.app.domains.auth.service import AuthService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+@router.post("/kakao/callback")
+async def kakao_oauth_callback(
+    body: KakaoCallbackRequest,
+    svc: Annotated[AuthService, Depends(get_auth_service)],
+):
+    """카카오 OAuth 인가 코드를 처리한다."""
+    data = await svc.kakao_callback(body)
+    return api_json(http_status=200, data=data.model_dump())
 
 
 @router.post("/naver/callback")

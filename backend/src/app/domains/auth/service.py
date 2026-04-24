@@ -9,7 +9,16 @@ from typing import TYPE_CHECKING, Any, Optional
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
-from src.app.core.config import KAKAO_PROFILE_URL, NAVER_CLIENT_ID, NAVER_CLIENT_SECRET, NAVER_PROFILE_URL, NAVER_TOKEN_URL
+from src.app.core.config import (
+    KAKAO_CLIENT_ID,
+    KAKAO_CLIENT_SECRET,
+    KAKAO_PROFILE_URL,
+    KAKAO_TOKEN_URL,
+    NAVER_CLIENT_ID,
+    NAVER_CLIENT_SECRET,
+    NAVER_PROFILE_URL,
+    NAVER_TOKEN_URL,
+)
 from src.app.core.security import (
     create_user_access_token,
     generate_refresh_token,
@@ -24,6 +33,7 @@ from src.app.domains.auth.exception import (
 from src.app.domains.auth.model import SocialProvider, User
 from src.app.domains.auth.repository import AuthRepository
 from src.app.domains.auth.schema import (
+    KakaoCallbackRequest,
     MyProfileData,
     NaverCallbackRequest,
     ProfilePatchRequest,
@@ -197,8 +207,41 @@ class AuthService:
             profile_image_url=image,
         )
 
-    async def naver_callback(self, body: NaverCallbackRequest) -> SocialLoginResponseData:
-        """네이버 OAuth 인가 코드 → access_token 교환 → 로그인/가입.
+    async def kakao_callback(self, body: KakaoCallbackRequest) -> SocialLoginResponseData:
+        """카카오 OAuth 인가 코드 → access_token 교환 → 로그인/가입.
+
+        프론트 콜백 페이지에서 code를 받아 카카오 토큰 서버와 교환하고,
+        기존 kakao_login() 로직으로 프로필을 조회한 뒤 우리 서비스 JWT를 발급한다.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(
+                    KAKAO_TOKEN_URL,
+                    data={
+                        "grant_type": "authorization_code",
+                        "client_id": KAKAO_CLIENT_ID,
+                        "client_secret": KAKAO_CLIENT_SECRET,
+                        "redirect_uri": body.redirect_uri,
+                        "code": body.code,
+                    },
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                )
+        except httpx.RequestError:
+            raise social_api_error("카카오")
+
+        if resp.status_code != 200:
+            raise social_api_error("카카오")
+
+        token_data = resp.json()
+        access_token: str | None = token_data.get("access_token")
+        if not access_token:
+            raise invalid_social_token("카카오")
+
+        return await self.kakao_login(
+            SocialLoginRequest(access_token=access_token, device_type="WEB")
+        )
+
+    async def naver_callback(self, body: NaverCallbackRequest) -> SocialLoginResponseData:        """네이버 OAuth 인가 코드 → access_token 교환 → 로그인/가입.
 
         프론트 콜백 페이지에서 code + state를 받아 네이버 토큰 서버와 교환하고,
         기존 naver_login() 로직으로 프로필을 조회한 뒤 우리 서비스 JWT를 발급한다.

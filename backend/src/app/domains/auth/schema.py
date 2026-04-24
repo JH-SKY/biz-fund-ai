@@ -8,6 +8,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from src.app.domains.auth.model import SocialProvider
 
 
+class KakaoCallbackRequest(BaseModel):
+    """POST /auth/kakao/callback 요청 Body."""
+
+    code: str = Field(..., description="카카오 인가 코드")
+    redirect_uri: str = Field(..., description="카카오 개발자센터에 등록한 Redirect URI")
+
+
 class NaverCallbackRequest(BaseModel):
     """POST /auth/naver/callback 요청 Body."""
 
