@@ -35,6 +35,10 @@ export function AppGuard({ children }: { children: React.ReactNode }) {
   const canAccessApp = isAuthenticated && (isOnboarded || hasActiveBusiness);
 
   React.useEffect(() => {
+    useAuthStore.persist.rehydrate();
+  }, []);
+
+  React.useEffect(() => {
     if (!hasHydrated) {
       return;
     }
@@ -71,6 +75,10 @@ export function PublicGuard({ children }: { children: React.ReactNode }) {
   const isOnboarded = useAuthStore((state) => state.user?.isOnboarded ?? false);
   const hasActiveBusiness = useBusinessStore((state) => Boolean(state.activeBizId));
   const canAccessApp = isAuthenticated && (isOnboarded || hasActiveBusiness);
+
+  React.useEffect(() => {
+    useAuthStore.persist.rehydrate();
+  }, []);
 
   React.useEffect(() => {
     if (!hasHydrated) {
