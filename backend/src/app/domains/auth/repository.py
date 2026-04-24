@@ -198,6 +198,17 @@ class AuthRepository:
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
 
+    async def has_active_business(self, user_id: uuid.UUID) -> bool:
+        """해당 유저에게 활성화된 사업장이 하나라도 있는지 확인 (온보딩 완료 여부 판단용)."""
+        from src.app.domains.business.model import Business
+
+        stmt = select(func.count()).select_from(Business).where(
+            Business.user_id == user_id,
+            Business.is_active.is_(True),
+        )
+        result = await self._session.execute(stmt)
+        return (result.scalar() or 0) > 0
+
     async def update_notification_settings_internal(
         self,
         user: User,

@@ -91,14 +91,14 @@ class AuthService:
             raise auth_unauthorized("탈퇴 처리된 계정입니다.")
 
         # 2. [실무 포인트] 온보딩 대상 여부 판단 로직
-        # 단순히 신규 생성이었거나, 기존 유저라도 필수 정보(예: 관심분야)가 없다면 신규 유저로 간주
-        # user.interest_sectors가 None이거나 빈 리스트([])인 경우 체크
-        is_profile_incomplete = not user.nickname
-        should_redirect_to_onboarding = (
-            force_is_new_user
-            if force_is_new_user is not None
-            else is_new or is_profile_incomplete
-        )
+        # 신규 유저이거나, 기존 유저라도 활성화된 사업장이 없으면 온보딩으로 이동
+        if force_is_new_user is not None:
+            should_redirect_to_onboarding = force_is_new_user
+        elif is_new:
+            should_redirect_to_onboarding = True
+        else:
+            has_biz = await self._repo.has_active_business(user.id)
+            should_redirect_to_onboarding = not has_biz
 
         access_token = create_user_access_token(user_id=user.id)
         refresh_token = generate_refresh_token()
