@@ -45,7 +45,6 @@ from src.app.domains.business.schema import (
     DocumentDetailResponseData,
     DocumentListItemData,
     FinanceCreateRequest,
-    FinanceHistoryItemData,
     FinanceSnapshotResponseData,
     FinanceUpdateRequest,
     OnboardingRegisterRequest,
@@ -409,20 +408,9 @@ class BusinessService:
 
     async def get_financial_history(
         self, biz: Business
-    ) -> list[FinanceHistoryItemData]:
+    ) -> list[FinanceSnapshotResponseData]:
         snaps = await self._repo.get_financial_history(biz.id)
-        return [
-            FinanceHistoryItemData(
-                snapshot_year=s.snapshot_year,
-                annual_revenue=s.annual_revenue,
-                operating_profit=s.operating_profit,
-                net_income=s.net_income,
-                capital=s.capital,
-                employee_count=s.employee_count,
-                is_verified=s.is_verified,
-            )
-            for s in snaps
-        ]
+        return [_to_finance_response(s) for s in snaps]
 
     async def delete_financial_snapshot(self, biz: Business, year: int) -> None:
         snap = await self._repo.get_financial_snapshot_by_year(biz.id, year)

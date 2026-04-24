@@ -27,20 +27,17 @@ export const profileService = {
   createFinance: (body: FinanceCreateRequest) =>
     apiClient.post<FinanceSnapshot>("/businesses/finance", body),
 
-  updateFinance: (financeId: string, body: FinanceUpdateRequest) =>
-    apiClient.patch<FinanceSnapshot>(`/businesses/finance/${financeId}`, body),
+  updateFinance: (year: number, body: FinanceUpdateRequest) =>
+    apiClient.patch<void>(`/businesses/finance/${year}`, body),
 
-  deleteFinance: (financeId: string) =>
-    apiClient.delete<void>(`/businesses/finance/${financeId}`),
+  deleteFinance: (year: number) =>
+    apiClient.delete<void>(`/businesses/finance/${year}`),
 
   fetchNotificationSettings: () =>
-    apiClient.get<NotificationSettings>("/auth/me/notification-settings"),
+    apiClient.get<NotificationSettings>("/notifications/settings"),
 
   updateNotificationSettings: (body: UpdateNotificationSettingsRequest) =>
-    apiClient.patch<NotificationSettings>(
-      "/auth/me/notification-settings",
-      body
-    ),
+    apiClient.patch<void>("/notifications/settings", body),
 
-  deleteAccount: () => apiClient.delete<void>("/auth/me"),
+  deleteAccount: () => apiClient.delete<void>("/users/withdraw"),
 };

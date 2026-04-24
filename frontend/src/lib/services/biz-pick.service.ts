@@ -22,14 +22,14 @@ export interface BizPickListParams {
 
 export const bizPickService = {
   list(params: BizPickListParams = {}) {
-    return apiClient.get<Paginated<BizPickListItem>>("/biz-picks", { params });
+    return apiClient.get<Paginated<BizPickListItem>>("/contents", { params });
   },
 
   detail(contentId: string) {
-    return apiClient.get<BizPickDetail>(`/biz-picks/${contentId}`);
+    return apiClient.get<BizPickDetail>(`/contents/${contentId}`);
   },
 
   toggleLike(contentId: string) {
-    return apiClient.post<BizPickLikeResponse>(`/biz-picks/${contentId}/like`);
+    return apiClient.post<BizPickLikeResponse>(`/contents/${contentId}/like`);
   },
 };

@@ -28,11 +28,21 @@ const PERIOD_OPTIONS = [
   { value: "4Q", label: "4분기" },
 ];
 
-function formatKRW(value: number | null): string {
-  if (value === null) return "-";
+function formatKRW(value: number | null | undefined): string {
+  if (typeof value !== "number" || Number.isNaN(value)) return "-";
   if (value >= 1_0000_0000) return `${(value / 1_0000_0000).toFixed(1)}억`;
   if (value >= 10_000) return `${(value / 10_000).toFixed(0)}만`;
   return value.toLocaleString();
+}
+
+function formatCount(value: number | null | undefined, unit: string): string {
+  return typeof value === "number" && Number.isFinite(value) ? `${value}${unit}` : "-";
+}
+
+function formatPercent(value: number | null | undefined): string {
+  return typeof value === "number" && Number.isFinite(value)
+    ? `${value.toFixed(1)}%`
+    : "-";
 }
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -126,7 +136,7 @@ export function FinancialTab() {
             <tbody>
               {finances.map((f) => (
                 <tr
-                  key={f.finance_id}
+                  key={f.finance_id ?? `${f.snapshot_year}-${f.snapshot_period}`}
                   className="border-b border-surface-border last:border-0 hover:bg-surface-subtle/50"
                 >
                   <td className="px-4 py-3 font-medium numeric">
@@ -142,10 +152,10 @@ export function FinancialTab() {
                     {formatKRW(f.operating_profit)}
                   </td>
                   <td className="px-4 py-3 text-right numeric">
-                    {f.employee_count !== null ? `${f.employee_count}명` : "-"}
+                    {formatCount(f.employee_count, "명")}
                   </td>
                   <td className="px-4 py-3 text-right numeric">
-                    {f.debt_ratio !== null ? `${f.debt_ratio.toFixed(1)}%` : "-"}
+                    {formatPercent(f.debt_ratio)}
                   </td>
                   <td className="px-4 py-3 text-center">
                     <Badge
@@ -158,7 +168,7 @@ export function FinancialTab() {
                   <td className="px-4 py-3">
                     <button
                       type="button"
-                      onClick={() => deleteFinance.mutate(f.finance_id)}
+                      onClick={() => deleteFinance.mutate(f.snapshot_year)}
                       aria-label="재무 삭제"
                       className="rounded p-1.5 text-ink-tertiary transition-colors hover:bg-danger-50 hover:text-danger-500"
                     >

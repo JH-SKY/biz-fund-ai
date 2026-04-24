@@ -70,12 +70,12 @@ export function useUpdateFinance() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({
-      financeId,
+      year,
       body,
     }: {
-      financeId: string;
+      year: number;
       body: FinanceUpdateRequest;
-    }) => profileService.updateFinance(financeId, body),
+    }) => profileService.updateFinance(year, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: PROFILE_KEYS.finances });
     },
@@ -85,7 +85,7 @@ export function useUpdateFinance() {
 export function useDeleteFinance() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (financeId: string) => profileService.deleteFinance(financeId),
+    mutationFn: (year: number) => profileService.deleteFinance(year),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: PROFILE_KEYS.finances });
     },

@@ -10,9 +10,16 @@
 import apiClient from "@/lib/api-client";
 import type { NotificationItem } from "@/types";
 
+interface NotificationListResponse {
+  items: NotificationItem[];
+  total_count: number;
+}
+
 export const notificationService = {
   fetchNotifications: () =>
-    apiClient.get<NotificationItem[]>("/notifications"),
+    apiClient
+      .get<NotificationListResponse>("/notifications")
+      .then((response) => response.items),
 
   markAsRead: (notiId: string) =>
     apiClient.patch<void>(`/notifications/${notiId}/read`, {}),
