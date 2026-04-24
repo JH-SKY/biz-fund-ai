@@ -241,7 +241,8 @@ class AuthService:
             SocialLoginRequest(access_token=access_token, device_type="WEB")
         )
 
-    async def naver_callback(self, body: NaverCallbackRequest) -> SocialLoginResponseData:        """네이버 OAuth 인가 코드 → access_token 교환 → 로그인/가입.
+    async def naver_callback(self, body: NaverCallbackRequest) -> SocialLoginResponseData:
+        """네이버 OAuth 인가 코드 → access_token 교환 → 로그인/가입.
 
         프론트 콜백 페이지에서 code + state를 받아 네이버 토큰 서버와 교환하고,
         기존 naver_login() 로직으로 프로필을 조회한 뒤 우리 서비스 JWT를 발급한다.
