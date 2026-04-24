@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Rocket } from "lucide-react";
 
 import { useAuthStore } from "@/stores/auth-store";
+import { useBusinessStore } from "@/stores/business-store";
 
 function AuthLoadingScreen() {
   return (
@@ -30,6 +31,8 @@ export function AppGuard({ children }: { children: React.ReactNode }) {
   const hasHydrated = useAuthStore((state) => state.hasHydrated);
   const isAuthenticated = useAuthStore((state) => Boolean(state.accessToken));
   const isOnboarded = useAuthStore((state) => state.user?.isOnboarded ?? false);
+  const hasActiveBusiness = useBusinessStore((state) => Boolean(state.activeBizId));
+  const canAccessApp = isAuthenticated && (isOnboarded || hasActiveBusiness);
 
   React.useEffect(() => {
     if (!hasHydrated) {
@@ -42,17 +45,17 @@ export function AppGuard({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    if (!isOnboarded) {
+    if (!canAccessApp) {
       router.replace("/onboarding");
       return;
     }
-  }, [hasHydrated, isAuthenticated, isOnboarded, pathname, router]);
+  }, [canAccessApp, hasHydrated, isAuthenticated, pathname, router]);
 
   if (!hasHydrated) {
     return <AuthLoadingScreen />;
   }
 
-  if (!isAuthenticated || !isOnboarded) {
+  if (!canAccessApp) {
     return <AuthLoadingScreen />;
   }
 
@@ -66,13 +69,15 @@ export function PublicGuard({ children }: { children: React.ReactNode }) {
   const hasHydrated = useAuthStore((state) => state.hasHydrated);
   const isAuthenticated = useAuthStore((state) => Boolean(state.accessToken));
   const isOnboarded = useAuthStore((state) => state.user?.isOnboarded ?? false);
+  const hasActiveBusiness = useBusinessStore((state) => Boolean(state.activeBizId));
+  const canAccessApp = isAuthenticated && (isOnboarded || hasActiveBusiness);
 
   React.useEffect(() => {
     if (!hasHydrated) {
       return;
     }
 
-    if (isAuthenticated && isOnboarded) {
+    if (canAccessApp) {
       router.replace("/dashboard");
       return;
     }
@@ -80,13 +85,13 @@ export function PublicGuard({ children }: { children: React.ReactNode }) {
     if (isAuthenticated && !isOnboarded && pathname !== "/onboarding") {
       router.replace("/onboarding");
     }
-  }, [hasHydrated, isAuthenticated, isOnboarded, pathname, router]);
+  }, [canAccessApp, hasHydrated, isAuthenticated, isOnboarded, pathname, router]);
 
   if (!hasHydrated) {
     return <AuthLoadingScreen />;
   }
 
-  if (isAuthenticated && isOnboarded) {
+  if (canAccessApp) {
     return <AuthLoadingScreen />;
   }
 

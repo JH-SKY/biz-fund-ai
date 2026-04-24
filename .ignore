@@ -1,0 +1,15 @@
+# Search noise
+frontend/node_modules/
+frontend/.next/
+backend/.venv/
+backend/.pytest_cache/
+backend/.ruff_cache/
+backend/.uv-cache/
+
+# Python caches
+**/__pycache__/
+**/*.pyc
+
+# Misc local artifacts
+Thumbs.db
+.DS_Store
