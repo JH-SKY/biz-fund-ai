@@ -123,25 +123,37 @@ class BizinfoSyncService:
                 )
                 total_items += len(unique_items)
 
-                # --- [개선] 페이지 내 공고 병렬 처리 ---
-                semaphore = asyncio.Semaphore(self._CONCURRENCY_LIMIT)
+                # with_ai=False: 외부 I/O 없음 → 세션 공유 충돌 방지를 위해 순차 처리
+                # with_ai=True:  OpenAI 네트워크 I/O 대기가 있으므로 세마포어 병렬 처리
+                if with_ai:
+                    semaphore = asyncio.Semaphore(self._CONCURRENCY_LIMIT)
 
-                async def sem_process(item):
-                    async with semaphore:
-                        result = await self._process_single_item(
+                    async def sem_process(item):
+                        async with semaphore:
+                            result = await self._process_single_item(
+                                item=item,
+                                with_ai=with_ai,
+                                with_embedding=with_embedding,
+                                job_name=job_name,
+                            )
+                            # OpenAI TPM 제한(30,000) 초과 방지를 위해 공고 간 딜레이
+                            await asyncio.sleep(3)
+                            return result
+
+                    results = list(await asyncio.gather(
+                        *[sem_process(item) for item in unique_items]
+                    ))
+                else:
+                    # 순차 처리: AsyncSession 동시 접근 충돌 원천 차단
+                    results = []
+                    for item in unique_items:
+                        r = await self._process_single_item(
                             item=item,
-                            with_ai=with_ai,
+                            with_ai=False,
                             with_embedding=with_embedding,
                             job_name=job_name,
                         )
-                        if with_ai:
-                            # OpenAI TPM 제한(30,000) 초과 방지를 위해 공고 간 딜레이
-                            await asyncio.sleep(3)
-                        return result
-
-                results = await asyncio.gather(
-                    *[sem_process(item) for item in unique_items]
-                )
+                        results.append(r)
 
                 # 결과 집계 — DB 성공 여부와 무관하게 AI 실패도 error_log에 기록
                 for ai_status, db_ok, err_info in results:
