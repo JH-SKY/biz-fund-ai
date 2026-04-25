@@ -11,16 +11,10 @@
  */
 
 import * as React from "react";
-import { usePathname } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
 
 import { useAdminAuthStore } from "@/stores/admin-auth-store";
-
-function isExpired(expiresAt?: string | null) {
-  if (!expiresAt) return false;
-  const expires = new Date(expiresAt).getTime();
-  return Number.isFinite(expires) && expires <= Date.now();
-}
 
 function AdminLoadingScreen() {
   return (
@@ -40,30 +34,23 @@ function AdminLoadingScreen() {
 }
 
 export function AdminGuard({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
   const pathname = usePathname();
 
   const isAdminAuthenticated = useAdminAuthStore((s) =>
     Boolean(s.adminToken)
   );
-  const expiresAt = useAdminAuthStore((s) => s.admin?.expiresAt ?? null);
   const hasHydrated = useAdminAuthStore((s) => s.hasHydrated);
-  const logoutAdmin = useAdminAuthStore((s) => s.logoutAdmin);
-  const isAdminExpired = isExpired(expiresAt);
 
   React.useEffect(() => {
     if (!hasHydrated) return;
-    if (isAdminExpired) {
-      logoutAdmin();
-      window.location.replace("/admin/login");
-      return;
-    }
     if (pathname !== "/admin/login" && !isAdminAuthenticated) {
-      window.location.replace("/admin/login");
+      router.replace("/admin/login");
     }
-  }, [hasHydrated, isAdminAuthenticated, isAdminExpired, logoutAdmin, pathname]);
+  }, [hasHydrated, isAdminAuthenticated, pathname, router]);
 
   if (!hasHydrated) return <AdminLoadingScreen />;
-  if (pathname !== "/admin/login" && (!isAdminAuthenticated || isAdminExpired)) {
+  if (pathname !== "/admin/login" && !isAdminAuthenticated) {
     return <AdminLoadingScreen />;
   }
   return <>{children}</>;
@@ -75,26 +62,21 @@ export function AdminPublicGuard({
 }: {
   children: React.ReactNode;
 }) {
+  const router = useRouter();
+
   const isAdminAuthenticated = useAdminAuthStore((s) =>
     Boolean(s.adminToken)
   );
-  const expiresAt = useAdminAuthStore((s) => s.admin?.expiresAt ?? null);
   const hasHydrated = useAdminAuthStore((s) => s.hasHydrated);
-  const logoutAdmin = useAdminAuthStore((s) => s.logoutAdmin);
-  const isAdminExpired = isExpired(expiresAt);
 
   React.useEffect(() => {
     if (!hasHydrated) return;
-    if (isAdminExpired) {
-      logoutAdmin();
-      return;
-    }
     if (isAdminAuthenticated) {
-      window.location.replace("/admin/dashboard");
+      router.replace("/admin/dashboard");
     }
-  }, [hasHydrated, isAdminAuthenticated, isAdminExpired, logoutAdmin]);
+  }, [hasHydrated, isAdminAuthenticated, router]);
 
   if (!hasHydrated) return <AdminLoadingScreen />;
-  if (isAdminAuthenticated && !isAdminExpired) return <AdminLoadingScreen />;
+  if (isAdminAuthenticated) return <AdminLoadingScreen />;
   return <>{children}</>;
 }
