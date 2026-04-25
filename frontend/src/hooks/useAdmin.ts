@@ -30,6 +30,7 @@ import type {
   MonitoringRange,
   PolicySyncRunParams,
 } from "@/types";
+import type { DebugOutputItem, DebugOutputFiles } from "@/lib/services/admin.service";
 
 // ── Query Keys ────────────────────────────────────────────────────
 export const ADMIN_KEYS = {
@@ -182,6 +183,29 @@ export function useSyncRun() {
 export function useEmbedAll() {
   return useMutation({
     mutationFn: (limit?: number) => adminService.policies.embedAll(limit),
+  });
+}
+
+export function useTestSyncOne() {
+  return useMutation({
+    mutationFn: () => adminService.policies.testSyncOne(),
+  });
+}
+
+export function useDebugOutputs(enabled = true) {
+  return useQuery<{ items: DebugOutputItem[] }>({
+    queryKey: ["admin", "debug-output"],
+    queryFn: () => adminService.policies.listDebugOutputs(),
+    enabled,
+    staleTime: 0,
+  });
+}
+
+export function useDebugOutput(originId: string | null) {
+  return useQuery<DebugOutputFiles>({
+    queryKey: ["admin", "debug-output", originId],
+    queryFn: () => adminService.policies.getDebugOutput(originId!),
+    enabled: !!originId,
   });
 }
 

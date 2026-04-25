@@ -16,6 +16,7 @@ import json
 import logging
 import math
 import os
+import random
 from datetime import date, datetime
 from typing import Any
 
@@ -40,7 +41,7 @@ class BizinfoSyncService:
     """기업마당 API 데이터를 PostgreSQL DB로 동기화하는 핵심 수집 엔진."""
 
     _API_URL = "https://apis.data.go.kr/1421000/bizinfo/pblancBsnsService"
-    _CONCURRENCY_LIMIT = 5  # 동시 처리 세마포어 제한
+    _CONCURRENCY_LIMIT = 2  # 동시 처리 세마포어 제한 (OpenAI TPM 30,000 기준 안전값)
 
     def __init__(
         self,
@@ -126,12 +127,16 @@ class BizinfoSyncService:
 
                 async def sem_process(item):
                     async with semaphore:
-                        return await self._process_single_item(
+                        result = await self._process_single_item(
                             item=item,
                             with_ai=with_ai,
                             with_embedding=with_embedding,
                             job_name=job_name,
                         )
+                        if with_ai:
+                            # OpenAI TPM 제한(30,000) 초과 방지를 위해 공고 간 딜레이
+                            await asyncio.sleep(3)
+                        return result
 
                 results = await asyncio.gather(
                     *[sem_process(item) for item in unique_items]
@@ -347,7 +352,16 @@ class BizinfoSyncService:
             else PolicyStatus.RECRUITING
         )
 
-        # [5] DB Upsert - 동적 필드 구성 (기존 데이터 보호 핵심)
+        # [5] with_ai 모드에서 파싱/분석 실패한 공고는 저장하지 않고 스킵
+        # 포트폴리오용 데이터 품질 보장 — 잘못된 데이터로 DB를 오염시키지 않음
+        if with_ai and ai_status in ("PARSE_ERROR", "ANALYSIS_ERROR"):
+            logger.info(
+                "[%s] %s — DB 저장 스킵 (with_ai=True 품질 기준 미달)",
+                origin_id, ai_status,
+            )
+            return ai_status, False, ai_err_info
+
+        # [6] DB Upsert - 동적 필드 구성 (기존 데이터 보호 핵심)
         values = {
             "origin_id": origin_id,
             "title": resolved_title,
@@ -461,12 +475,28 @@ class BizinfoSyncService:
             with_ai=False,
         )
 
-    async def test_sync_single_policy(self, page_no: int = 1) -> dict[str, Any]:
+    async def test_sync_single_policy(self) -> dict[str, Any]:
+        """기업마당 전체 공고 중 랜덤 1건을 선택해 파이프라인을 검증합니다.
+
+        1. totalCount를 조회하여 실제 전체 공고 수를 파악합니다.
+        2. 전체 범위에서 랜덤 페이지를 선택합니다.
+        3. 해당 공고 1건에 대해 전체 파이프라인(파싱 → AI → DB)을 실행합니다.
+        4. debug_output/{origin_id}/ 폴더에 단계별 파일을 저장합니다.
+        """
+        # [1] 전체 공고 수 조회 후 랜덤 페이지 선택
+        total_count = await self._fetch_total_count()
+        if total_count <= 0:
+            return {"status": "error", "message": "기업마당 API totalCount 조회 실패"}
+
+        # numOfRows=1 기준 각 페이지가 공고 1건이므로 pageNo = 공고 인덱스
+        random_page = random.randint(1, min(total_count, 9999))
+        logger.info("[TEST] 전체 공고 %d건 중 랜덤 선택 → pageNo=%d", total_count, random_page)
+
         raw_items = await self._fetch_single_page(
-            page_no=page_no, rows_per_page=1, date_from=None, date_to=None
+            page_no=random_page, rows_per_page=1, date_from=None, date_to=None
         )
         if not raw_items:
-            return {"status": "no_items"}
+            return {"status": "no_items", "tested_page": random_page}
 
         item = raw_items[0]
         origin_id = item.get("pblancId", "UNKNOWN")
@@ -475,7 +505,7 @@ class BizinfoSyncService:
             item=item,
             with_ai=True,
             with_embedding=True,
-            job_name=f"TEST_{page_no}",
+            job_name=f"TEST_{random_page}",
             debug_mode=True,
         )
 
@@ -489,6 +519,9 @@ class BizinfoSyncService:
             "status": "success" if db_ok else "db_fail",
             "ai_status": ai_status,
             "db_saved": db_ok,
+            "total_count": total_count,
+            "tested_page": random_page,
+            "origin_id": origin_id,
             "error": err_info,
             "debug_output_dir": debug_output_dir,
         }
@@ -540,6 +573,28 @@ class BizinfoSyncService:
             logger.warning(
                 "[DEBUG] DB 스냅샷 저장 실패 (origin_id=%s): %s", origin_id, exc
             )
+
+    async def _fetch_total_count(self) -> int:
+        """기업마당 API에서 전체 공고 수(totalCount)를 조회합니다."""
+        params = {
+            "serviceKey": BIZINFO_API_KEY,
+            "dataType": "json",
+            "numOfRows": 1,
+            "pageNo": 1,
+        }
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(self._API_URL, params=params, timeout=30.0)
+                response.raise_for_status()
+                data = response.json()
+            total = int(
+                data.get("response", {}).get("body", {}).get("totalCount", 0)
+            )
+            logger.info("[totalCount] 기업마당 전체 공고 수: %d", total)
+            return total
+        except Exception as exc:
+            logger.warning("[totalCount] 조회 실패: %s", exc)
+            return 0
 
     async def _fetch_single_page(
         self,

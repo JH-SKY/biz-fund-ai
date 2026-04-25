@@ -4,8 +4,10 @@
  * /admin/policies — 정책 관리.
  *
  * 기능
- *  - 4종 수집 트리거 버튼: bootstrap / daily / run(파라미터) / embed-all
- *  - 전체 정책 검색 + 테이블 조회 (기존 policy.service 재사용)
+ *  - 5종 수집 트리거 버튼: bootstrap / daily / run(파라미터) / 파이프라인 테스트 / embed-all
+ *  - 파이프라인 테스트: POST /admin/test-sync-one → 랜덤 1건 수집 후 결과 토스트 + 디버그 파일 자동 열기
+ *  - 응답 목록: debug_output 폴더 목록 조회 → 3개 파일 내용 뷰어
+ *  - 전체 정책 검색 + 테이블 조회
  *  - 신규 정책 등록 / 정책 수정 Dialog
  */
 
@@ -13,13 +15,20 @@ import * as React from "react";
 import {
   Brain,
   Calendar,
+  ChevronRight,
   CloudDownload,
   Database,
   Edit3,
+  FileJson,
+  FileText,
+  FlaskConical,
   Layers,
+  List,
   Play,
   Plus,
+  RefreshCw,
   Search,
+  X,
 } from "lucide-react";
 
 import { AdminGuard, AdminShell } from "@/components/admin";
@@ -44,10 +53,13 @@ import { Label } from "@/components/ui/label";
 import { usePolicySearch } from "@/hooks/usePolicies";
 import {
   useCreatePolicy,
+  useDebugOutput,
+  useDebugOutputs,
   useEmbedAll,
   useSyncBootstrap,
   useSyncDaily,
   useSyncRun,
+  useTestSyncOne,
   useUpdatePolicy,
 } from "@/hooks/useAdmin";
 import { useToast } from "@/providers/ToastProvider";
@@ -58,6 +70,7 @@ import type {
   PolicyListItem,
   PolicySyncRunParams,
 } from "@/types";
+import type { DebugOutputItem } from "@/lib/services/admin.service";
 
 export default function AdminPoliciesPage() {
   return (
@@ -76,10 +89,10 @@ function PoliciesContent() {
   const [page, setPage] = React.useState(1);
 
   const [createOpen, setCreateOpen] = React.useState(false);
-  const [editTarget, setEditTarget] = React.useState<PolicyListItem | null>(
-    null
-  );
+  const [editTarget, setEditTarget] = React.useState<PolicyListItem | null>(null);
   const [syncRunOpen, setSyncRunOpen] = React.useState(false);
+  const [debugListOpen, setDebugListOpen] = React.useState(false);
+  const [debugViewOriginId, setDebugViewOriginId] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     const t = setTimeout(() => {
@@ -103,6 +116,7 @@ function PoliciesContent() {
   const bootstrap = useSyncBootstrap();
   const daily = useSyncDaily();
   const embedAll = useEmbedAll();
+  const testSyncOne = useTestSyncOne();
 
   const handleTrigger = async (
     label: string,
@@ -135,6 +149,22 @@ function PoliciesContent() {
     }
   };
 
+  const handleTestSyncOne = async () => {
+    try {
+      const res = await testSyncOne.mutateAsync();
+      const statusLabel = res.ai_status === "SUCCESS" ? "성공" : res.ai_status;
+      toast.success("파이프라인 테스트 완료", {
+        message: `AI: ${statusLabel} · 페이지: ${res.tested_page} · ${res.origin_id.slice(0, 8)}...`,
+      });
+      // 테스트 완료 후 해당 공고의 디버그 파일 자동 열기
+      setDebugViewOriginId(res.origin_id);
+    } catch (err) {
+      toast.error("파이프라인 테스트 실패", {
+        message: (err as unknown as ApiError).message,
+      });
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -144,10 +174,16 @@ function PoliciesContent() {
             정책 공고를 수집·수정·임베딩합니다.
           </p>
         </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4" />
-          정책 수기 등록
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" onClick={() => setDebugListOpen(true)}>
+            <List className="h-4 w-4" />
+            응답 목록
+          </Button>
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4" />
+            정책 수기 등록
+          </Button>
+        </div>
       </div>
 
       {/* 데이터 수집 트리거 */}
@@ -161,7 +197,7 @@ function PoliciesContent() {
             외부 API(기업마당)에서 정책을 가져오거나, 기존 정책을 벡터화합니다.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <SyncTriggerButton
             icon={CloudDownload}
             label="부트스트랩 적재"
@@ -185,6 +221,14 @@ function PoliciesContent() {
             label="범위 지정 수집"
             hint="페이지·날짜 지정"
             onClick={() => setSyncRunOpen(true)}
+          />
+          <SyncTriggerButton
+            icon={FlaskConical}
+            label="파이프라인 테스트"
+            hint="랜덤 1건 전체 검증"
+            loading={testSyncOne.isPending}
+            highlight
+            onClick={handleTestSyncOne}
           />
           <SyncTriggerButton
             icon={Brain}
@@ -316,31 +360,54 @@ function PoliciesContent() {
         onClose={() => setSyncRunOpen(false)}
         onComplete={() => refetch()}
       />
+
+      {/* 디버그 출력 목록 Dialog */}
+      <DebugOutputListDialog
+        open={debugListOpen}
+        onClose={() => setDebugListOpen(false)}
+        onSelect={(originId) => setDebugViewOriginId(originId)}
+      />
+
+      {/* 디버그 파일 뷰어 Dialog */}
+      <DebugFileViewerDialog
+        originId={debugViewOriginId}
+        onClose={() => setDebugViewOriginId(null)}
+      />
     </div>
   );
 }
 
+// ── 수집 트리거 버튼 ────────────────────────────────────────────────
 function SyncTriggerButton({
   icon: Icon,
   label,
   hint,
   onClick,
   loading,
+  highlight,
 }: {
   icon: React.ElementType;
   label: string;
   hint: string;
   onClick: () => void;
   loading?: boolean;
+  highlight?: boolean;
 }) {
+  const baseColor = highlight
+    ? "border-amber-300 bg-amber-50/40 hover:border-amber-500 hover:bg-amber-50"
+    : "border-primary-200 bg-surface hover:border-primary-400 hover:bg-primary-50";
+  const iconColor = highlight
+    ? "bg-amber-100 text-amber-700 group-hover:bg-amber-600 group-hover:text-white"
+    : "bg-primary-100 text-primary-700 group-hover:bg-primary-600 group-hover:text-white";
+
   return (
     <button
       type="button"
       disabled={loading}
       onClick={onClick}
-      className="group flex items-center gap-3 rounded-lg border border-primary-200 bg-surface p-3 text-left transition-colors hover:border-primary-400 hover:bg-primary-50 disabled:opacity-60"
+      className={`group flex items-center gap-3 rounded-lg border p-3 text-left transition-colors disabled:opacity-60 ${baseColor}`}
     >
-      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary-100 text-primary-700 group-hover:bg-primary-600 group-hover:text-white">
+      <div className={`flex h-10 w-10 items-center justify-center rounded-lg transition-colors ${iconColor}`}>
         {loading ? (
           <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
         ) : (
@@ -352,6 +419,266 @@ function SyncTriggerButton({
         <p className="text-xs text-ink-tertiary">{hint}</p>
       </div>
     </button>
+  );
+}
+
+// ── 디버그 출력 목록 Dialog ─────────────────────────────────────────
+function DebugOutputListDialog({
+  open,
+  onClose,
+  onSelect,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSelect: (originId: string) => void;
+}) {
+  const { data, isLoading, refetch } = useDebugOutputs(open);
+  const items: DebugOutputItem[] = data?.items ?? [];
+
+  const FILE_LABELS: Record<string, string> = {
+    "1_api_raw.json": "API 원본",
+    "2_ai_input.txt": "AI 입력",
+    "3_ai_result.json": "AI 결과",
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(v) => !v && onClose()}
+      title="파이프라인 테스트 이력"
+      description="test-sync-one 실행 기록입니다. 항목을 클릭하면 단계별 파일을 확인할 수 있습니다."
+      className="sm:max-w-lg"
+      footer={
+        <Button type="button" variant="ghost" onClick={onClose}>
+          닫기
+        </Button>
+      }
+    >
+      <div className="space-y-2">
+        <div className="flex items-center justify-between pb-1">
+          <span className="text-xs text-ink-tertiary">{items.length}건</span>
+          <button
+            type="button"
+            onClick={() => refetch()}
+            className="flex items-center gap-1 text-xs text-ink-secondary hover:text-ink"
+          >
+            <RefreshCw className="h-3 w-3" />
+            새로고침
+          </button>
+        </div>
+
+        {isLoading ? (
+          <div className="space-y-2">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="h-14 animate-pulse rounded-lg bg-surface-muted" />
+            ))}
+          </div>
+        ) : items.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-8 text-ink-tertiary">
+            <FlaskConical className="h-8 w-8 opacity-40" />
+            <p className="text-sm">테스트 이력이 없습니다.</p>
+            <p className="text-xs">파이프라인 테스트 버튼을 눌러 시작하세요.</p>
+          </div>
+        ) : (
+          <ul className="divide-y divide-surface-border overflow-hidden rounded-lg border border-surface-border">
+            {items.map((item) => (
+              <li key={item.origin_id}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSelect(item.origin_id);
+                    onClose();
+                  }}
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-surface-muted/60 transition-colors"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="font-mono text-sm font-medium text-ink truncate">
+                      {item.origin_id}
+                    </p>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {item.files.map((f) => (
+                        <span
+                          key={f}
+                          className="inline-flex items-center gap-1 rounded-full bg-primary-100 px-2 py-0.5 text-[10px] font-medium text-primary-700"
+                        >
+                          {FILE_LABELS[f] ?? f}
+                        </span>
+                      ))}
+                      {(["1_api_raw.json", "2_ai_input.txt", "3_ai_result.json"] as const).filter(
+                        (f) => !item.files.includes(f)
+                      ).map((f) => (
+                        <span
+                          key={f}
+                          className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-500"
+                        >
+                          {FILE_LABELS[f] ?? f} 없음
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <ChevronRight className="h-4 w-4 flex-shrink-0 text-ink-tertiary" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </Dialog>
+  );
+}
+
+// ── 디버그 파일 뷰어 Dialog ─────────────────────────────────────────
+const DEBUG_TABS = [
+  { key: "1_api_raw.json" as const, label: "1. API 원본", icon: FileJson, lang: "json" },
+  { key: "2_ai_input.txt" as const, label: "2. AI 입력", icon: FileText, lang: "text" },
+  { key: "3_ai_result.json" as const, label: "3. AI 결과", icon: FileJson, lang: "json" },
+];
+
+function DebugFileViewerDialog({
+  originId,
+  onClose,
+}: {
+  originId: string | null;
+  onClose: () => void;
+}) {
+  const [activeTab, setActiveTab] = React.useState<string>("1_api_raw.json");
+  const { data, isLoading } = useDebugOutput(originId);
+
+  React.useEffect(() => {
+    if (originId) setActiveTab("1_api_raw.json");
+  }, [originId]);
+
+  const activeContent = data?.[activeTab as keyof typeof data] ?? null;
+
+  const formatContent = (content: string | null, lang: string): string => {
+    if (!content) return "";
+    if (lang === "json") {
+      try {
+        return JSON.stringify(JSON.parse(content), null, 2);
+      } catch {
+        return content;
+      }
+    }
+    return content;
+  };
+
+  const getStatusBadge = () => {
+    if (!data) return null;
+    const hasAll = DEBUG_TABS.every((t) => data[t.key] !== null);
+    const hasNone = DEBUG_TABS.every((t) => data[t.key] === null);
+    if (hasAll)
+      return (
+        <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-700">
+          3개 파일 모두 정상
+        </span>
+      );
+    if (hasNone)
+      return (
+        <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-600">
+          파일 없음
+        </span>
+      );
+    return (
+      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+        일부 파일 누락
+      </span>
+    );
+  };
+
+  return (
+    <Dialog
+      open={!!originId}
+      onOpenChange={(v) => !v && onClose()}
+      title={
+        <span className="flex items-center gap-2">
+          <FlaskConical className="h-4 w-4 text-amber-600" />
+          디버그 파일 뷰어
+          {getStatusBadge()}
+        </span>
+      }
+      description={
+        originId ? (
+          <span className="font-mono text-xs">{originId}</span>
+        ) : undefined
+      }
+      className="sm:max-w-3xl"
+      footer={
+        <Button type="button" variant="ghost" onClick={onClose}>
+          <X className="h-4 w-4" />
+          닫기
+        </Button>
+      }
+    >
+      {isLoading ? (
+        <div className="space-y-3">
+          <div className="h-8 w-64 animate-pulse rounded bg-surface-muted" />
+          <div className="h-64 animate-pulse rounded-lg bg-surface-muted" />
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {/* 탭 */}
+          <div className="flex gap-1 rounded-lg bg-surface-muted p-1">
+            {DEBUG_TABS.map((tab) => {
+              const hasFile = data?.[tab.key] !== null && data?.[tab.key] !== undefined;
+              const isActive = activeTab === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                    isActive
+                      ? "bg-surface text-ink shadow-sm"
+                      : "text-ink-secondary hover:text-ink"
+                  }`}
+                >
+                  <tab.icon className="h-3.5 w-3.5" />
+                  {tab.label}
+                  {!hasFile && (
+                    <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* 파일 내용 */}
+          {(() => {
+            const tab = DEBUG_TABS.find((t) => t.key === activeTab)!;
+            const content = formatContent(activeContent as string | null, tab.lang);
+            if (!content) {
+              return (
+                <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-surface-border py-12 text-ink-tertiary">
+                  <tab.icon className="h-8 w-8 opacity-30" />
+                  <p className="text-sm">파일이 없습니다.</p>
+                  <p className="text-xs">
+                    {activeTab === "1_api_raw.json" && "API 호출이 실패했거나 파일이 저장되지 않았습니다."}
+                    {activeTab === "2_ai_input.txt" && "파싱 단계에서 실패하여 AI에게 전달되지 않았습니다."}
+                    {activeTab === "3_ai_result.json" && "AI 구조화가 실패하거나 아직 완료되지 않았습니다."}
+                  </p>
+                </div>
+              );
+            }
+            return (
+              <div className="relative">
+                <div className="absolute right-2 top-2 z-10">
+                  <button
+                    type="button"
+                    onClick={() => navigator.clipboard.writeText(content)}
+                    className="rounded bg-surface/80 px-2 py-1 text-[10px] text-ink-secondary hover:text-ink backdrop-blur"
+                  >
+                    복사
+                  </button>
+                </div>
+                <pre className="max-h-[480px] overflow-auto rounded-lg bg-gray-950 p-4 text-xs leading-relaxed text-green-300 font-mono">
+                  <code>{content}</code>
+                </pre>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+    </Dialog>
   );
 }
 

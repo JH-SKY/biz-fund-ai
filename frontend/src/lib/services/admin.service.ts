@@ -82,6 +82,28 @@ import type {
   UnmetDemandResponse,
 } from "@/types";
 
+export type TestSyncOneResult = {
+  status: string;
+  ai_status: string;
+  db_saved: boolean;
+  total_count: number;
+  tested_page: number;
+  origin_id: string;
+  error?: Record<string, unknown> | null;
+  debug_output_dir?: string | null;
+};
+
+export type DebugOutputItem = {
+  origin_id: string;
+  files: string[];
+};
+
+export type DebugOutputFiles = {
+  "1_api_raw.json": string | null;
+  "2_ai_input.txt": string | null;
+  "3_ai_result.json": string | null;
+};
+
 // ── 9-0. 인증 ────────────────────────────────────────────────────
 export const adminAuthService = {
   login(body: AdminLoginRequest) {
@@ -175,6 +197,15 @@ export const adminPolicyService = {
       null,
       { params: limit !== undefined ? { limit } : undefined }
     );
+  },
+  testSyncOne() {
+    return adminApiClient.post<TestSyncOneResult>("/admin/test-sync-one");
+  },
+  listDebugOutputs() {
+    return adminApiClient.get<{ items: DebugOutputItem[] }>("/admin/debug-output");
+  },
+  getDebugOutput(originId: string) {
+    return adminApiClient.get<DebugOutputFiles>(`/admin/debug-output/${originId}`);
   },
 };
 

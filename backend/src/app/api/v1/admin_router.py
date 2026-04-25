@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-import random
+import os
 import uuid
 from datetime import date
 from typing import Annotated
@@ -425,33 +425,27 @@ async def run_policy_sync(
 
 @router.post(
     "/test-sync-one",
-    summary="[TEST] 정책 1개 동기화 및 AI 분석 파이프라인 테스트",
+    summary="[TEST] 랜덤 공고 1건 전체 파이프라인 검증",
     tags=["Admin - Test"],
     description=(
-        "기업마당 API 에서 공고 1건을 가져와 전체 파이프라인을 검증합니다.\n\n"
-        "1. API 에서 최신 공고 1건 수집\n"
+        "기업마당 API 전체 공고 중 **랜덤 1건**을 선택해 파이프라인을 검증합니다.\n\n"
+        "1. `totalCount` 조회 후 전체 범위에서 랜덤 공고 선택\n"
         "2. 첨부파일(PDF/HWP/이미지) 다운로드 및 파싱\n"
         "3. GPT-4o 로 구조화(target_logic, bonus_logic, ai_summary)\n"
         "4. DB upsert 후 결과 반환\n"
         "5. 임베딩 청킹 + 벡터 저장 (pgvector)\n\n"
-        "서버 콘솔 로그에서 단계별 진행 상황을 확인할 수 있습니다.\n"
-        "`debug_output/{origin_id}/` 폴더에 단계별 파일이 저장됩니다."
+        "**디버그 파일** — `debug_output/{origin_id}/` 폴더에 3가지 파일이 저장됩니다:\n"
+        "- `1_api_raw.json` : 기업마당 API 응답 원본\n"
+        "- `2_ai_input.txt` : 실제 AI에게 전달한 텍스트\n"
+        "- `3_ai_result.json` : AI가 응답한 구조화 JSON\n\n"
+        "요청을 보낼 때마다 다른 공고를 랜덤으로 가져옵니다."
     ),
 )
 async def test_sync_single_policy_endpoint(
     admin: CurrentAdmin,
     sync_service: SyncServiceDep,
-    page_no: int | None = Query(
-        None, description="테스트할 페이지 번호 (미입력 시 1~100 랜덤)"
-    ),
 ):
-    # page_no가 없으면 1~100 사이 랜덤 숫자 생성
-    target_page = page_no if page_no is not None else random.randint(1, 100)
-
-    result = await sync_service.test_sync_single_policy(page_no=target_page)
-
-    # 어떤 페이지를 테스트했는지 결과에 추가해서 반환
-    result["tested_page"] = target_page
+    result = await sync_service.test_sync_single_policy()
     return result
 
 
@@ -519,3 +513,62 @@ async def embed_single_policy(
         data={"policy_id": str(policy_id), "re_embedded": changed},
         message="임베딩 완료" if changed else "변경 없음 (스킵)",
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 파이프라인 디버그 출력 조회 (Debug Output)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_DEBUG_ROOT = "debug_output"
+_DEBUG_FILES = ["1_api_raw.json", "2_ai_input.txt", "3_ai_result.json"]
+
+
+@router.get(
+    "/debug-output",
+    summary="[DEBUG] 파이프라인 테스트 이력 목록",
+    tags=["Admin - Test"],
+    description=(
+        "test-sync-one 실행 후 생성된 `debug_output/` 폴더의 목록을 반환합니다.\n\n"
+        "각 항목에는 `origin_id`와 저장된 파일 목록이 포함됩니다."
+    ),
+)
+async def list_debug_outputs(_: CurrentAdmin):
+    if not os.path.isdir(_DEBUG_ROOT):
+        return api_json(http_status=200, data={"items": []})
+
+    items = []
+    for name in sorted(os.listdir(_DEBUG_ROOT), reverse=True):
+        full_path = os.path.join(_DEBUG_ROOT, name)
+        if os.path.isdir(full_path):
+            files = [f for f in _DEBUG_FILES if os.path.exists(os.path.join(full_path, f))]
+            items.append({"origin_id": name, "files": files})
+
+    return api_json(http_status=200, data={"items": items})
+
+
+@router.get(
+    "/debug-output/{origin_id}",
+    summary="[DEBUG] 특정 공고의 파이프라인 단계별 파일 내용 조회",
+    tags=["Admin - Test"],
+    description=(
+        "특정 `origin_id`의 디버그 파일 3종(API 원본 / AI 입력 / AI 결과)을 반환합니다.\n\n"
+        "파일이 없는 항목은 `null`로 반환됩니다."
+    ),
+)
+async def get_debug_output(_: CurrentAdmin, origin_id: str):
+    from fastapi import HTTPException
+
+    debug_dir = os.path.join(_DEBUG_ROOT, origin_id)
+    if not os.path.isdir(debug_dir):
+        raise HTTPException(status_code=404, detail="해당 debug_output 폴더를 찾을 수 없습니다.")
+
+    result: dict[str, str | None] = {}
+    for fname in _DEBUG_FILES:
+        fpath = os.path.join(debug_dir, fname)
+        if os.path.exists(fpath):
+            with open(fpath, encoding="utf-8") as f:
+                result[fname] = f.read()
+        else:
+            result[fname] = None
+
+    return api_json(http_status=200, data=result)

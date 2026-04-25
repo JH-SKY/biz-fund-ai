@@ -19,11 +19,13 @@ Self-Correction 전략:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any
 
 import httpx
+import openai
 from langgraph.graph import END, StateGraph
 from openai import AsyncOpenAI
 from typing_extensions import TypedDict
@@ -249,6 +251,8 @@ class PolicySyncAgent:
             structured = await self._call_openai(
                 doc_result=state["doc_result"],
                 original_summary=state["original_summary"],
+                debug_mode=state["debug_mode"],
+                origin_id=origin_id,
             )
 
             #[비용 절감 핵심] GPT가 `extracted_text`를 다시 쓰지 않게 했으므로 서버에서 직접 꽂아줍니다.
@@ -361,8 +365,14 @@ class PolicySyncAgent:
 }
         """
 
-    async def _call_openai(self, doc_result: dict[str, Any], original_summary: str) -> dict[str, Any]:
-        messages: list[dict] =[{"role": "system", "content": self._build_system_prompt()}]
+    async def _call_openai(
+        self,
+        doc_result: dict[str, Any],
+        original_summary: str,
+        debug_mode: bool = False,
+        origin_id: str = "",
+    ) -> dict[str, Any]:
+        messages: list[dict] = [{"role": "system", "content": self._build_system_prompt()}]
 
         if doc_result.get("type") == "text":
             # 긴 공고문(주로 HWP)의 경우 컨텍스트 윈도우 초과를 막고 비용을 방어하기 위해 15,000자로 자릅니다.
@@ -372,19 +382,36 @@ class PolicySyncAgent:
             messages.append({"role": "user", "content": user_content})
         else:
             # Vision 모드: 이미지를 직접 분석합니다.
-            content_parts: list[dict] =[
-                {"type": "text", "text": f"원본 요약: {original_summary}\n\n아래 첨부된 공고문 이미지를 읽고 분석해줘."}
-            ]
-            for b64_img in doc_result.get("data",[]):
+            user_content = f"원본 요약: {original_summary}\n\n아래 첨부된 공고문 이미지를 읽고 분석해줘."
+            content_parts: list[dict] = [{"type": "text", "text": user_content}]
+            for b64_img in doc_result.get("data", []):
                 content_parts.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64_img}"}})
             messages.append({"role": "user", "content": content_parts})
 
-        response = await self._client.chat.completions.create(
-            model="gpt-4o",
-            messages=messages,
-            response_format={"type": "json_object"},
-        )
-        return json.loads(response.choices[0].message.content)
+        # [DEBUG] 실제 AI에게 전달한 텍스트를 파일로 저장
+        if debug_mode:
+            self._write_debug_file("2_ai_input.txt", user_content, origin_id=origin_id)
+
+        # 429 Rate Limit 에러 시 exponential backoff 재시도
+        for attempt in range(3):
+            try:
+                response = await self._client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=messages,
+                    response_format={"type": "json_object"},
+                )
+                return json.loads(response.choices[0].message.content)
+            except Exception as exc:
+                if isinstance(exc, openai.RateLimitError):
+                    wait_sec = 60 * (attempt + 1)  # 60초, 120초, 180초
+                    logger.warning(
+                        "[%s] OpenAI 429 RateLimit — %d초 대기 후 재시도 (%d/3)",
+                        origin_id, wait_sec, attempt + 1,
+                    )
+                    await asyncio.sleep(wait_sec)
+                else:
+                    raise
+        raise RuntimeError(f"[{origin_id}] OpenAI 호출 최대 재시도(3회) 초과")
 
     @staticmethod
     def _write_debug_file(filename: str, content: str, origin_id: str = "") -> None:
