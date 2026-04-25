@@ -16,6 +16,12 @@ import { ShieldCheck } from "lucide-react";
 
 import { useAdminAuthStore } from "@/stores/admin-auth-store";
 
+function isExpired(expiresAt?: string | null) {
+  if (!expiresAt) return false;
+  const expires = new Date(expiresAt).getTime();
+  return Number.isFinite(expires) && expires <= Date.now();
+}
+
 function AdminLoadingScreen() {
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-ink">
@@ -40,17 +46,25 @@ export function AdminGuard({ children }: { children: React.ReactNode }) {
   const isAdminAuthenticated = useAdminAuthStore((s) =>
     Boolean(s.adminToken)
   );
+  const expiresAt = useAdminAuthStore((s) => s.admin?.expiresAt ?? null);
   const hasHydrated = useAdminAuthStore((s) => s.hasHydrated);
+  const logoutAdmin = useAdminAuthStore((s) => s.logoutAdmin);
+  const isAdminExpired = isExpired(expiresAt);
 
   React.useEffect(() => {
     if (!hasHydrated) return;
+    if (isAdminExpired) {
+      logoutAdmin();
+      router.replace("/admin/login");
+      return;
+    }
     if (pathname !== "/admin/login" && !isAdminAuthenticated) {
       router.replace("/admin/login");
     }
-  }, [hasHydrated, isAdminAuthenticated, pathname, router]);
+  }, [hasHydrated, isAdminAuthenticated, isAdminExpired, logoutAdmin, pathname, router]);
 
   if (!hasHydrated) return <AdminLoadingScreen />;
-  if (pathname !== "/admin/login" && !isAdminAuthenticated) {
+  if (pathname !== "/admin/login" && (!isAdminAuthenticated || isAdminExpired)) {
     return <AdminLoadingScreen />;
   }
   return <>{children}</>;
@@ -67,16 +81,23 @@ export function AdminPublicGuard({
   const isAdminAuthenticated = useAdminAuthStore((s) =>
     Boolean(s.adminToken)
   );
+  const expiresAt = useAdminAuthStore((s) => s.admin?.expiresAt ?? null);
   const hasHydrated = useAdminAuthStore((s) => s.hasHydrated);
+  const logoutAdmin = useAdminAuthStore((s) => s.logoutAdmin);
+  const isAdminExpired = isExpired(expiresAt);
 
   React.useEffect(() => {
     if (!hasHydrated) return;
+    if (isAdminExpired) {
+      logoutAdmin();
+      return;
+    }
     if (isAdminAuthenticated) {
       router.replace("/admin/dashboard");
     }
-  }, [hasHydrated, isAdminAuthenticated, router]);
+  }, [hasHydrated, isAdminAuthenticated, isAdminExpired, logoutAdmin, router]);
 
   if (!hasHydrated) return <AdminLoadingScreen />;
-  if (isAdminAuthenticated) return <AdminLoadingScreen />;
+  if (isAdminAuthenticated && !isAdminExpired) return <AdminLoadingScreen />;
   return <>{children}</>;
 }
