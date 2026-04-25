@@ -107,21 +107,16 @@ export const useAuthStore = create<AuthState>()(
     {
       name: "biz_up_auth",
       storage: createJSONStorage(safeStorage),
-      onRehydrateStorage: () => (state, error) => {
-        if (error) {
-          // 파싱 오류 등 — 세션을 초기화하고 반드시 hydrated 처리
-          if (state) {
-            state.logout();
-          } else {
-            useAuthStore.getState().setHasHydrated(true);
-          }
-          return;
-        }
-        if (state) {
-          state.setHasHydrated(true);
-        } else {
-          useAuthStore.getState().setHasHydrated(true);
-        }
+      // hasHydrated 는 런타임 전용 플래그 — localStorage 에 저장하면 안 됨.
+      partialize: (state) => ({
+        accessToken: state.accessToken,
+        refreshToken: state.refreshToken,
+        user: state.user,
+      }),
+      // 에러가 있어도 토큰을 지우지 않는다: 토큰 유효성은 API 가 판단.
+      // state 가 undefined 인 경우 → Guard 의 타임아웃 안전장치가 대응.
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
       },
     }
   )

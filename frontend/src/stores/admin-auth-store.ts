@@ -83,22 +83,18 @@ export const useAdminAuthStore = create<AdminAuthState>()(
     {
       name: "biz_up_admin_auth",
       storage: createJSONStorage(safeStorage),
-      onRehydrateStorage: () => (state, error) => {
-        if (error) {
-          // 파싱 오류 등 — 토큰을 무효화하고 반드시 hydrated 처리
-          if (state) {
-            state.logoutAdmin(); // logoutAdmin 내부에서 hasHydrated: true 설정
-          } else {
-            // state가 undefined인 극단적 케이스: 직접 스토어 상태 갱신
-            useAdminAuthStore.getState().setHasHydrated(true);
-          }
-          return;
-        }
-        if (state) {
-          state.setHasHydrated(true);
-        } else {
-          useAdminAuthStore.getState().setHasHydrated(true);
-        }
+      // hasHydrated 는 런타임 전용 플래그 — localStorage 에 저장하면 안 됨.
+      // 저장하면 다음 로드 시 병합된 값이 true 가 되어 onRehydrateStorage 가
+      // 실행되기도 전에 가드가 인증 완료로 착각하는 문제가 생긴다.
+      partialize: (state) => ({
+        adminToken: state.adminToken,
+        admin: state.admin,
+      }),
+      // onRehydrateStorage 는 최대한 단순하게 유지한다.
+      // - state 가 undefined(극단적 에러)인 경우 → Guard 의 3초 타임아웃이 대응
+      // - 에러가 있어도 토큰을 지우지 않는다: 토큰 유효성은 API 가 판단
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
       },
     }
   )
