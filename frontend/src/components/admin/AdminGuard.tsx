@@ -41,17 +41,13 @@ export function AdminGuard({ children }: { children: React.ReactNode }) {
     Boolean(s.adminToken)
   );
   const hasHydrated = useAdminAuthStore((s) => s.hasHydrated);
-  const setHasHydrated = useAdminAuthStore((s) => s.setHasHydrated);
 
   React.useEffect(() => {
-    if (!hasHydrated) {
-      setHasHydrated(true);
-      return;
-    }
+    if (!hasHydrated) return;
     if (pathname !== "/admin/login" && !isAdminAuthenticated) {
       router.replace("/admin/login");
     }
-  }, [hasHydrated, isAdminAuthenticated, pathname, router, setHasHydrated]);
+  }, [hasHydrated, isAdminAuthenticated, pathname, router]);
 
   if (!hasHydrated) return <AdminLoadingScreen />;
   if (pathname !== "/admin/login" && !isAdminAuthenticated) {
@@ -72,17 +68,13 @@ export function AdminPublicGuard({
     Boolean(s.adminToken)
   );
   const hasHydrated = useAdminAuthStore((s) => s.hasHydrated);
-  const setHasHydrated = useAdminAuthStore((s) => s.setHasHydrated);
 
   React.useEffect(() => {
-    if (!hasHydrated) {
-      setHasHydrated(true);
-      return;
-    }
+    if (!hasHydrated) return;
     if (isAdminAuthenticated) {
       router.replace("/admin/dashboard");
     }
-  }, [hasHydrated, isAdminAuthenticated, router, setHasHydrated]);
+  }, [hasHydrated, isAdminAuthenticated, router]);
 
   if (!hasHydrated) return <AdminLoadingScreen />;
   if (isAdminAuthenticated) return <AdminLoadingScreen />;
