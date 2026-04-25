@@ -51,7 +51,13 @@ export function AdminGuard({ children }: { children: React.ReactNode }) {
   const hasHydrated = useAdminAuthStore((s) => s.hasHydrated);
   const setHasHydrated = useAdminAuthStore((s) => s.setHasHydrated);
 
-  // 안전장치: persist hydration 이 차단된 경우 무한 로딩 방지
+  // AppGuard 와 동일한 패턴: SSR 환경에서 서버 측 no-op 스토리지로 초기화된
+  // persist 상태를 클라이언트에서 실제 localStorage 로 재수화한다.
+  React.useEffect(() => {
+    useAdminAuthStore.persist.rehydrate();
+  }, []);
+
+  // 안전장치: rehydrate 가 어떤 이유로든 완료되지 않을 경우 무한 로딩 방지
   React.useEffect(() => {
     if (hasHydrated) return;
     const timer = setTimeout(() => {
@@ -90,7 +96,12 @@ export function AdminPublicGuard({
   const hasHydrated = useAdminAuthStore((s) => s.hasHydrated);
   const setHasHydrated = useAdminAuthStore((s) => s.setHasHydrated);
 
-  // 안전장치: persist hydration 이 차단된 경우 무한 로딩 방지
+  // 클라이언트에서 실제 localStorage 로 재수화
+  React.useEffect(() => {
+    useAdminAuthStore.persist.rehydrate();
+  }, []);
+
+  // 안전장치: rehydrate 가 어떤 이유로든 완료되지 않을 경우 무한 로딩 방지
   React.useEffect(() => {
     if (hasHydrated) return;
     const timer = setTimeout(() => {
