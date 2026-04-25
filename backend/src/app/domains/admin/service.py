@@ -5,10 +5,11 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import HTTPException
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core.config import ADMIN_JWT_EXPIRE_HOURS, ADMIN_POLICY_AGENCY_NAME
@@ -24,6 +25,7 @@ from src.app.domains.admin.schema import (
     BatchStatusItem,
     ChatMonitorItem,
     ChatMonitorResponseData,
+    CorrectionNoteRequest,
     ContentPatchRequest,
     ContentPublishRequest,
     ContentPublishResponseData,
@@ -35,11 +37,13 @@ from src.app.domains.admin.schema import (
 from src.app.domains.auth.model import User
 from src.app.domains.auth.service import AuthService
 from src.app.domains.biz_pick.service import BizPickService
+from src.app.domains.chat.model import ChatLog
 from src.app.domains.chat.service import ChatService
 from src.app.domains.diagnosis.service import DiagnosisService
 from src.app.domains.policy.model import PolicyStatus
 from src.app.domains.policy.service import PolicyService
 from src.app.domains.policy.sync_service import BizinfoSyncService
+from src.app.domains.system.model import LeadRequest
 from src.app.domains.system.service import SystemService
 
 
@@ -67,6 +71,25 @@ class AdminService:
         self._system_service = system_service
         self._diagnosis_service = diagnosis_service
         self._sync_service = sync_service
+
+    @staticmethod
+    def _to_iso(ts: datetime | None) -> str | None:
+        if ts is None:
+            return None
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        return ts.isoformat().replace("+00:00", "Z")
+
+    @staticmethod
+    def _feedback_reason_label(reason: str | None) -> str:
+        mapping = {
+            "INFO_WRONG": "정보 오류",
+            "NOT_APPLICABLE": "조건 불일치",
+            "DIFFICULT_TERM": "용어 어려움",
+            "OTHER": "기타",
+        }
+        key = (reason or "OTHER").upper()
+        return mapping.get(key, "기타")
 
     async def login(self, body: AdminLoginRequest) -> dict:
         admin = await self._repo.get_admin_by_login_id(body.login_id)
@@ -427,7 +450,9 @@ class AdminService:
 
     async def sync_bootstrap_policies(self, count: int = 1000):
         """과거 데이터 대량 적재 위임"""
-        return await self._sync_service.bootstrap_historical_policies(count=count)
+        return await self._sync_service.bootstrap_historical_policies(
+            total_count=count
+        )
 
     async def sync_daily_policies(self):
         """일일 최신 정책 업데이트 위임"""
@@ -457,3 +482,329 @@ class AdminService:
             date_from=date_from,
             date_to=date_to,
         )
+
+    async def list_feedback(
+        self,
+        *,
+        reason: str | None,
+        is_resolved: bool,
+        page: int,
+        size: int,
+    ) -> dict[str, Any]:
+        if is_resolved:
+            return {"items": [], "total_count": 0, "total_pages": 0}
+
+        filters = [ChatLog.role == "assistant", ChatLog.is_disliked.is_(True)]
+        if reason:
+            filters.append(ChatLog.feedback_code == reason)
+
+        total_stmt = select(func.count(ChatLog.id)).where(*filters)
+        total = (await self._session.execute(total_stmt)).scalar() or 0
+        total_pages = (total + size - 1) // size if size > 0 else 0
+
+        stmt = (
+            select(ChatLog, User.name)
+            .join(User, User.id == ChatLog.user_id)
+            .where(*filters)
+            .order_by(desc(ChatLog.created_at))
+            .offset((page - 1) * size)
+            .limit(size)
+        )
+        rows = (await self._session.execute(stmt)).all()
+
+        items: list[dict[str, Any]] = []
+        for log, user_name in rows:
+            reason_code = (log.feedback_code or "OTHER").upper()
+            items.append(
+                {
+                    "feedback_id": str(log.id),
+                    "session_id": str(log.room_id),
+                    "message_id": str(log.id),
+                    "user_id": str(log.user_id),
+                    "user_name": user_name,
+                    "reason": reason_code,
+                    "reason_label": self._feedback_reason_label(reason_code),
+                    "user_comment": log.feedback_text,
+                    "ai_response_snippet": (log.content or "")[:200],
+                    "created_at": self._to_iso(log.created_at),
+                    "is_resolved": False,
+                }
+            )
+        return {"items": items, "total_count": total, "total_pages": total_pages}
+
+    async def get_feedback_context(self, feedback_id: uuid.UUID) -> dict[str, Any]:
+        stmt = (
+            select(ChatLog, User.name)
+            .join(User, User.id == ChatLog.user_id)
+            .where(ChatLog.id == feedback_id, ChatLog.role == "assistant")
+        )
+        row = (await self._session.execute(stmt)).one_or_none()
+        if row is None:
+            raise HTTPException(status_code=404, detail="피드백을 찾을 수 없습니다.")
+        feedback_log, user_name = row
+
+        conv_stmt = (
+            select(ChatLog)
+            .where(ChatLog.room_id == feedback_log.room_id)
+            .order_by(ChatLog.created_at.asc())
+            .limit(100)
+        )
+        conv_rows = (await self._session.execute(conv_stmt)).scalars().all()
+        conversation = [
+            {
+                "message_id": str(log.id),
+                "role": log.role,
+                "content": log.content,
+                "referenced_policies": [],
+                "created_at": self._to_iso(log.created_at),
+            }
+            for log in conv_rows
+        ]
+
+        matched_policies: list[dict[str, Any]] = []
+        if feedback_log.ref_policy_id:
+            policy = await self._policy_service.get_policy_by_id_internal(
+                feedback_log.ref_policy_id
+            )
+            if policy is not None:
+                matched_policies.append(
+                    {
+                        "policy_id": str(policy.id),
+                        "title": policy.title,
+                        "score": 100.0,
+                    }
+                )
+
+        reason_code = (feedback_log.feedback_code or "OTHER").upper()
+        return {
+            "feedback": {
+                "feedback_id": str(feedback_log.id),
+                "session_id": str(feedback_log.room_id),
+                "message_id": str(feedback_log.id),
+                "user_id": str(feedback_log.user_id),
+                "user_name": user_name,
+                "reason": reason_code,
+                "reason_label": self._feedback_reason_label(reason_code),
+                "user_comment": feedback_log.feedback_text,
+                "ai_response_snippet": (feedback_log.content or "")[:200],
+                "created_at": self._to_iso(feedback_log.created_at),
+                "is_resolved": False,
+            },
+            "conversation": conversation,
+            "matching_logic_snapshot": {
+                "applied_at": self._to_iso(feedback_log.created_at),
+                "rules": [],
+                "matched_policies": matched_policies,
+                "raw_payload": {
+                    "ref_policy_id": (
+                        str(feedback_log.ref_policy_id)
+                        if feedback_log.ref_policy_id
+                        else None
+                    )
+                },
+            },
+        }
+
+    async def create_correction_note(
+        self,
+        *,
+        feedback_id: uuid.UUID,
+        body: CorrectionNoteRequest,
+        admin_id: uuid.UUID,
+        client_ip: str | None,
+    ) -> dict[str, Any]:
+        await self._repo.add_audit_log(
+            admin_id=admin_id,
+            action_type="FEEDBACK_CORRECTION_CREATE",
+            target_id=feedback_id,
+            changes=body.model_dump(),
+            ip_address=client_ip,
+        )
+        await self._session.commit()
+        now = datetime.now(timezone.utc)
+        return {
+            "note_id": str(uuid.uuid4()),
+            "feedback_id": str(feedback_id),
+            "question_pattern": body.question_pattern,
+            "expected_answer": body.expected_answer,
+            "applies_to_agent": body.applies_to_agent,
+            "is_active": body.is_active,
+            "created_by": str(admin_id),
+            "created_at": self._to_iso(now),
+        }
+
+    async def list_corrections(self, *, page: int, size: int) -> dict[str, Any]:
+        _ = (page, size)
+        return {"items": [], "total_count": 0, "total_pages": 0}
+
+    async def monitoring_health(self) -> dict[str, Any]:
+        rows = await self._system_service.list_latest_batch_per_job()
+        if not rows:
+            return {
+                "status": "HEALTHY",
+                "latency_p50_ms": 0,
+                "latency_p95_ms": 0,
+                "error_rate_pct": 0.0,
+                "uptime_pct": 100.0,
+                "last_incident_at": None,
+                "components": [],
+            }
+
+        bad_statuses = {"FAILED", "ERROR", "DOWN"}
+        failed = [r for r in rows if str(r.status).upper() in bad_statuses]
+        error_rate = round((len(failed) / len(rows)) * 100, 2) if rows else 0.0
+        status = "HEALTHY" if not failed else "DEGRADED"
+        last_incident = max((r.started_at for r in failed), default=None)
+
+        latencies: list[int] = []
+        for row in rows:
+            if row.finished_at is None or row.started_at is None:
+                continue
+            delta = row.finished_at - row.started_at
+            latencies.append(max(0, int(delta.total_seconds() * 1000)))
+        latencies.sort()
+        if latencies:
+            p50 = latencies[len(latencies) // 2]
+            p95 = latencies[min(len(latencies) - 1, int(len(latencies) * 0.95))]
+        else:
+            p50 = 0
+            p95 = 0
+
+        components = [
+            {
+                "name": row.job_name,
+                "status": (
+                    "HEALTHY"
+                    if str(row.status).upper() not in bad_statuses
+                    else "DEGRADED"
+                ),
+                "message": str(row.status),
+            }
+            for row in rows
+        ]
+        return {
+            "status": status,
+            "latency_p50_ms": p50,
+            "latency_p95_ms": p95,
+            "error_rate_pct": error_rate,
+            "uptime_pct": round(max(0.0, 100.0 - error_rate), 2),
+            "last_incident_at": self._to_iso(last_incident),
+            "components": components,
+        }
+
+    async def monitoring_latency(self, *, range_value: str) -> dict[str, Any]:
+        return {"range": range_value, "points": []}
+
+    async def monitoring_cost(self, *, target_date: date | None) -> dict[str, Any]:
+        if target_date is None:
+            target_date = datetime.now(timezone.utc).date()
+
+        stmt = select(func.coalesce(func.sum(ChatLog.total_cost), 0)).where(
+            ChatLog.role == "assistant",
+            func.date(ChatLog.created_at) == target_date,
+        )
+        total_usd_raw = (await self._session.execute(stmt)).scalar() or 0
+        total_usd = float(total_usd_raw)
+
+        return {
+            "date": target_date.isoformat(),
+            "total_usd": round(total_usd, 6),
+            "total_krw": round(total_usd * 1350, 2),
+            "total_tokens_in": 0,
+            "total_tokens_out": 0,
+            "by_model": [
+                {
+                    "model": "unknown",
+                    "tokens_in": 0,
+                    "tokens_out": 0,
+                    "cost_usd": round(total_usd, 6),
+                    "cost_krw": round(total_usd * 1350, 2),
+                }
+            ],
+        }
+
+    async def list_unmet_demand(self, *, page: int, size: int) -> dict[str, Any]:
+        keyword_expr = func.substr(func.replace(ChatLog.content, "\n", " "), 1, 60)
+        grouped = (
+            select(
+                keyword_expr.label("keyword"),
+                func.count(ChatLog.id).label("query_count"),
+                func.max(ChatLog.created_at).label("last_asked_at"),
+            )
+            .where(ChatLog.role == "user")
+            .group_by(keyword_expr)
+            .subquery()
+        )
+
+        total_stmt = select(func.count()).select_from(grouped)
+        total = (await self._session.execute(total_stmt)).scalar() or 0
+        total_pages = (total + size - 1) // size if size > 0 else 0
+
+        stmt = (
+            select(grouped.c.keyword, grouped.c.query_count, grouped.c.last_asked_at)
+            .order_by(desc(grouped.c.query_count), desc(grouped.c.last_asked_at))
+            .offset((page - 1) * size)
+            .limit(size)
+        )
+        rows = (await self._session.execute(stmt)).all()
+
+        items = [
+            {
+                "keyword": (keyword or "").strip(),
+                "query_count": int(query_count),
+                "last_asked_at": self._to_iso(last_asked_at),
+                "related_sector_codes": [],
+            }
+            for keyword, query_count, last_asked_at in rows
+            if (keyword or "").strip()
+        ]
+        return {"items": items, "total_count": total, "total_pages": total_pages}
+
+    async def conversion_stats(
+        self,
+        *,
+        from_date: date | None,
+        to_date: date | None,
+    ) -> dict[str, Any]:
+        today = datetime.now(timezone.utc).date()
+        if from_date is None:
+            from_date = today.replace(day=1)
+        if to_date is None:
+            to_date = today
+        if from_date > to_date:
+            raise HTTPException(status_code=400, detail="from 날짜가 to 날짜보다 클 수 없습니다.")
+
+        start_dt = datetime.combine(from_date, datetime.min.time())
+        end_dt = datetime.combine(to_date + timedelta(days=1), datetime.min.time())
+
+        booking_stmt = select(func.count(LeadRequest.id)).where(
+            LeadRequest.created_at >= start_dt,
+            LeadRequest.created_at < end_dt,
+        )
+        consultation_bookings = (await self._session.execute(booking_stmt)).scalar() or 0
+
+        clicks_expr = func.count(LeadRequest.id).label("clicks")
+        grouped_stmt = (
+            select(LeadRequest.lead_type, clicks_expr)
+            .where(LeadRequest.created_at >= start_dt, LeadRequest.created_at < end_dt)
+            .group_by(LeadRequest.lead_type)
+            .order_by(desc(clicks_expr))
+        )
+        grouped = (await self._session.execute(grouped_stmt)).all()
+        solution_clicks = [
+            {
+                "solution_key": lead_type or "UNKNOWN",
+                "solution_label": lead_type or "UNKNOWN",
+                "clicks": int(clicks),
+                "conversions": int(clicks),
+                "conversion_rate_pct": 100.0 if int(clicks) > 0 else 0.0,
+            }
+            for lead_type, clicks in grouped
+        ]
+
+        return {
+            "period": {"from": from_date.isoformat(), "to": to_date.isoformat()},
+            "consultation_bookings": int(consultation_bookings),
+            "solution_clicks": solution_clicks,
+            "revenue_estimate_krw": None,
+        }

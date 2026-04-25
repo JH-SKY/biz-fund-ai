@@ -118,3 +118,13 @@ class AdminUserListData(BaseModel):
     items: list[AdminUserItem]
     total_count: int
     total_pages: int
+
+
+class CorrectionNoteRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    feedback_id: str
+    question_pattern: str = Field(..., min_length=1)
+    expected_answer: str = Field(..., min_length=1)
+    applies_to_agent: str = Field(default="ALL")
+    is_active: bool = True

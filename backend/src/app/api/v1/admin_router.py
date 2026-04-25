@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import random
 import uuid
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -14,6 +15,7 @@ from src.app.api.deps.policy_deps import EmbeddingServiceDep, PolicyServiceDep, 
 from src.app.core.response import api_json
 from src.app.domains.admin.schema import (
     AdminLoginRequest,
+    CorrectionNoteRequest,
     ContentPatchRequest,
     ContentPublishRequest,
     PolicyCreateRequest,
@@ -136,6 +138,113 @@ async def admin_stats_dashboard(
 ):
     data = await svc.dashboard_stats()
     return api_json(http_status=200, data=data.model_dump(), message="success")
+
+
+@router.get("/feedback")
+async def admin_feedback_list(
+    _: CurrentAdmin,
+    svc: Annotated[AdminService, Depends(get_admin_service)],
+    reason: str | None = Query(None),
+    is_resolved: bool = Query(False),
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=200),
+):
+    data = await svc.list_feedback(
+        reason=reason,
+        is_resolved=is_resolved,
+        page=page,
+        size=size,
+    )
+    return api_json(http_status=200, data=data, message="success")
+
+
+@router.get("/feedback/{feedback_id}/context")
+async def admin_feedback_context(
+    feedback_id: uuid.UUID,
+    _: CurrentAdmin,
+    svc: Annotated[AdminService, Depends(get_admin_service)],
+):
+    data = await svc.get_feedback_context(feedback_id)
+    return api_json(http_status=200, data=data, message="success")
+
+
+@router.post("/feedback/{feedback_id}/correction")
+async def admin_feedback_correction(
+    request: Request,
+    feedback_id: uuid.UUID,
+    admin: CurrentAdmin,
+    body: CorrectionNoteRequest,
+    svc: Annotated[AdminService, Depends(get_admin_service)],
+):
+    data = await svc.create_correction_note(
+        feedback_id=feedback_id,
+        body=body,
+        admin_id=admin.id,
+        client_ip=_client_ip(request),
+    )
+    return api_json(http_status=201, data=data, message="success")
+
+
+@router.get("/corrections")
+async def admin_corrections(
+    _: CurrentAdmin,
+    svc: Annotated[AdminService, Depends(get_admin_service)],
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=200),
+):
+    data = await svc.list_corrections(page=page, size=size)
+    return api_json(http_status=200, data=data, message="success")
+
+
+@router.get("/monitoring/health")
+async def admin_monitoring_health(
+    _: CurrentAdmin,
+    svc: Annotated[AdminService, Depends(get_admin_service)],
+):
+    data = await svc.monitoring_health()
+    return api_json(http_status=200, data=data, message="success")
+
+
+@router.get("/monitoring/latency")
+async def admin_monitoring_latency(
+    _: CurrentAdmin,
+    svc: Annotated[AdminService, Depends(get_admin_service)],
+    range: str = Query("24h"),
+):
+    data = await svc.monitoring_latency(range_value=range)
+    return api_json(http_status=200, data=data, message="success")
+
+
+@router.get("/monitoring/cost")
+async def admin_monitoring_cost(
+    _: CurrentAdmin,
+    svc: Annotated[AdminService, Depends(get_admin_service)],
+    date_value: date | None = Query(None, alias="date"),
+):
+    data = await svc.monitoring_cost(target_date=date_value)
+    return api_json(http_status=200, data=data, message="success")
+
+
+@router.get("/insights/unmet-demand")
+async def admin_unmet_demand(
+    _: CurrentAdmin,
+    svc: Annotated[AdminService, Depends(get_admin_service)],
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=200),
+):
+    data = await svc.list_unmet_demand(page=page, size=size)
+    return api_json(http_status=200, data=data, message="success")
+
+
+@router.get("/insights/conversion")
+async def admin_conversion_stats(
+    _: CurrentAdmin,
+    svc: Annotated[AdminService, Depends(get_admin_service)],
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+):
+    data = await svc.conversion_stats(from_date=from_date, to_date=to_date)
+    return api_json(http_status=200, data=data, message="success")
 
 
 @router.get("/audit-logs")
