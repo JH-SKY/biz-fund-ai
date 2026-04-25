@@ -107,8 +107,21 @@ export const useAuthStore = create<AuthState>()(
     {
       name: "biz_up_auth",
       storage: createJSONStorage(safeStorage),
-      onRehydrateStorage: () => (state) => {
-        state?.setHasHydrated(true);
+      onRehydrateStorage: () => (state, error) => {
+        if (error) {
+          // 파싱 오류 등 — 세션을 초기화하고 반드시 hydrated 처리
+          if (state) {
+            state.logout();
+          } else {
+            useAuthStore.getState().setHasHydrated(true);
+          }
+          return;
+        }
+        if (state) {
+          state.setHasHydrated(true);
+        } else {
+          useAuthStore.getState().setHasHydrated(true);
+        }
       },
     }
   )

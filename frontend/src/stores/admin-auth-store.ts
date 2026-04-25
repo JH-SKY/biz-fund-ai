@@ -85,10 +85,20 @@ export const useAdminAuthStore = create<AdminAuthState>()(
       storage: createJSONStorage(safeStorage),
       onRehydrateStorage: () => (state, error) => {
         if (error) {
-          state?.logoutAdmin();
+          // 파싱 오류 등 — 토큰을 무효화하고 반드시 hydrated 처리
+          if (state) {
+            state.logoutAdmin(); // logoutAdmin 내부에서 hasHydrated: true 설정
+          } else {
+            // state가 undefined인 극단적 케이스: 직접 스토어 상태 갱신
+            useAdminAuthStore.getState().setHasHydrated(true);
+          }
           return;
         }
-        state?.setHasHydrated(true);
+        if (state) {
+          state.setHasHydrated(true);
+        } else {
+          useAdminAuthStore.getState().setHasHydrated(true);
+        }
       },
     }
   )

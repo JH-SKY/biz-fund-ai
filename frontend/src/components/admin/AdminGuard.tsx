@@ -8,6 +8,11 @@
  *  - 정상 → children 렌더링
  *
  * 일반 유저용 AppGuard 와 완전히 분리되어 admin-auth-store 만 참조.
+ *
+ * 안전장치:
+ *  - onRehydrateStorage 가 state=undefined 로 호출되거나 스토리지 예외가 발생해
+ *    hasHydrated 가 영원히 false 로 남는 경우를 대비해 HYDRATION_TIMEOUT_MS 후
+ *    강제로 hasHydrated=true 로 전환한다.
  */
 
 import * as React from "react";
@@ -15,6 +20,9 @@ import { useRouter, usePathname } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
 
 import { useAdminAuthStore } from "@/stores/admin-auth-store";
+
+/** hydration 이 이 시간 안에 완료되지 않으면 강제로 완료 처리 (ms) */
+const HYDRATION_TIMEOUT_MS = 3_000;
 
 function AdminLoadingScreen() {
   return (
@@ -41,6 +49,18 @@ export function AdminGuard({ children }: { children: React.ReactNode }) {
     Boolean(s.adminToken)
   );
   const hasHydrated = useAdminAuthStore((s) => s.hasHydrated);
+  const setHasHydrated = useAdminAuthStore((s) => s.setHasHydrated);
+
+  // 안전장치: persist hydration 이 차단된 경우 무한 로딩 방지
+  React.useEffect(() => {
+    if (hasHydrated) return;
+    const timer = setTimeout(() => {
+      if (!useAdminAuthStore.getState().hasHydrated) {
+        setHasHydrated(true);
+      }
+    }, HYDRATION_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [hasHydrated, setHasHydrated]);
 
   React.useEffect(() => {
     if (!hasHydrated) return;
@@ -68,6 +88,18 @@ export function AdminPublicGuard({
     Boolean(s.adminToken)
   );
   const hasHydrated = useAdminAuthStore((s) => s.hasHydrated);
+  const setHasHydrated = useAdminAuthStore((s) => s.setHasHydrated);
+
+  // 안전장치: persist hydration 이 차단된 경우 무한 로딩 방지
+  React.useEffect(() => {
+    if (hasHydrated) return;
+    const timer = setTimeout(() => {
+      if (!useAdminAuthStore.getState().hasHydrated) {
+        setHasHydrated(true);
+      }
+    }, HYDRATION_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [hasHydrated, setHasHydrated]);
 
   React.useEffect(() => {
     if (!hasHydrated) return;
