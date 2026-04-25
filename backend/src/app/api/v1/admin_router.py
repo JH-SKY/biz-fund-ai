@@ -363,7 +363,7 @@ async def _bg_sync(job_fn_name: str, **kwargs) -> None:  # noqa: ANN003
     async with SessionLocal() as session:
         repo = PolicyRepository(session)
         agent = PolicySyncAgent()
-        embedding_svc = PolicyEmbeddingService(session=session)
+        embedding_svc = PolicyEmbeddingService(session=session, repo=repo)
         svc = BizinfoSyncService(
             session=session, repo=repo, agent=agent, embedding_service=embedding_svc
         )
