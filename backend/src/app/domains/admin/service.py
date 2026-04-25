@@ -633,6 +633,82 @@ class AdminService:
             "created_at": self._to_iso(now),
         }
 
+    async def list_contents(
+        self,
+        *,
+        page: int,
+        size: int,
+        category: str | None = None,
+    ) -> dict[str, Any]:
+        rows, total_count, total_pages = await self._biz_pick_service.list_biz_picks_internal(
+            category=category,
+            page=page,
+            size=size,
+        )
+        items = []
+        for row in rows:
+            created_at = self._to_iso(row.created_at)
+            items.append(
+                {
+                    "content_id": str(row.id),
+                    "title": row.title,
+                    "thumbnail_url": row.thumbnail_url,
+                    "category": row.category,
+                    "view_count": row.view_count,
+                    "like_count": row.like_count,
+                    "is_liked": False,
+                    "created_at": created_at,
+                    "is_published": row.is_published,
+                    "scheduled_at": None,
+                    "updated_at": created_at,
+                }
+            )
+        return {
+            "items": items,
+            "total_count": total_count,
+            "total_pages": total_pages,
+        }
+
+    async def get_content_detail(self, content_id: uuid.UUID) -> dict[str, Any]:
+        row = await self._biz_pick_service.get_biz_pick_by_id_internal(content_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="콘텐츠를 찾을 수 없습니다.")
+        return {
+            "content_id": str(row.id),
+            "title": row.title,
+            "body_html": row.content_html,
+            "author": "비즈업 에디터",
+            "view_count": row.view_count,
+            "like_count": row.like_count,
+            "is_liked": False,
+            "related_policies": [],
+            "tags": [row.category] if row.category else [],
+            "thumbnail_url": row.thumbnail_url,
+            "category": row.category,
+            "is_published": row.is_published,
+            "scheduled_at": None,
+        }
+
+    async def delete_content(
+        self,
+        *,
+        content_id: uuid.UUID,
+        admin: Admin,
+        client_ip: str | None,
+    ) -> None:
+        row = await self._biz_pick_service.get_biz_pick_by_id_internal(content_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="콘텐츠를 찾을 수 없습니다.")
+        await self._biz_pick_service.delete_biz_pick_internal(row)
+        await self._repo.add_audit_log(
+            admin_id=admin.id,
+            action_type="DELETE_CONTENT",
+            target_id=row.id,
+            changes={"title": row.title},
+            ip_address=client_ip,
+        )
+        await self._session.commit()
+
     async def list_corrections(self, *, page: int, size: int) -> dict[str, Any]:
         _ = (page, size)
         return {"items": [], "total_count": 0, "total_pages": 0}

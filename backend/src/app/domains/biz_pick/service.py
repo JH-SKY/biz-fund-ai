@@ -124,8 +124,20 @@ class BizPickService:
     ) -> Optional[BizPick]:
         return await self._repo.get_biz_pick_by_id(content_id)
 
+    async def list_biz_picks_internal(
+        self,
+        *,
+        category: Optional[str] = None,
+        page: int = 1,
+        size: int = 20,
+    ) -> tuple[list[BizPick], int, int]:
+        return await self._repo.list_biz_picks(category=category, page=page, size=size)
+
     async def patch_biz_pick_internal(self, row: BizPick, **kwargs) -> None:
         await self._repo.patch_biz_pick_internal(row, **kwargs)
+
+    async def delete_biz_pick_internal(self, row: BizPick) -> None:
+        await self._repo.delete_biz_pick(row)
 
     def get_categories(self) -> List[CategoryItem]:
         """카테고리 목록 정의 (설계 의도: 코드 관리 효율성을 위해 서비스에서 정의)."""

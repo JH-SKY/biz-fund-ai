@@ -79,7 +79,7 @@ export function Dialog({
       <div
         ref={panelRef}
         className={cn(
-          "relative z-10 w-full sm:w-[min(32rem,calc(100vw-2rem))]",
+          "relative z-10 flex w-full max-h-[calc(100dvh-1rem)] flex-col sm:w-[min(32rem,calc(100vw-2rem))]",
           "bg-surface rounded-t-2xl sm:rounded-2xl shadow-elevated",
           "animate-fade-in",
           className
@@ -110,7 +110,7 @@ export function Dialog({
           </div>
         )}
 
-        <div className="px-6 py-4">{children}</div>
+        <div className="min-h-0 overflow-y-auto px-6 py-4">{children}</div>
 
         {footer && (
           <div className="flex items-center justify-end gap-2 border-t border-surface-border px-6 py-4">

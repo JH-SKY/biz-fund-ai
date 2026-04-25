@@ -92,6 +92,28 @@ async def admin_publish_content(
     return api_json(http_status=201, data=data.model_dump(), message="success")
 
 
+@router.get("/contents")
+async def admin_list_contents(
+    _: CurrentAdmin,
+    svc: Annotated[AdminService, Depends(get_admin_service)],
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=200),
+    category: str | None = Query(None),
+):
+    data = await svc.list_contents(page=page, size=size, category=category)
+    return api_json(http_status=200, data=data, message="success")
+
+
+@router.get("/contents/{content_id}")
+async def admin_content_detail(
+    content_id: uuid.UUID,
+    _: CurrentAdmin,
+    svc: Annotated[AdminService, Depends(get_admin_service)],
+):
+    data = await svc.get_content_detail(content_id)
+    return api_json(http_status=200, data=data, message="success")
+
+
 @router.patch("/contents/{content_id}")
 async def admin_patch_content(
     request: Request,
@@ -110,6 +132,21 @@ async def admin_patch_content(
         http_status=200,
         message="콘텐츠 상태가 업데이트되었습니다.",
     )
+
+
+@router.delete("/contents/{content_id}")
+async def admin_delete_content(
+    request: Request,
+    content_id: uuid.UUID,
+    admin: CurrentAdmin,
+    svc: Annotated[AdminService, Depends(get_admin_service)],
+):
+    await svc.delete_content(
+        content_id=content_id,
+        admin=admin,
+        client_ip=_client_ip(request),
+    )
+    return api_json(http_status=200, data={"success": True}, message="success")
 
 
 @router.get("/chats/logs")

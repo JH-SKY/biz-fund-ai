@@ -72,6 +72,28 @@ class BizPickRepository:
         stmt = select(BizPick).where(BizPick.id == content_id)
         res = await self._session.execute(stmt)
         return res.scalar_one_or_none()
+
+    async def list_biz_picks(
+        self,
+        *,
+        category: Optional[str] = None,
+        page: int = 1,
+        size: int = 20,
+    ) -> Tuple[List[BizPick], int, int]:
+        """관리자용: 비공개 포함 전체 콘텐츠 페이지 조회."""
+        stmt = select(BizPick)
+        if category:
+            stmt = stmt.where(BizPick.category == category)
+
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        total_count = await self._session.scalar(count_stmt) or 0
+
+        offset = (page - 1) * size
+        stmt = stmt.order_by(BizPick.created_at.desc()).offset(offset).limit(size)
+        result = await self._session.execute(stmt)
+        items = list(result.scalars().all())
+        total_pages = (total_count + size - 1) // size if total_count > 0 else 0
+        return items, total_count, total_pages
     
     async def create_biz_pick_internal(
         self,
@@ -113,4 +135,8 @@ class BizPickRepository:
             row.thumbnail_url = thumbnail_url
         if is_published is not None:
             row.is_published = is_published
+        await self._session.flush()
+
+    async def delete_biz_pick(self, row: BizPick) -> None:
+        await self._session.delete(row)
         await self._session.flush()

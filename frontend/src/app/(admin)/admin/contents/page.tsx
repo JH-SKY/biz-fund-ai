@@ -254,6 +254,12 @@ function ContentEditorDialog({
   const [relatedSuggestions, setRelatedSuggestions] = React.useState<
     AiRelatedPoliciesResponse["items"]
   >([]);
+  const updateForm = React.useCallback(
+    (patch: Partial<BizPickContentCreateRequest>) => {
+      setForm((prev) => ({ ...prev, ...patch }));
+    },
+    []
+  );
 
   // Sync when opened
   React.useEffect(() => {
@@ -395,7 +401,7 @@ function ContentEditorDialog({
       onOpenChange={(v) => !v && onClose()}
       title={target ? "콘텐츠 수정" : "새 콘텐츠 만들기"}
       description="정책 URL을 붙여넣으면 AI가 3줄 요약 + 카드 뉴스 초안을 자동으로 작성합니다."
-      className="sm:max-w-3xl"
+      className="sm:w-[min(56rem,calc(100vw-2rem))]"
       footer={
         <>
           <Button
@@ -453,7 +459,7 @@ function ContentEditorDialog({
             <Input
               id="c-title"
               value={form.title}
-              onChange={(e) => setForm({ ...form, title: e.target.value })}
+              onChange={(e) => updateForm({ title: e.target.value })}
               placeholder="사장님 눈높이 제목"
             />
           </div>
@@ -462,9 +468,7 @@ function ContentEditorDialog({
             <Input
               id="c-category"
               value={form.category}
-              onChange={(e) =>
-                setForm({ ...form, category: e.target.value })
-              }
+              onChange={(e) => updateForm({ category: e.target.value })}
               placeholder="융자 / 보조금 / 보증 / R&D"
             />
           </div>
@@ -475,9 +479,7 @@ function ContentEditorDialog({
           <Input
             id="c-thumb"
             value={form.thumbnail_url ?? ""}
-            onChange={(e) =>
-              setForm({ ...form, thumbnail_url: e.target.value })
-            }
+            onChange={(e) => updateForm({ thumbnail_url: e.target.value })}
             placeholder="https://..."
           />
         </div>
@@ -488,7 +490,7 @@ function ContentEditorDialog({
             id="c-body"
             rows={10}
             value={form.body_html}
-            onChange={(e) => setForm({ ...form, body_html: e.target.value })}
+            onChange={(e) => updateForm({ body_html: e.target.value })}
             className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 font-mono text-xs leading-relaxed outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
             placeholder="<h2>핵심 요약</h2><p>...</p>"
           />
@@ -581,9 +583,7 @@ function ContentEditorDialog({
             <input
               type="checkbox"
               checked={!!form.is_published}
-              onChange={(e) =>
-                setForm({ ...form, is_published: e.target.checked })
-              }
+              onChange={(e) => updateForm({ is_published: e.target.checked })}
               className="h-4 w-4 rounded border-surface-border text-primary-600 focus:ring-primary-500"
             />
             <span className="text-sm">즉시 발행</span>
@@ -597,12 +597,7 @@ function ContentEditorDialog({
               type="datetime-local"
               className="h-9"
               value={form.scheduled_at ?? ""}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  scheduled_at: e.target.value || null,
-                })
-              }
+              onChange={(e) => updateForm({ scheduled_at: e.target.value || null })}
             />
           </div>
         </div>
