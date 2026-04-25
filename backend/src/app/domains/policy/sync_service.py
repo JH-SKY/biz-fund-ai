@@ -66,6 +66,7 @@ class BizinfoSyncService:
         with_embedding: bool = False,
         date_from: str | None = None,
         date_to: str | None = None,
+        known_total: int | None = None,
     ) -> dict[str, Any]:
         if not BIZINFO_API_KEY:
             logger.error("[%s] BIZINFO_API_KEY 미설정 — 수집 중단", job_name)
@@ -74,7 +75,7 @@ class BizinfoSyncService:
         batch = BatchLog(
             job_name=job_name,
             status="RUNNING",
-            total_count=0,
+            total_count=known_total or 0,
             success_count=0,
             fail_count=0,
             api_error_count=0,
@@ -163,9 +164,19 @@ class BizinfoSyncService:
                         if err_info:
                             error_log.append(err_info)
 
-                await self._session.flush()
+                # 페이지 완료마다 commit + BatchLog progress 갱신 (실시간 모니터링용)
+                await self._session.execute(
+                    sa_update(BatchLog)
+                    .where(BatchLog.id == batch_id)
+                    .values(
+                        processed_count=total_items,
+                        success_count=success_count,
+                        fail_count=(db_fail_count + parse_error_count + analysis_error_count + api_error_count),
+                    )
+                )
+                await self._session.commit()
 
-            await self._session.commit()
+            # 루프 완료 후 최종 상태 확정 (SUCCESS / FAILED는 아래 블록에서 처리)
 
             self._print_batch_report(
                 job_name=job_name,
@@ -453,6 +464,32 @@ class BizinfoSyncService:
                     "reason": str(db_err),
                 },
             )
+
+    async def run_policy_sync_full(
+        self,
+        *,
+        with_ai: bool = False,
+        rows_per_page: int = 100,
+    ) -> dict[str, Any]:
+        """기업마당 전체 공고를 totalCount 기반으로 누락 없이 수집합니다.
+
+        totalCount를 먼저 조회하여 실제 전체 페이지 수를 계산하고,
+        첫 페이지부터 마지막 페이지까지 전수 수집합니다.
+        """
+        total = await self._fetch_total_count()
+        if total <= 0:
+            return {"status": "error", "message": "기업마당 totalCount 조회 실패"}
+
+        page_end = math.ceil(total / rows_per_page)
+        logger.info("[전수수집] 전체 %d건 / %d페이지 수집 시작", total, page_end)
+        return await self.run_policy_sync(
+            job_name="POLICY_FULL_SYNC",
+            page_start=1,
+            page_end=page_end,
+            rows_per_page=rows_per_page,
+            with_ai=with_ai,
+            known_total=total,
+        )
 
     async def bootstrap_historical_policies(
         self, total_count: int = 1000, *, with_ai: bool = False

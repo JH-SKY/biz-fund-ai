@@ -95,9 +95,15 @@ class AuditLogItem(BaseModel):
 
 
 class BatchStatusItem(BaseModel):
+    job_id: str
     job_name: str
-    last_run: str
+    last_run: str | None
     status: str
+    total_count: int | None = None
+    processed_count: int | None = None
+    success_count: int | None = None
+    fail_count: int | None = None
+    duration_ms: int | None = None
 
 
 class BatchDetailData(BaseModel):

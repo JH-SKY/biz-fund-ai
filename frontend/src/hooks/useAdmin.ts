@@ -126,7 +126,10 @@ export function useBatchStatus() {
   return useQuery({
     queryKey: ADMIN_KEYS.batchStatus(),
     queryFn: () => adminService.batch.status(),
-    refetchInterval: 15_000,
+    refetchInterval: (query) => {
+      const hasRunning = query.state.data?.some((j) => j.status === "RUNNING");
+      return hasRunning ? 3_000 : 30_000;
+    },
   });
 }
 
@@ -183,6 +186,13 @@ export function useSyncRun() {
 export function useEmbedAll() {
   return useMutation({
     mutationFn: (limit?: number) => adminService.policies.embedAll(limit),
+  });
+}
+
+export function useSyncFull() {
+  return useMutation({
+    mutationFn: (params: { with_ai?: boolean; rows_per_page?: number } = {}) =>
+      adminService.policies.syncFull(params),
   });
 }
 

@@ -764,8 +764,11 @@ export interface BatchStatusItem {
   last_run: string | null;
   next_run?: string | null;
   status: BatchStatus | string;
-  duration_ms?: number | null;
+  total_count?: number | null;
   processed_count?: number | null;
+  success_count?: number | null;
+  fail_count?: number | null;
+  duration_ms?: number | null;
 }
 
 export interface BatchLogDetail {

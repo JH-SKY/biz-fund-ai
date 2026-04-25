@@ -8,7 +8,7 @@ import uuid
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
 
 from src.app.api.deps.admin_auth import CurrentAdmin, get_admin_service
 from src.app.api.deps.policy_deps import EmbeddingServiceDep, PolicyServiceDep, SyncServiceDep
@@ -351,63 +351,87 @@ async def admin_list_users(
 # 정책 수집 엔드포인트 (Policy Sync)
 # ─────────────────────────────────────────────────────────────────────────────
 
+# BackgroundTasks용 헬퍼 — 독립 DB 세션으로 서비스를 직접 조립하여 실행
+async def _bg_sync(job_fn_name: str, **kwargs) -> None:  # noqa: ANN003
+    """백그라운드에서 동작하는 수집 태스크. 독립 세션으로 서비스 계층을 재조립합니다."""
+    from src.app.agents.policy_sync_agent import PolicySyncAgent
+    from src.app.database.postgres.database import SessionLocal
+    from src.app.domains.policy.embedding_service import PolicyEmbeddingService
+    from src.app.domains.policy.repository import PolicyRepository
+    from src.app.domains.policy.sync_service import BizinfoSyncService
+
+    async with SessionLocal() as session:
+        repo = PolicyRepository(session)
+        agent = PolicySyncAgent()
+        embedding_svc = PolicyEmbeddingService(session=session)
+        svc = BizinfoSyncService(
+            session=session, repo=repo, agent=agent, embedding_service=embedding_svc
+        )
+        target = getattr(svc, job_fn_name)
+        await target(**kwargs)
+
 
 @router.post(
     "/policies/sync/bootstrap",
-    summary="[초기 세팅] 과거 정책 대량 적재",
+    summary="[초기 세팅] 과거 정책 대량 적재 (백그라운드)",
     description=(
-        "최초 세팅 시 사용합니다. 기업마당 API 에서 최대 1000건을 페이지네이션으로 수집합니다. "
-        "AI 보강 없이 빠른 수집을 우선합니다. (소요 시간: 약 1~3분)"
+        "기업마당 API에서 최대 1,000건을 페이지네이션으로 수집합니다. "
+        "**백그라운드에서 비동기 실행**되므로 요청 즉시 응답을 반환합니다. "
+        "진행 상황은 배치 작업 현황 페이지에서 확인하세요."
     ),
 )
 async def bootstrap_bizinfo_policies(
     admin: CurrentAdmin,
+    background_tasks: BackgroundTasks,
     svc: Annotated[AdminService, Depends(get_admin_service)],
 ):
-    result = await svc.sync_bootstrap_policies(count=1000)
-    return api_json(http_status=200, data=result)
+    background_tasks.add_task(_bg_sync, "bootstrap_historical_policies", total_count=1000)
+    return api_json(http_status=202, data={"status": "QUEUED"}, message="백그라운드에서 수집을 시작합니다.")
 
 
 @router.post(
     "/policies/sync/daily",
-    summary="[스마트 동기화] 일일 최신 정책 업데이트",
+    summary="[스마트 동기화] 일일 최신 정책 업데이트 (백그라운드)",
     description=(
         "스케줄러(매일 03:00)가 자동 실행하는 로직을 수동으로 즉시 트리거합니다. "
-        "최신 2페이지(200건)를 수집하고 origin_id 기준 upsert 합니다."
+        "최신 2페이지(200건)를 수집하고 origin_id 기준 upsert 합니다. "
+        "**백그라운드 비동기 실행**됩니다."
     ),
 )
 async def sync_daily_bizinfo_policies(
     admin: CurrentAdmin,
+    background_tasks: BackgroundTasks,
     svc: Annotated[AdminService, Depends(get_admin_service)],
 ):
-    result = await svc.sync_daily_policies()
-    return api_json(http_status=200, data=result)
+    background_tasks.add_task(_bg_sync, "sync_recent_policies")
+    return api_json(http_status=202, data={"status": "QUEUED"}, message="일일 동기화를 백그라운드에서 시작합니다.")
 
 
 @router.post(
     "/policies/sync/run",
-    summary="[고급] 수집 범위·옵션 직접 지정 실행",
+    summary="[고급] 수집 범위·옵션 직접 지정 실행 (백그라운드)",
     description=(
         "페이지 범위, AI 보강 여부, 날짜 필터를 자유롭게 설정하여 수집을 실행합니다. "
-        "대용량 초기 적재나 특정 기간 재수집 시 사용합니다.\n\n"
-        "- `with_ai=true` 설정 시 첨부파일(PDF/HWP/이미지)을 파싱하고 GPT-4o 로 구조화합니다. "
-        "공고 1건당 약 3~10초 소요되므로 100건 이상 시 타임아웃 주의.\n"
+        "**백그라운드 비동기 실행**되므로 요청 즉시 응답을 반환합니다.\n\n"
+        "- `with_ai=true` 설정 시 GPT-4o 구조화를 함께 실행합니다.\n"
         "- `date_from` / `date_to` 는 YYYYMMDD 형식입니다. (예: 20250101)"
     ),
 )
 async def run_policy_sync(
     admin: CurrentAdmin,
+    background_tasks: BackgroundTasks,
     svc: Annotated[AdminService, Depends(get_admin_service)],
     page_start: int = Query(1, ge=1, description="수집 시작 페이지"),
     page_end: int = Query(1, ge=1, description="수집 종료 페이지 (포함)"),
     rows_per_page: int = Query(100, ge=1, le=1000, description="페이지당 공고 수"),
-    with_ai: bool = Query(
-        False, description="True 이면 첨부파일 파싱 + AI 구조화 실행"
-    ),
+    with_ai: bool = Query(False, description="True 이면 첨부파일 파싱 + AI 구조화 실행"),
     date_from: str | None = Query(None, description="공고 시작일 필터 (YYYYMMDD)"),
     date_to: str | None = Query(None, description="공고 종료일 필터 (YYYYMMDD)"),
 ):
-    result = await svc.run_policy_sync(
+    background_tasks.add_task(
+        _bg_sync,
+        "run_policy_sync",
+        job_name="POLICY_ADMIN_MANUAL",
         page_start=page_start,
         page_end=page_end,
         rows_per_page=rows_per_page,
@@ -415,7 +439,30 @@ async def run_policy_sync(
         date_from=date_from,
         date_to=date_to,
     )
-    return api_json(http_status=200, data=result)
+    return api_json(http_status=202, data={"status": "QUEUED"}, message="범위 수집을 백그라운드에서 시작합니다.")
+
+
+@router.post(
+    "/policies/sync/full",
+    summary="[전수 수집] totalCount 기반 전체 공고 누락 없이 수집 (백그라운드)",
+    description=(
+        "기업마당 API의 `totalCount`를 먼저 조회하여 실제 전체 페이지 수를 자동 계산하고 "
+        "첫 페이지부터 마지막 페이지까지 누락 없이 수집합니다.\n\n"
+        "**백그라운드 비동기 실행**됩니다. 진행 상황은 배치 현황에서 확인하세요.\n"
+        "- `with_ai=true`로 설정하면 AI 구조화까지 함께 진행됩니다."
+    ),
+)
+async def full_sync_bizinfo_policies(
+    admin: CurrentAdmin,
+    background_tasks: BackgroundTasks,
+    svc: Annotated[AdminService, Depends(get_admin_service)],
+    with_ai: bool = Query(False, description="True 이면 AI 구조화 포함"),
+    rows_per_page: int = Query(100, ge=1, le=1000, description="페이지당 공고 수"),
+):
+    background_tasks.add_task(
+        _bg_sync, "run_policy_sync_full", with_ai=with_ai, rows_per_page=rows_per_page
+    )
+    return api_json(http_status=202, data={"status": "QUEUED"}, message="전수 수집을 백그라운드에서 시작합니다.")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

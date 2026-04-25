@@ -313,12 +313,26 @@ class AdminService:
             lr = r.started_at
             if lr.tzinfo is None:
                 lr = lr.replace(tzinfo=timezone.utc)
-            last_run = lr.strftime("%Y-%m-%d %H:%M")
+            last_run = lr.isoformat()
+
+            duration_ms: int | None = None
+            if r.finished_at:
+                fin = r.finished_at
+                if fin.tzinfo is None:
+                    fin = fin.replace(tzinfo=timezone.utc)
+                duration_ms = int((fin - lr).total_seconds() * 1000)
+
             items.append(
                 BatchStatusItem(
+                    job_id=str(r.id),
                     job_name=r.job_name,
                     last_run=last_run,
                     status=r.status,
+                    total_count=r.total_count if r.total_count else None,
+                    processed_count=r.processed_count,
+                    success_count=r.success_count if r.success_count else None,
+                    fail_count=r.fail_count if r.fail_count else None,
+                    duration_ms=duration_ms,
                 )
             )
         return items
@@ -481,6 +495,14 @@ class AdminService:
             with_ai=with_ai,
             date_from=date_from,
             date_to=date_to,
+        )
+
+    async def sync_full_policies(
+        self, *, with_ai: bool = False, rows_per_page: int = 100
+    ) -> dict:
+        """기업마당 전체 공고 전수 수집 위임 (totalCount 기반 자동 계산)."""
+        return await self._sync_service.run_policy_sync_full(
+            with_ai=with_ai, rows_per_page=rows_per_page
         )
 
     async def list_feedback(

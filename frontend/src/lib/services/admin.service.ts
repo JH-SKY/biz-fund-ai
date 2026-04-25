@@ -207,6 +207,13 @@ export const adminPolicyService = {
   getDebugOutput(originId: string) {
     return adminApiClient.get<DebugOutputFiles>(`/admin/debug-output/${originId}`);
   },
+  syncFull(params: { with_ai?: boolean; rows_per_page?: number } = {}) {
+    return adminApiClient.post<{ status: string; message?: string }>(
+      "/admin/policies/sync/full",
+      null,
+      { params }
+    );
+  },
 };
 
 // ── 9-7. 비즈픽 콘텐츠 관리 ──────────────────────────────────────
