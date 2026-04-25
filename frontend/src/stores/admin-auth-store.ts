@@ -83,7 +83,11 @@ export const useAdminAuthStore = create<AdminAuthState>()(
     {
       name: "biz_up_admin_auth",
       storage: createJSONStorage(safeStorage),
-      onRehydrateStorage: () => (state) => {
+      onRehydrateStorage: () => (state, error) => {
+        if (error) {
+          state?.logoutAdmin();
+          return;
+        }
         state?.setHasHydrated(true);
       },
     }

@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
 
 import { useAdminAuthStore } from "@/stores/admin-auth-store";
@@ -13,7 +12,6 @@ function isExpired(expiresAt?: string | null) {
 }
 
 export default function AdminRootPage() {
-  const router = useRouter();
   const hasHydrated = useAdminAuthStore((s) => s.hasHydrated);
   const isAdminAuthenticated = useAdminAuthStore((s) => Boolean(s.adminToken));
   const expiresAt = useAdminAuthStore((s) => s.admin?.expiresAt ?? null);
@@ -24,12 +22,14 @@ export default function AdminRootPage() {
     if (!hasHydrated) return;
     if (isAdminExpired) {
       logoutAdmin();
-      router.replace("/admin/login");
+      window.location.replace("/admin/login");
       return;
     }
 
-    router.replace(isAdminAuthenticated ? "/admin/dashboard" : "/admin/login");
-  }, [hasHydrated, isAdminAuthenticated, isAdminExpired, logoutAdmin, router]);
+    window.location.replace(
+      isAdminAuthenticated ? "/admin/dashboard" : "/admin/login"
+    );
+  }, [hasHydrated, isAdminAuthenticated, isAdminExpired, logoutAdmin]);
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-ink">

@@ -11,7 +11,7 @@
  */
 
 import * as React from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
 
 import { useAdminAuthStore } from "@/stores/admin-auth-store";
@@ -40,7 +40,6 @@ function AdminLoadingScreen() {
 }
 
 export function AdminGuard({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
   const pathname = usePathname();
 
   const isAdminAuthenticated = useAdminAuthStore((s) =>
@@ -55,13 +54,13 @@ export function AdminGuard({ children }: { children: React.ReactNode }) {
     if (!hasHydrated) return;
     if (isAdminExpired) {
       logoutAdmin();
-      router.replace("/admin/login");
+      window.location.replace("/admin/login");
       return;
     }
     if (pathname !== "/admin/login" && !isAdminAuthenticated) {
-      router.replace("/admin/login");
+      window.location.replace("/admin/login");
     }
-  }, [hasHydrated, isAdminAuthenticated, isAdminExpired, logoutAdmin, pathname, router]);
+  }, [hasHydrated, isAdminAuthenticated, isAdminExpired, logoutAdmin, pathname]);
 
   if (!hasHydrated) return <AdminLoadingScreen />;
   if (pathname !== "/admin/login" && (!isAdminAuthenticated || isAdminExpired)) {
@@ -76,8 +75,6 @@ export function AdminPublicGuard({
 }: {
   children: React.ReactNode;
 }) {
-  const router = useRouter();
-
   const isAdminAuthenticated = useAdminAuthStore((s) =>
     Boolean(s.adminToken)
   );
@@ -93,9 +90,9 @@ export function AdminPublicGuard({
       return;
     }
     if (isAdminAuthenticated) {
-      router.replace("/admin/dashboard");
+      window.location.replace("/admin/dashboard");
     }
-  }, [hasHydrated, isAdminAuthenticated, isAdminExpired, logoutAdmin, router]);
+  }, [hasHydrated, isAdminAuthenticated, isAdminExpired, logoutAdmin]);
 
   if (!hasHydrated) return <AdminLoadingScreen />;
   if (isAdminAuthenticated && !isAdminExpired) return <AdminLoadingScreen />;
