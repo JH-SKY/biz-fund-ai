@@ -334,8 +334,8 @@ class AdminService:
                     status=r.status,
                     total_count=r.total_count if r.total_count else None,
                     processed_count=getattr(r, "processed_count", None),
-                    success_count=r.success_count if r.success_count else None,
-                    fail_count=r.fail_count if r.fail_count else None,
+                    success_count=r.success_count if r.success_count is not None else None,
+                    fail_count=r.fail_count if r.fail_count is not None else None,
                     duration_ms=duration_ms,
                 )
             )

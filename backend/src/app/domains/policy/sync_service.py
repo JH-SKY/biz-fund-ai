@@ -97,6 +97,10 @@ class BizinfoSyncService:
 
         try:
             for page_no in range(page_start, page_end + 1):
+                logger.info(
+                    "[%s] 페이지 %d/%d 처리 시작 (누적 %d건)",
+                    job_name, page_no, page_end, total_items,
+                )
                 try:
                     raw_items = await self._fetch_single_page(
                         page_no=page_no,
