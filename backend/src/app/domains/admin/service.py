@@ -307,7 +307,11 @@ class AdminService:
         return out
 
     async def batch_status(self) -> list[BatchStatusItem]:
-        rows = await self._system_service.list_latest_batch_per_job()
+        try:
+            rows = await self._system_service.list_latest_batch_per_job()
+        except Exception:
+            # processed_count 등 신규 컬럼이 아직 DB에 없을 때 빈 목록 반환
+            return []
         items: list[BatchStatusItem] = []
         for r in rows:
             lr = r.started_at
@@ -329,7 +333,7 @@ class AdminService:
                     last_run=last_run,
                     status=r.status,
                     total_count=r.total_count if r.total_count else None,
-                    processed_count=r.processed_count,
+                    processed_count=getattr(r, "processed_count", None),
                     success_count=r.success_count if r.success_count else None,
                     fail_count=r.fail_count if r.fail_count else None,
                     duration_ms=duration_ms,
