@@ -105,9 +105,6 @@ class BatchLog(Base):
     error_details: Mapped[Optional[Any]] = mapped_column(
         JSONB, nullable=True, comment="단계별 에러 요약 및 항목 목록 (JSON)"
     )
-    processed_count: Mapped[Optional[int]] = mapped_column(
-        Integer, nullable=True, comment="현재까지 처리 완료된 건수 (실행 중 주기적 갱신)"
-    )
     started_at: Mapped[datetime] = mapped_column(
         TIMESTAMP,
         server_default=text("CURRENT_TIMESTAMP"),

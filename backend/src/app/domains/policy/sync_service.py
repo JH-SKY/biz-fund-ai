@@ -165,15 +165,25 @@ class BizinfoSyncService:
                             error_log.append(err_info)
 
                 # 페이지 완료마다 commit + BatchLog progress 갱신 (실시간 모니터링용)
-                await self._session.execute(
-                    sa_update(BatchLog)
-                    .where(BatchLog.id == batch_id)
-                    .values(
-                        processed_count=total_items,
-                        success_count=success_count,
-                        fail_count=(db_fail_count + parse_error_count + analysis_error_count + api_error_count),
+                try:
+                    await self._session.execute(
+                        sa_update(BatchLog)
+                        .where(BatchLog.id == batch_id)
+                        .values(
+                            success_count=success_count,
+                            fail_count=(db_fail_count + parse_error_count + analysis_error_count + api_error_count),
+                        )
                     )
-                )
+                    # processed_count는 마이그레이션 후 컬럼이 생기면 업데이트
+                    from sqlalchemy import text as sa_text
+                    await self._session.execute(
+                        sa_text(
+                            "UPDATE batch_logs SET processed_count = :val WHERE id = :id"
+                        ),
+                        {"val": total_items, "id": batch_id},
+                    )
+                except Exception:
+                    pass
                 await self._session.commit()
 
             # 루프 완료 후 최종 상태 확정 (SUCCESS / FAILED는 아래 블록에서 처리)
