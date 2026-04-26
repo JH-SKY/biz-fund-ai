@@ -263,7 +263,11 @@ class AdminService:
                     timestamp=ts.isoformat().replace("+00:00", "Z"),
                 )
             )
-        return ChatMonitorResponseData(items=items)
+        return ChatMonitorResponseData(
+            items=items,
+            total_count=len(items),
+            total_pages=1,
+        )
 
     async def dashboard_stats(self) -> DashboardStatsData:
         start = utc_start_of_today()
@@ -287,24 +291,35 @@ class AdminService:
     async def list_audit_logs(
         self,
         *,
-        admin_id: uuid.UUID,  # [추가] 로그용
+        admin_id: uuid.UUID,
         client_ip: str | None,
-    ) -> list[AuditLogItem]:
-        rows = await self._repo.list_audit_logs()
+        page: int = 1,
+        size: int = 25,
+    ) -> dict:
+        rows, total = await self._repo.list_audit_logs_page(page=page, size=size)
         out: list[AuditLogItem] = []
-        for r in rows:
+        for r, admin_name in rows:
             ts = r.created_at
             if ts.tzinfo is None:
                 ts = ts.replace(tzinfo=timezone.utc)
             out.append(
                 AuditLogItem(
+                    audit_id=str(r.id),
                     admin_id=str(r.admin_id),
+                    admin_name=admin_name,
                     action=r.action_type,
                     target=str(r.target_id) if r.target_id else None,
+                    ip_address=r.ip_address,
+                    diff=r.changes if isinstance(r.changes, dict) else None,
                     created_at=ts.isoformat().replace("+00:00", "Z"),
                 )
             )
-        return out
+        total_pages = (total + size - 1) // size if size > 0 else 0
+        return {
+            "items": [i.model_dump() for i in out],
+            "total_count": total,
+            "total_pages": total_pages,
+        }
 
     async def batch_status(self) -> list[BatchStatusItem]:
         try:
@@ -443,6 +458,24 @@ class AdminService:
             total_count=total,
             total_pages=total_pages,
         )
+
+    async def set_user_active(
+        self,
+        *,
+        user_id: uuid.UUID,
+        is_active: bool,
+        admin_id: uuid.UUID,
+        client_ip: str | None,
+    ) -> None:
+        await self._auth_service.set_user_active(user_id=user_id, is_active=is_active)
+        await self._repo.add_audit_log(
+            admin_id=admin_id,
+            action_type="USER_ACTIVATE" if is_active else "USER_DEACTIVATE",
+            target_id=user_id,
+            changes={"is_active": is_active},
+            ip_address=client_ip,
+        )
+        await self._session.commit()
 
     async def list_users_page(
         self,
@@ -683,6 +716,18 @@ class AdminService:
         admin_id: uuid.UUID,
         client_ip: str | None,
     ) -> dict[str, Any]:
+        from src.app.domains.admin.model import CorrectionNote
+
+        note = CorrectionNote(
+            feedback_id=feedback_id,
+            created_by_admin_id=admin_id,
+            question_pattern=body.question_pattern,
+            expected_answer=body.expected_answer,
+            applies_to_agent=body.applies_to_agent,
+            is_active=body.is_active if body.is_active is not None else True,
+        )
+        self._session.add(note)
+
         await self._repo.add_audit_log(
             admin_id=admin_id,
             action_type="FEEDBACK_CORRECTION_CREATE",
@@ -691,16 +736,16 @@ class AdminService:
             ip_address=client_ip,
         )
         await self._session.commit()
-        now = datetime.now(timezone.utc)
+        await self._session.refresh(note)
         return {
-            "note_id": str(uuid.uuid4()),
-            "feedback_id": str(feedback_id),
-            "question_pattern": body.question_pattern,
-            "expected_answer": body.expected_answer,
-            "applies_to_agent": body.applies_to_agent,
-            "is_active": body.is_active,
+            "note_id": str(note.id),
+            "feedback_id": str(note.feedback_id),
+            "question_pattern": note.question_pattern,
+            "expected_answer": note.expected_answer,
+            "applies_to_agent": note.applies_to_agent,
+            "is_active": note.is_active,
             "created_by": str(admin_id),
-            "created_at": self._to_iso(now),
+            "created_at": self._to_iso(note.created_at),
         }
 
     async def list_contents(
@@ -780,8 +825,36 @@ class AdminService:
         await self._session.commit()
 
     async def list_corrections(self, *, page: int, size: int) -> dict[str, Any]:
-        _ = (page, size)
-        return {"items": [], "total_count": 0, "total_pages": 0}
+        from sqlalchemy import func as sa_func, select as sa_select
+        from src.app.domains.admin.model import CorrectionNote
+
+        offset = (page - 1) * size
+        count_stmt = sa_select(sa_func.count()).select_from(CorrectionNote)
+        total = (await self._session.execute(count_stmt)).scalar() or 0
+        total_pages = (total + size - 1) // size if size > 0 else 0
+
+        stmt = (
+            sa_select(CorrectionNote)
+            .order_by(CorrectionNote.created_at.desc())
+            .offset(offset)
+            .limit(size)
+        )
+        rows = (await self._session.execute(stmt)).scalars().all()
+
+        items = [
+            {
+                "note_id": str(n.id),
+                "feedback_id": str(n.feedback_id),
+                "question_pattern": n.question_pattern,
+                "expected_answer": n.expected_answer,
+                "applies_to_agent": n.applies_to_agent,
+                "is_active": n.is_active,
+                "created_by": str(n.created_by_admin_id) if n.created_by_admin_id else None,
+                "created_at": self._to_iso(n.created_at),
+            }
+            for n in rows
+        ]
+        return {"items": items, "total_count": total, "total_pages": total_pages}
 
     async def monitoring_health(self) -> dict[str, Any]:
         rows = await self._system_service.list_latest_batch_per_job()
@@ -839,34 +912,130 @@ class AdminService:
         }
 
     async def monitoring_latency(self, *, range_value: str) -> dict[str, Any]:
-        return {"range": range_value, "points": []}
+        from sqlalchemy import literal_column, text
+
+        now = datetime.now(timezone.utc)
+
+        # range_value에 따라 버킷 단위와 조회 기간을 결정
+        if range_value == "1h":
+            since = now - timedelta(hours=1)
+        elif range_value == "24h":
+            since = now - timedelta(hours=24)
+        else:  # 7d
+            since = now - timedelta(days=7)
+
+        # PostgreSQL date_trunc으로 버킷별 p50/p95 집계
+        if range_value == "1h":
+            # 5분 버킷: epoch를 300초 단위로 내림
+            bucket_expr = text(
+                "to_timestamp(floor(extract(epoch from created_at) / 300) * 300)"
+            ).label("ts")
+        elif range_value == "24h":
+            bucket_expr = func.date_trunc("hour", ChatLog.created_at).label("ts")
+        else:
+            bucket_expr = func.date_trunc("day", ChatLog.created_at).label("ts")
+
+        stmt = (
+            select(
+                bucket_expr,
+                func.percentile_cont(0.5)
+                .within_group(ChatLog.response_time_ms)
+                .label("p50"),
+                func.percentile_cont(0.95)
+                .within_group(ChatLog.response_time_ms)
+                .label("p95"),
+                func.count(ChatLog.id).label("cnt"),
+            )
+            .where(
+                ChatLog.role == "system",
+                ChatLog.response_time_ms.isnot(None),
+                ChatLog.created_at >= since,
+            )
+            .group_by(literal_column("ts"))
+            .order_by(literal_column("ts"))
+        )
+        rows = (await self._session.execute(stmt)).all()
+
+        points = [
+            {
+                "ts": row.ts.isoformat() if row.ts else None,
+                "p50": int(row.p50) if row.p50 is not None else None,
+                "p95": int(row.p95) if row.p95 is not None else None,
+                "count": row.cnt,
+            }
+            for row in rows
+        ]
+        return {"range": range_value, "points": points}
 
     async def monitoring_cost(self, *, target_date: date | None) -> dict[str, Any]:
         if target_date is None:
             target_date = datetime.now(timezone.utc).date()
 
-        stmt = select(func.coalesce(func.sum(ChatLog.total_cost), 0)).where(
-            ChatLog.role == "assistant",
-            func.date(ChatLog.created_at) == target_date,
+        # 모델별 토큰 집계
+        model_stmt = (
+            select(
+                ChatLog.model_name,
+                func.coalesce(func.sum(ChatLog.tokens_in), 0).label("tokens_in"),
+                func.coalesce(func.sum(ChatLog.tokens_out), 0).label("tokens_out"),
+                func.coalesce(func.sum(ChatLog.total_cost), 0).label("cost_usd"),
+            )
+            .where(
+                ChatLog.role == "system",
+                ChatLog.model_name.isnot(None),
+                func.date(ChatLog.created_at) == target_date,
+            )
+            .group_by(ChatLog.model_name)
         )
-        total_usd_raw = (await self._session.execute(stmt)).scalar() or 0
-        total_usd = float(total_usd_raw)
+        model_rows = (await self._session.execute(model_stmt)).all()
+
+        # GPT 단가표 (USD/1K tokens, 2024 기준 gpt-4o-mini)
+        _price_in = {"gpt-4o-mini": 0.00015, "gpt-4o": 0.005}
+        _price_out = {"gpt-4o-mini": 0.0006, "gpt-4o": 0.015}
+
+        by_model = []
+        total_tokens_in = 0
+        total_tokens_out = 0
+        total_usd = 0.0
+
+        for row in model_rows:
+            model = row.model_name or "unknown"
+            t_in = int(row.tokens_in)
+            t_out = int(row.tokens_out)
+            # DB에 total_cost가 없으면 단가로 추정
+            cost = float(row.cost_usd)
+            if cost == 0 and (t_in or t_out):
+                cost = (
+                    t_in / 1000 * _price_in.get(model, 0.00015)
+                    + t_out / 1000 * _price_out.get(model, 0.0006)
+                )
+            total_tokens_in += t_in
+            total_tokens_out += t_out
+            total_usd += cost
+            by_model.append({
+                "model": model,
+                "tokens_in": t_in,
+                "tokens_out": t_out,
+                "cost_usd": round(cost, 6),
+                "cost_krw": round(cost * 1350, 2),
+            })
+
+        # 모델 정보가 없으면 total_cost 합계만 반환
+        if not by_model:
+            legacy_stmt = select(
+                func.coalesce(func.sum(ChatLog.total_cost), 0)
+            ).where(
+                ChatLog.role == "assistant",
+                func.date(ChatLog.created_at) == target_date,
+            )
+            total_usd = float((await self._session.execute(legacy_stmt)).scalar() or 0)
 
         return {
             "date": target_date.isoformat(),
             "total_usd": round(total_usd, 6),
             "total_krw": round(total_usd * 1350, 2),
-            "total_tokens_in": 0,
-            "total_tokens_out": 0,
-            "by_model": [
-                {
-                    "model": "unknown",
-                    "tokens_in": 0,
-                    "tokens_out": 0,
-                    "cost_usd": round(total_usd, 6),
-                    "cost_krw": round(total_usd * 1350, 2),
-                }
-            ],
+            "total_tokens_in": total_tokens_in,
+            "total_tokens_out": total_tokens_out,
+            "by_model": by_model,
         }
 
     async def list_unmet_demand(self, *, page: int, size: int) -> dict[str, Any]:
