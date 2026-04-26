@@ -104,6 +104,7 @@ class BatchStatusItem(BaseModel):
     success_count: int | None = None
     fail_count: int | None = None
     duration_ms: int | None = None
+    next_run: str | None = None
 
 
 class BatchDetailData(BaseModel):

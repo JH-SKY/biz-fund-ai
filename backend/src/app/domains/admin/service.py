@@ -312,7 +312,27 @@ class AdminService:
         except Exception:
             # processed_count 등 신규 컬럼이 아직 DB에 없을 때 빈 목록 반환
             return []
+
+        # APScheduler에서 등록된 job의 다음 실행 시간 수집
+        scheduler_next_runs: dict[str, str] = {}
+        try:
+            from src.app.worker.scheduler import _scheduler
+            if _scheduler.running:
+                for job in _scheduler.get_jobs():
+                    nrt = job.next_run_time
+                    if nrt:
+                        scheduler_next_runs[job.id] = nrt.isoformat()
+        except Exception:
+            pass
+
+        # APScheduler job_id → BatchLog job_name 매핑
+        SCHEDULER_JOB_MAP = {
+            "daily_policy_sync": "POLICY_DAILY_SYNC",
+        }
+
         items: list[BatchStatusItem] = []
+        seen_job_names: set[str] = set()
+
         for r in rows:
             lr = r.started_at
             if lr.tzinfo is None:
@@ -326,6 +346,13 @@ class AdminService:
                     fin = fin.replace(tzinfo=timezone.utc)
                 duration_ms = int((fin - lr).total_seconds() * 1000)
 
+            # 해당 job_name에 대응하는 APScheduler next_run 찾기
+            next_run: str | None = None
+            for sched_id, batch_name in SCHEDULER_JOB_MAP.items():
+                if r.job_name == batch_name:
+                    next_run = scheduler_next_runs.get(sched_id)
+                    break
+
             items.append(
                 BatchStatusItem(
                     job_id=str(r.id),
@@ -337,8 +364,25 @@ class AdminService:
                     success_count=r.success_count if r.success_count is not None else None,
                     fail_count=r.fail_count if r.fail_count is not None else None,
                     duration_ms=duration_ms,
+                    next_run=next_run,
                 )
             )
+            seen_job_names.add(r.job_name)
+
+        # 아직 한 번도 실행된 적 없는 스케줄러 job은 플레이스홀더로 추가
+        for sched_id, batch_name in SCHEDULER_JOB_MAP.items():
+            if batch_name not in seen_job_names:
+                next_run = scheduler_next_runs.get(sched_id)
+                items.append(
+                    BatchStatusItem(
+                        job_id=str(uuid.uuid5(uuid.NAMESPACE_DNS, batch_name)),
+                        job_name=batch_name,
+                        last_run=None,
+                        status="SCHEDULED",
+                        next_run=next_run,
+                    )
+                )
+
         return items
 
     async def batch_detail(self, job_id: uuid.UUID) -> BatchDetailData:
