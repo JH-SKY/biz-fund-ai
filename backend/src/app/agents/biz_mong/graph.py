@@ -249,12 +249,18 @@ async def _write_through(
     try:
         from src.app.database.postgres.database import SessionLocal
         async with SessionLocal() as wt_session:
+            # rag 노드의 경우 usage 메트릭을 함께 저장
+            usage: dict = result.get("last_usage") or {} if node_name == "rag" else {}
             log = ChatLog(
                 user_id=user_uuid,
                 room_id=room_uuid,
                 role="system",
                 content=summary,
                 context_type="agent",
+                tokens_in=usage.get("tokens_in"),
+                tokens_out=usage.get("tokens_out"),
+                model_name=usage.get("model_name"),
+                response_time_ms=usage.get("response_time_ms"),
             )
             wt_session.add(log)
             await wt_session.commit()
@@ -324,6 +330,8 @@ async def _run_rag(
     client: AsyncOpenAI,
 ) -> dict:
     """RAG 검색 + GPT-4o-mini 답변 생성."""
+    import time as _time
+
     messages: list = state.get("messages") or []
     last_msg = _get_last_user_message(messages)
     biz_info: dict = state.get("biz_info") or {}
@@ -343,11 +351,19 @@ async def _run_rag(
         f"[{r['title']}]\n{r['relevant_chunk']}" for r in rag_results[:3]
     )
 
-    answer = await _generate_rag_answer(client, last_msg, context)
+    t0 = _time.monotonic()
+    answer, usage = await _generate_rag_answer(client, last_msg, context)
+    elapsed_ms = int((_time.monotonic() - t0) * 1000)
 
     return {
         "rag_results": rag_results,
         "messages": [{"role": "assistant", "content": answer}],
+        "last_usage": {
+            "tokens_in": usage.prompt_tokens if usage else None,
+            "tokens_out": usage.completion_tokens if usage else None,
+            "model_name": "gpt-4o-mini",
+            "response_time_ms": elapsed_ms,
+        },
     }
 
 
@@ -355,8 +371,8 @@ async def _generate_rag_answer(
     client: AsyncOpenAI,
     question: str,
     context: str,
-) -> str:
-    """RAG 검색 결과를 기반으로 답변을 생성한다."""
+) -> tuple[str, object | None]:
+    """RAG 검색 결과를 기반으로 답변을 생성한다. (content, usage) 튜플 반환"""
     system_prompt = (
         "당신은 대한민국 중소기업·소상공인 정책 자금 전문 상담사입니다. "
         "아래 제공된 정책 정보만을 근거로 질문에 답하세요. "
@@ -373,10 +389,10 @@ async def _generate_rag_answer(
             ],
             temperature=0.2,
         )
-        return response.choices[0].message.content.strip()
+        return response.choices[0].message.content.strip(), response.usage
     except Exception as exc:
         logger.warning("[rag] 답변 생성 실패: %s", exc)
-        return "답변 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
+        return "답변 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.", None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
