@@ -315,13 +315,15 @@ class PolicyEmbeddingService:
                 skipped += 1
                 continue
             try:
-                changed = await self.sync_policy_chunks(
-                    policy_id=policy.id,
-                    content_raw=policy.content_raw,
-                    policy_title=policy.title or "",
-                    agency_name=policy.agency_name or "",
-                    support_type=policy.support_type or "",
-                )
+                # savepoint로 개별 정책 격리 — 한 건 실패해도 세션 전체가 오염되지 않음
+                async with self._session.begin_nested():
+                    changed = await self.sync_policy_chunks(
+                        policy_id=policy.id,
+                        content_raw=policy.content_raw,
+                        policy_title=policy.title or "",
+                        agency_name=policy.agency_name or "",
+                        support_type=policy.support_type or "",
+                    )
                 if changed:
                     success += 1
                 else:

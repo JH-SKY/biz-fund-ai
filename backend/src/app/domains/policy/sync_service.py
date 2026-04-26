@@ -553,7 +553,7 @@ class BizinfoSyncService:
 
         코드를 수정하기 전에 실제 데이터를 확인하기 위한 진단용 메서드입니다.
         """
-        from collections import Counter, defaultdict
+        from collections import Counter
 
         ext_counter: Counter = Counter()
         sample_items: list[dict] = []

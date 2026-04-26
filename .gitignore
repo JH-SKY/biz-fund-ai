@@ -31,6 +31,11 @@ dist/
 *.sqlite3
 # 로그 파일 (서버 기록)
 *.log
+# 테스트/디버그 실행 산출물 (test_sync_single_policy 등)
+backend/debug_output/
+# pytest 캐시
+.pytest_cache/
+.ruff_cache/
 
 ### 4. Frontend (React/Next.js 예정)
 # 노드 패키지 폴더 
