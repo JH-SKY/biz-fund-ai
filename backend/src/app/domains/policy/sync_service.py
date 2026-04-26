@@ -17,8 +17,9 @@ import logging
 import math
 import os
 import random
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 from sqlalchemy import update as sa_update
@@ -644,12 +645,17 @@ class BizinfoSyncService:
         )
 
     async def sync_recent_policies(self) -> dict[str, Any]:
+        yesterday = (
+            datetime.now(tz=ZoneInfo("Asia/Seoul")) - timedelta(days=1)
+        ).strftime("%Y%m%d")
         return await self.run_policy_sync(
             job_name="POLICY_DAILY_SYNC",
             page_start=1,
             page_end=2,
             rows_per_page=100,
-            with_ai=False,
+            with_ai=True,
+            with_embedding=True,
+            date_from=yesterday,
         )
 
     async def test_sync_single_policy(self) -> dict[str, Any]:

@@ -21,9 +21,10 @@ _scheduler_started = False
 
 
 async def _daily_policy_sync_job() -> None:
-    """Run the daily policy sync batch."""
+    """Run the daily policy sync batch with AI structuring and embedding."""
     from src.app.agents.policy_sync_agent import PolicySyncAgent
     from src.app.database.postgres.database import SessionLocal
+    from src.app.domains.policy.embedding_service import PolicyEmbeddingService
     from src.app.domains.policy.repository import PolicyRepository
     from src.app.domains.policy.sync_service import BizinfoSyncService
 
@@ -33,7 +34,14 @@ async def _daily_policy_sync_job() -> None:
         try:
             repo = PolicyRepository(session)
             agent = PolicySyncAgent()
-            svc = BizinfoSyncService(session=session, repo=repo, agent=agent)
+            emb_svc = PolicyEmbeddingService(session=session, repo=repo)
+            svc = BizinfoSyncService(
+                session=session,
+                repo=repo,
+                agent=agent,
+                embedding_service=emb_svc,
+                session_factory=SessionLocal,
+            )
 
             result = await svc.sync_recent_policies()
             logger.info(
