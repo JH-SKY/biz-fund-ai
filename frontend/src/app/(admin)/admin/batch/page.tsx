@@ -62,9 +62,9 @@ function BatchContent() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-ink">배치 작업 현황</h2>
+          <h2 className="text-xl font-bold text-ink">정책 수집 현황</h2>
           <p className="mt-0.5 text-sm text-ink-secondary">
-            정책 수집·임베딩·알림 발송 등 모든 배치 job 을 실시간으로 감시합니다.
+            정책 수집·임베딩 등 모든 수집 job을 실시간으로 감시합니다.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -94,7 +94,7 @@ function BatchContent() {
           onRetry={() => refetch()}
         />
       ) : jobs.length === 0 ? (
-        <AdminEmptyState icon={Cpu} title="등록된 배치 작업이 없습니다" />
+        <AdminEmptyState icon={Cpu} title="아직 수집 이력이 없습니다" />
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {jobs.map((job) => {

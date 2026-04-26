@@ -88,7 +88,7 @@ export const ADMIN_NAV_SECTIONS: AdminNavSection[] = [
       },
       {
         key: "admin-batch",
-        label: "배치 현황",
+        label: "정책 수집 현황",
         href: "/admin/batch",
         icon: Cpu,
         matchPrefix: "/admin/batch",

@@ -148,7 +148,7 @@ function PoliciesContent() {
     try {
       await fn();
       toast.success(`${label} 시작됨`, {
-        message: "백그라운드에서 수집 중입니다. 배치 현황에서 진행상황을 확인하세요.",
+        message: "백그라운드에서 수집 중입니다. 정책 수집 현황에서 진행상황을 확인하세요.",
       });
     } catch (err) {
       toast.error(`${label} 실패`, { message: (err as unknown as ApiError).message });
