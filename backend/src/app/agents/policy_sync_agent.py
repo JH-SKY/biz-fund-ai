@@ -8,12 +8,12 @@
   파싱·AI 구조화·검증 결과를 담은 최종 State를 Service에 반환합니다.
 
 Self-Correction 전략:
-  - Parser 단계: 다운로드·파싱 실패 시 최대 2회 재시도 (parse_retry_count)
-  - Extractor/Validator 단계: AI 출력 필수 필드 누락 시 재시도 (analysis_retry_count)
-  - [핵심] 두 단계의 카운터를 완전히 분리하여 서로 간섭하지 않도록 설계했습니다.
+  - Parser 단계: PDF 파싱 실패 시 즉시 PARSE_ERROR 확정 (재시도 없음)
+  - Extractor/Validator 단계: AI 출력 필수 필드 누락 시 최대 2회 재시도 (analysis_retry_count)
 
 최적화 전략 (2026.04 적용):
-  - 파일 URL 부재 시 불필요한 루프를 타지 않고 즉시 Fail-Fast 처리합니다.
+  - PDF 파일만 처리하며, 다른 형식(HWP, HWPX, 이미지 등)은 Service 레이어에서 미리 필터링됩니다.
+  - 파일 URL 부재 시 즉시 Fail-Fast 처리합니다.
   - GPT에게 원문을 다시 생성하게 하는(extracted_text) 프롬프트를 제거하여 출력 토큰 비용을 절감했습니다.
 """
 
@@ -127,7 +127,6 @@ class PolicySyncAgent:
             "parser",
             self._route_after_parser,
             {
-                "retry_parser": "parser",
                 "extractor": "extractor",
                 "parse_error": "set_parse_error",
             },
@@ -158,9 +157,8 @@ class PolicySyncAgent:
 
     async def _set_parse_error_node(self, state: PolicySyncState) -> dict:
         logger.warning(
-            "[%s] PARSE_ERROR — 텍스트 추출 실패 또는 파일 없음 (시도: %d회)",
+            "[%s] PARSE_ERROR — PDF 텍스트 추출 실패",
             state["origin_id"],
-            state["parse_retry_count"],
         )
         return {"status": "PARSE_ERROR"}
 
@@ -186,8 +184,6 @@ class PolicySyncAgent:
     def _route_after_parser(self, state: PolicySyncState) -> str:
         if state["doc_result"]:
             return "extractor"
-        if state["parse_retry_count"] < 2:
-            return "retry_parser"
         return "parse_error"
 
     def _route_after_validator(self, state: PolicySyncState) -> str:
@@ -208,27 +204,19 @@ class PolicySyncAgent:
         if state["debug_mode"] and state["parse_retry_count"] == 0:
             self._write_debug_file("1_api_raw.json", json.dumps(state["raw_api_data"], ensure_ascii=False, indent=4), origin_id=origin_id)
 
-        # [버그 수정 & 최적화] 파일 URL이 없으면 재시도 없이 즉시 실패 처리 (Fail-Fast)
-        # 3번이나 빈 URL을 다운로드하려 시도하는 무의미한 루프를 방지합니다.
         if not file_url:
-            logger.warning("[%s] Parser 스킵 — 다운로드할 파일 URL이 없습니다.", origin_id)
-            return {
-                "parse_retry_count": 3,  # 최대치로 설정하여 라우터가 parse_error로 즉시 보내게 함
-                "doc_result": {}
-            }
+            logger.warning("[%s] Parser 스킵 — PDF 파일 URL 없음 (HWP 전용 공고).", origin_id)
+            return {"parse_retry_count": 1, "doc_result": {}}
 
         try:
-            logger.debug("[%s] Parser 시작 (시도 %d/3)", origin_id, state["parse_retry_count"] + 1)
+            logger.debug("[%s] Parser 시작", origin_id)
             content = await self._download_file(file_url)
             parser = DocumentParserFactory.from_content(content, filename_hint=state["filename_hint"])
             doc_result = await parser.parse(content)
 
-            if doc_result["type"] == "text":
-                extracted = doc_result["data"]
-                if len(extracted.strip()) < 50:
-                    raise ValueError(f"추출 텍스트가 너무 짧음 ({len(extracted.strip())}자)")
-            else:
-                extracted = f"[이미지 {len(doc_result['data'])}장 → Vision AI 처리]"
+            extracted = doc_result["data"]
+            if len(extracted.strip()) < 50:
+                raise ValueError(f"추출 텍스트가 너무 짧음 ({len(extracted.strip())}자)")
 
             if state["debug_mode"]:
                 self._write_debug_file("2_extracted_text.txt", extracted, origin_id=origin_id)
@@ -239,9 +227,8 @@ class PolicySyncAgent:
             }
 
         except Exception as exc:
-            new_retry = state["parse_retry_count"] + 1
-            logger.warning("[%s] Parser 실패 (%d/3) — %s: %s", origin_id, new_retry, type(exc).__name__, exc)
-            return {"parse_retry_count": new_retry, "doc_result": {}, "extracted_text": ""}
+            logger.warning("[%s] PDF 파싱 실패 — %s: %s", origin_id, type(exc).__name__, exc)
+            return {"parse_retry_count": 1, "doc_result": {}, "extracted_text": ""}
 
     async def _extractor_node(self, state: PolicySyncState) -> dict:
         origin_id = state["origin_id"]
@@ -256,14 +243,7 @@ class PolicySyncAgent:
             )
 
             #[비용 절감 핵심] GPT가 `extracted_text`를 다시 쓰지 않게 했으므로 서버에서 직접 꽂아줍니다.
-            if state["doc_result"].get("type") == "text":
-                structured["content_raw"] = state["doc_result"]["data"]
-            else:
-                # Vision 모드(이미지)인 경우, 원문이 없으므로 API 요약과 GPT 풀이를 합쳐서 저장합니다.
-                structured["content_raw"] = (
-                    f"[이미지 공고]\n{state['original_summary']}\n\n"
-                    f"[상세설명]\n{structured.get('ai_full_explanation', '')}"
-                )
+            structured["content_raw"] = state["doc_result"]["data"]
 
             return {"structured_data": structured, "validation_errors": []}
 
@@ -374,21 +354,12 @@ class PolicySyncAgent:
     ) -> dict[str, Any]:
         messages: list[dict] = [{"role": "system", "content": self._build_system_prompt()}]
 
-        if doc_result.get("type") == "text":
-            # 긴 공고문(주로 HWP)의 경우 컨텍스트 윈도우 초과를 막고 비용을 방어하기 위해 15,000자로 자릅니다.
-            # 중요한 내용은 보통 앞부분(개요, 지원조건)에 집중되어 있습니다.
-            safe_text = doc_result['data'][:15000]
-            user_content = f"원본 요약: {original_summary}\n\n공고문 원문:\n{safe_text}"
-            messages.append({"role": "user", "content": user_content})
-        else:
-            # Vision 모드: 이미지를 직접 분석합니다.
-            user_content = f"원본 요약: {original_summary}\n\n아래 첨부된 공고문 이미지를 읽고 분석해줘."
-            content_parts: list[dict] = [{"type": "text", "text": user_content}]
-            for b64_img in doc_result.get("data", []):
-                content_parts.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64_img}"}})
-            messages.append({"role": "user", "content": content_parts})
+        # 긴 공고문의 경우 컨텍스트 윈도우 초과를 막고 비용을 방어하기 위해 15,000자로 자릅니다.
+        # 중요한 내용은 보통 앞부분(개요, 지원조건)에 집중되어 있습니다.
+        safe_text = doc_result["data"][:15000]
+        user_content = f"원본 요약: {original_summary}\n\n공고문 원문:\n{safe_text}"
+        messages.append({"role": "user", "content": user_content})
 
-        # [DEBUG] 실제 AI에게 전달한 텍스트를 파일로 저장
         if debug_mode:
             self._write_debug_file("2_ai_input.txt", user_content, origin_id=origin_id)
 

@@ -34,14 +34,12 @@ from src.app.domains.system.model import BatchLog
 
 logger = logging.getLogger(__name__)
 
-_FILE_PRIORITY = (".pdf", ".hwp", ".hwpx")
-
 
 class BizinfoSyncService:
     """기업마당 API 데이터를 PostgreSQL DB로 동기화하는 핵심 수집 엔진."""
 
     _API_URL = "https://apis.data.go.kr/1421000/bizinfo/pblancBsnsService"
-    _CONCURRENCY_LIMIT = 2  # 동시 처리 세마포어 제한 (OpenAI TPM 30,000 기준 안전값)
+    _CONCURRENCY_LIMIT = 1  # 동시 처리 세마포어 제한 (OpenAI 429 RateLimit 방지)
 
     def __init__(
         self,
@@ -49,11 +47,15 @@ class BizinfoSyncService:
         repo: PolicyRepository,
         agent: PolicySyncAgent,
         embedding_service: PolicyEmbeddingService | None = None,
+        session_factory=None,
     ) -> None:
         self._session = session
         self._repo = repo
         self._agent = agent
         self._embedding_service = embedding_service
+        # session_factory가 있으면 with_ai=True 배치에서 페이지마다 세션을 새로 만들어
+        # Supabase pooler의 idle 타임아웃 문제를 근본적으로 차단합니다.
+        self._session_factory = session_factory
 
     async def run_policy_sync(
         self,
@@ -128,8 +130,15 @@ class BizinfoSyncService:
                 total_items += len(unique_items)
 
                 # with_ai=False: 외부 I/O 없음 → 세션 공유 충돌 방지를 위해 순차 처리
-                # with_ai=True:  OpenAI 네트워크 I/O 대기가 있으므로 세마포어 병렬 처리
-                if with_ai:
+                # with_ai=True + session_factory 있음: 페이지마다 새 세션 → Supabase 타임아웃 방지
+                # with_ai=True + session_factory 없음: 기존 세마포어 방식 (하위 호환)
+                if with_ai and self._session_factory:
+                    results = await self._process_page_with_fresh_session(
+                        items=unique_items,
+                        with_embedding=with_embedding,
+                        job_name=job_name,
+                    )
+                elif with_ai:
                     semaphore = asyncio.Semaphore(self._CONCURRENCY_LIMIT)
 
                     async def sem_process(item):
@@ -159,7 +168,7 @@ class BizinfoSyncService:
                         )
                         results.append(r)
 
-                # 결과 집계 — DB 성공 여부와 무관하게 AI 실패도 error_log에 기록
+                # 결과 집계
                 for ai_status, db_ok, err_info in results:
                     if db_ok:
                         if with_ai:
@@ -181,23 +190,17 @@ class BizinfoSyncService:
                             error_log.append(err_info)
 
                 # 페이지 완료마다 commit + BatchLog progress 갱신 (실시간 모니터링용)
+                # begin_nested()로 격리하여 갱신 실패가 외부 트랜잭션을 abort시키지 않도록 합니다.
                 try:
-                    await self._session.execute(
-                        sa_update(BatchLog)
-                        .where(BatchLog.id == batch_id)
-                        .values(
-                            success_count=success_count,
-                            fail_count=(db_fail_count + parse_error_count + analysis_error_count + api_error_count),
+                    async with self._session.begin_nested():
+                        await self._session.execute(
+                            sa_update(BatchLog)
+                            .where(BatchLog.id == batch_id)
+                            .values(
+                                success_count=success_count,
+                                fail_count=(db_fail_count + parse_error_count + analysis_error_count + api_error_count),
+                            )
                         )
-                    )
-                    # processed_count는 마이그레이션 후 컬럼이 생기면 업데이트
-                    from sqlalchemy import text as sa_text
-                    await self._session.execute(
-                        sa_text(
-                            "UPDATE batch_logs SET processed_count = :val WHERE id = :id"
-                        ),
-                        {"val": total_items, "id": batch_id},
-                    )
                 except Exception:
                     pass
                 await self._session.commit()
@@ -262,7 +265,10 @@ class BizinfoSyncService:
             }
 
         except Exception as fatal_err:
-            await self._session.rollback()
+            try:
+                await self._session.rollback()
+            except Exception:
+                pass  # 연결이 이미 끊긴 경우 rollback 자체가 실패할 수 있음
             logger.error("[%s] 치명적 오류 — 트랜잭션 롤백: %s", job_name, fatal_err)
 
             fail_count = (
@@ -327,7 +333,7 @@ class BizinfoSyncService:
         target = item.get("trgetNm") or "정보 없음"
         fallback_content_raw = f"[지원대상]\n{target}\n\n[상세내용]\n{summary_clean}"
 
-        # [3] 파일 선택
+        # [3] 파일 선택 (PDF만)
         file_url, filename_hint = self._select_primary_file(
             print_flpth_nm=item.get("printFlpthNm"),
             print_file_nm=item.get("printFileNm"),
@@ -389,12 +395,13 @@ class BizinfoSyncService:
             else PolicyStatus.RECRUITING
         )
 
-        # [5] with_ai 모드에서 파싱/분석 실패한 공고는 저장하지 않고 스킵
-        # 포트폴리오용 데이터 품질 보장 — 잘못된 데이터로 DB를 오염시키지 않음
+        # [5] PARSE_ERROR / ANALYSIS_ERROR 모두 저장 스킵
+        # PDF 파싱 실패 = 공고 원문 없음 = RAG에 쓸모없는 데이터 → 저장하지 않습니다.
         if with_ai and ai_status in ("PARSE_ERROR", "ANALYSIS_ERROR"):
             logger.info(
-                "[%s] %s — DB 저장 스킵 (with_ai=True 품질 기준 미달)",
-                origin_id, ai_status,
+                "[%s] %s — DB 저장 스킵",
+                origin_id,
+                ai_status,
             )
             return ai_status, False, ai_err_info
 
@@ -490,6 +497,113 @@ class BizinfoSyncService:
                     "reason": str(db_err),
                 },
             )
+
+    async def _process_page_with_fresh_session(
+        self,
+        *,
+        items: list[dict[str, Any]],
+        with_embedding: bool,
+        job_name: str,
+    ) -> list[tuple[str, bool, dict[str, Any] | None]]:
+        """페이지 단위로 새 DB 세션을 열어 AI 처리 중 Supabase 타임아웃을 방지합니다.
+
+        with_ai=True 배치에서 OpenAI 호출(건당 ~8초)이 길어지면 기존 세션이 Supabase
+        pooler의 idle 타임아웃(5분)으로 끊깁니다. 페이지마다 새 세션을 열면 세션 수명이
+        페이지 처리 시간(최대 ~15분)으로 제한되어 문제를 근본적으로 차단합니다.
+        """
+        from src.app.domains.policy.embedding_service import PolicyEmbeddingService
+        from src.app.domains.policy.repository import PolicyRepository
+
+        async with self._session_factory() as page_session:
+            page_repo = PolicyRepository(page_session)
+            page_emb = (
+                PolicyEmbeddingService(session=page_session, repo=page_repo)
+                if self._embedding_service is not None
+                else None
+            )
+            page_svc = BizinfoSyncService(
+                session=page_session,
+                repo=page_repo,
+                agent=self._agent,
+                embedding_service=page_emb,
+            )
+
+            results: list[tuple[str, bool, dict[str, Any] | None]] = []
+            for item in items:
+                r = await page_svc._process_single_item(
+                    item=item,
+                    with_ai=True,
+                    with_embedding=with_embedding,
+                    job_name=job_name,
+                )
+                results.append(r)
+                await asyncio.sleep(3)
+
+            await page_session.commit()
+            return results
+
+    async def diagnose_file_distribution(
+        self,
+        *,
+        sample_pages: int = 3,
+        rows_per_page: int = 100,
+    ) -> dict[str, Any]:
+        """기업마당 API 샘플을 조회하여 첨부파일 형식 분포를 분석합니다.
+
+        코드를 수정하기 전에 실제 데이터를 확인하기 위한 진단용 메서드입니다.
+        """
+        from collections import Counter, defaultdict
+
+        ext_counter: Counter = Counter()
+        sample_items: list[dict] = []
+        total_fetched = 0
+
+        for page_no in range(1, sample_pages + 1):
+            try:
+                items = await self._fetch_single_page(
+                    page_no=page_no,
+                    rows_per_page=rows_per_page,
+                    date_from=None,
+                    date_to=None,
+                )
+            except Exception as exc:
+                logger.warning("[DIAGNOSE] 페이지 %d 조회 실패: %s", page_no, exc)
+                continue
+
+            for item in items:
+                total_fetched += 1
+                origin_id = item.get("pblancId", "?")
+                flpth = item.get("printFlpthNm") or ""
+                fnm = item.get("printFileNm") or ""
+
+                urls = [u.strip() for u in flpth.split("@") if u.strip()]
+                names = [n.strip() for n in fnm.split("@") if n.strip()]
+
+                if not urls:
+                    ext_counter["(첨부없음)"] += 1
+                    continue
+
+                item_exts = []
+                for name in names:
+                    dot_idx = name.rfind(".")
+                    ext = name[dot_idx:].lower() if dot_idx != -1 else "(확장자없음)"
+                    ext_counter[ext] += 1
+                    item_exts.append(ext)
+
+                # 샘플 10건만 저장 (원본 확인용)
+                if len(sample_items) < 10:
+                    sample_items.append({
+                        "origin_id": origin_id,
+                        "title": item.get("pblancNm", "")[:40],
+                        "file_names": names,
+                        "file_count": len(urls),
+                    })
+
+        return {
+            "total_fetched": total_fetched,
+            "file_ext_distribution": dict(ext_counter.most_common()),
+            "sample_items": sample_items,
+        }
 
     async def run_policy_sync_full(
         self,
@@ -695,6 +809,12 @@ class BizinfoSyncService:
     def _select_primary_file(
         self, *, print_flpth_nm: str | None, print_file_nm: str | None
     ) -> tuple[str, str]:
+        """첨부파일 목록에서 PDF URL을 찾아 반환합니다.
+
+        1순위: printFileNm이 .pdf로 끝나는 파일의 URL 반환
+        2순위: printFileNm이 없거나 .pdf 아닌 경우에도 printFlpthNm URL이 있으면 반환
+               → 실제 PDF 여부는 다운로드 후 magic byte(_MAGIC_PDF) 체크로 확인합니다.
+        """
         if not print_flpth_nm:
             return "", ""
         urls = [u.strip() for u in print_flpth_nm.split("@") if u.strip()]
@@ -702,10 +822,16 @@ class BizinfoSyncService:
         if not urls:
             return "", ""
 
-        for ext in _FILE_PRIORITY:
-            for i, name in enumerate(names):
-                if name.lower().endswith(ext):
-                    return urls[i], name
+        for i, name in enumerate(names):
+            if name.lower().endswith(".pdf") and i < len(urls):
+                return urls[i], name
+
+        # printFileNm이 없거나 .pdf가 없어도 URL이 있으면 첫 번째 URL로 시도합니다.
+        # PDFDocumentParser가 magic byte를 확인하므로 PDF가 아니면 PARSE_ERROR로 처리됩니다.
+        logger.debug(
+            "  [FALLBACK] printFileNm에 .pdf 없음 — URL 직접 시도: %s",
+            names if names else "(파일명 없음)",
+        )
         return urls[0], names[0] if names else ""
 
     def _parse_period(self, period_str: str) -> tuple[date | None, date | None]:
@@ -763,10 +889,15 @@ class BizinfoSyncService:
     ) -> None:
         report = (
             f"\n{'=' * 50}\n[리포트] {job_name}\n{'=' * 50}\n"
-            f"- 시도: {total_items}건\n"
-            f"- 성공: {success_count}건\n"
+            f"- 전체 수집: {total_items}건\n"
         )
         if with_ai:
-            report += f"- 파싱에러: {parse_error_count}건\n- 분석에러: {analysis_error_count}건\n"
-        report += f"- DB실패: {db_fail_count}건\n{'=' * 50}"
+            report += (
+                f"  - AI 분석 성공: {success_count}건\n"
+                f"  - 파싱 실패 (기본정보 저장): {parse_error_count}건\n"
+                f"  - AI 분석 실패 (저장 스킵): {analysis_error_count}건\n"
+            )
+        else:
+            report += f"- 성공: {success_count}건\n"
+        report += f"- DB 실패: {db_fail_count}건\n{'=' * 50}"
         logger.info(report)

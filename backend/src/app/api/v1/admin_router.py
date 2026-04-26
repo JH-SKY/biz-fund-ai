@@ -365,7 +365,8 @@ async def _bg_sync(job_fn_name: str, **kwargs) -> None:  # noqa: ANN003
         agent = PolicySyncAgent()
         embedding_svc = PolicyEmbeddingService(session=session, repo=repo)
         svc = BizinfoSyncService(
-            session=session, repo=repo, agent=agent, embedding_service=embedding_svc
+            session=session, repo=repo, agent=agent, embedding_service=embedding_svc,
+            session_factory=SessionLocal,
         )
         target = getattr(svc, job_fn_name)
         await target(**kwargs)
@@ -463,6 +464,25 @@ async def full_sync_bizinfo_policies(
         _bg_sync, "run_policy_sync_full", with_ai=with_ai, rows_per_page=rows_per_page
     )
     return api_json(http_status=202, data={"status": "QUEUED"}, message="전수 수집을 백그라운드에서 시작합니다.")
+
+
+@router.get(
+    "/diagnose-files",
+    summary="[진단] 기업마당 첨부파일 형식 분포 조회",
+    tags=["Admin - Test"],
+    description=(
+        "기업마당 API 샘플 페이지를 조회하여 첨부파일 형식 분포를 분석합니다.\n\n"
+        "PDF / HWP / HWPX / 첨부없음 등의 비율을 확인하여\n"
+        "파싱 전략을 결정하는 데 사용합니다."
+    ),
+)
+async def diagnose_file_distribution(
+    admin: CurrentAdmin,
+    sync_service: SyncServiceDep,
+    sample_pages: int = Query(3, ge=1, le=10, description="조회할 샘플 페이지 수"),
+):
+    result = await sync_service.diagnose_file_distribution(sample_pages=sample_pages)
+    return api_json(http_status=200, data=result)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
