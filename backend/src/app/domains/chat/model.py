@@ -133,6 +133,18 @@ class ChatLog(Base):
     total_cost: Mapped[Optional[Decimal]] = mapped_column(
         Numeric(12, 8), nullable=True, comment="API 토큰 비용 (USD)"
     )
+    tokens_in: Mapped[Optional[int]] = mapped_column(
+        nullable=True, comment="입력 토큰 수"
+    )
+    tokens_out: Mapped[Optional[int]] = mapped_column(
+        nullable=True, comment="출력 토큰 수"
+    )
+    model_name: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True, comment="사용된 LLM 모델명"
+    )
+    response_time_ms: Mapped[Optional[int]] = mapped_column(
+        nullable=True, comment="응답 소요시간 (ms)"
+    )
     referenced_chunks: Mapped[Optional[Any]] = mapped_column(
         JSONB, nullable=True, comment="RAG 참조 청크 데이터 (JSON)"
     )

@@ -111,3 +111,53 @@ class AdminAuditLog(Base):
     )
 
     admin: Mapped["Admin"] = relationship("Admin", back_populates="audit_logs")
+
+
+# 4. 피드백 정정 노트 테이블
+class CorrectionNote(Base):
+    """correction_notes 테이블 — 관리자가 피드백에 작성하는 정정 노트."""
+
+    __tablename__ = "correction_notes"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        comment="정정 노트 고유 식별자",
+    )
+    feedback_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("chat_logs.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="대상 피드백 ChatLog ID",
+    )
+    created_by_admin_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("admins.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="작성 관리자 ID",
+    )
+    question_pattern: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True, comment="정정이 필요한 질문 패턴"
+    )
+    expected_answer: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True, comment="기대하는 정답/답변"
+    )
+    applies_to_agent: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True, comment="적용 대상 에이전트"
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+        server_default=text("true"),
+        comment="활성 여부",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP,
+        server_default=text("CURRENT_TIMESTAMP"),
+        nullable=False,
+        comment="작성 일시",
+    )
+
+    admin: Mapped[Optional["Admin"]] = relationship("Admin")
