@@ -79,6 +79,8 @@ class ChatMonitorItem(BaseModel):
 
 class ChatMonitorResponseData(BaseModel):
     items: list[ChatMonitorItem]
+    total_count: int = 0
+    total_pages: int = 0
 
 
 class DashboardStatsData(BaseModel):
@@ -88,9 +90,13 @@ class DashboardStatsData(BaseModel):
 
 
 class AuditLogItem(BaseModel):
+    audit_id: str
     admin_id: str
+    admin_name: str | None = None
     action: str
     target: str | None
+    ip_address: str | None = None
+    diff: dict | None = None
     created_at: str
 
 

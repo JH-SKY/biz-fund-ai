@@ -385,6 +385,17 @@ class AuthService:
         """[Internal] 전체 시스템 공지 대상자 추출용 브릿지"""
         return await self._repo.get_all_active_user_ids()
 
+    async def set_user_active(self, *, user_id: uuid.UUID, is_active: bool) -> None:
+        """[Admin] 유저 활성/비활성 상태를 직접 변경합니다."""
+        from sqlalchemy import update as sa_update
+        from src.app.domains.auth.model import User
+
+        await self._session.execute(
+            sa_update(User)
+            .where(User.id == user_id)
+            .values(is_active=is_active, status="active" if is_active else "INACTIVE")
+        )
+
     async def update_notification_settings_internal(
         self,
         user: User,

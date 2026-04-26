@@ -289,13 +289,16 @@ async def admin_audit_logs(
     request: Request,
     admin: CurrentAdmin,
     svc: Annotated[AdminService, Depends(get_admin_service)],
+    page: int = Query(1, ge=1),
+    size: int = Query(25, ge=1, le=200),
 ):
-    rows = await svc.list_audit_logs(admin_id=admin.id, client_ip=_client_ip(request))
-    return api_json(
-        http_status=200,
-        data=[r.model_dump() for r in rows],
-        message="success",
+    data = await svc.list_audit_logs(
+        admin_id=admin.id,
+        client_ip=_client_ip(request),
+        page=page,
+        size=size,
     )
+    return api_json(http_status=200, data=data, message="success")
 
 
 @router.get("/batch/status")
@@ -345,6 +348,31 @@ async def admin_list_users(
         only_active=not include_inactive_users,
     )
     return api_json(http_status=200, data=data.model_dump(), message="success")
+
+
+@router.patch(
+    "/users/{user_id}/active",
+    summary="유저 활성/비활성 토글",
+    tags=["Admin - Users"],
+)
+async def set_user_active(
+    user_id: uuid.UUID,
+    request: Request,
+    admin: CurrentAdmin,
+    svc: Annotated[AdminService, Depends(get_admin_service)],
+    is_active: bool = Query(..., description="True=활성화, False=비활성화"),
+):
+    await svc.set_user_active(
+        user_id=user_id,
+        is_active=is_active,
+        admin_id=admin.id,
+        client_ip=_client_ip(request),
+    )
+    return api_json(
+        http_status=200,
+        data={"user_id": str(user_id), "is_active": is_active},
+        message="활성화 완료" if is_active else "비활성화 완료",
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────

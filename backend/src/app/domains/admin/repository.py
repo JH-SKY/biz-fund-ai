@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, time, timezone
 from typing import Any, Sequence
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # [수정됨] User, Policy 등 타 도메인 모델 임포트 완전 삭제
@@ -39,6 +39,26 @@ class AdminRepository:
         )
         res = await self._session.execute(stmt)
         return res.scalars().all()
+
+    async def list_audit_logs_page(
+        self,
+        *,
+        page: int = 1,
+        size: int = 25,
+    ) -> tuple[Sequence[tuple[AdminAuditLog, str | None]], int]:
+        """페이지네이션 감사 로그 조회 + Admin.login_id JOIN."""
+        offset = (page - 1) * size
+        stmt = (
+            select(AdminAuditLog, Admin.login_id)
+            .outerjoin(Admin, Admin.id == AdminAuditLog.admin_id)
+            .order_by(desc(AdminAuditLog.created_at))
+            .offset(offset)
+            .limit(size)
+        )
+        count_stmt = select(func.count()).select_from(AdminAuditLog)
+        res = await self._session.execute(stmt)
+        total = (await self._session.execute(count_stmt)).scalar() or 0
+        return res.all(), total
 
     async def add_audit_log(
         self,
