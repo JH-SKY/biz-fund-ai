@@ -430,12 +430,24 @@ export interface ExecuteSimulationResponse {
 
 /** BizMong 에이전트 타입 (backend/src/app/agents/biz_mong/state.py) */
 export const AgentType = {
+  GREETING: "greeting",   // 인사/잡담
+  GENERAL_QA: "general_qa", // 일반 개념 질문
   DIAGNOSIS: "diagnosis", // 정책자금 진단
   SIMULATOR: "simulator", // 가산점/ROI 시뮬레이션
   RAG: "rag", // 정책 검색 (RAG)
   STATS: "stats", // 동종업계 통계
 } as const;
 export type AgentType = (typeof AgentType)[keyof typeof AgentType];
+
+/** SSE 스트림 이벤트 */
+export type SseEvent =
+  | { type: "status"; text: string }
+  | { type: "token"; content: string }
+  | { type: "done"; agent_type: AgentType; message_id: string; content: string;
+      diagnosis_report: AgentDiagnosisReport | null;
+      simulation_report: AgentSimulationReport | null;
+      stats_insight: AgentStatsInsight | null;
+      rag_results: AgentRagResult[] | null; };
 
 export const ChatRole = {
   USER: "user",
@@ -592,7 +604,8 @@ export type ChatDisplayMessage =
       kind: "agent";
       id: string;
       content: string;
-      agent_type: AgentType;
+      /** 스트리밍 중에는 undefined, 완료 후 확정 */
+      agent_type: AgentType | undefined;
       diagnosis_report: AgentDiagnosisReport | null;
       simulation_report: AgentSimulationReport | null;
       stats_insight: AgentStatsInsight | null;

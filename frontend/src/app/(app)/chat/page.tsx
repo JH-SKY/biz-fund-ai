@@ -30,8 +30,8 @@ import {
   useChatSessions,
   useCreateSession,
   useDeleteSession,
-  useSendAgentMessage,
 } from "@/hooks/useChat";
+import { chatService } from "@/lib/services";
 import { useToast } from "@/providers/ToastProvider";
 import type { ChatDisplayMessage } from "@/types";
 import { cn } from "@/lib/utils";
@@ -63,13 +63,14 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [hasDiagnosisResult, setHasDiagnosisResult] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
 
   const scrollRef = useScrollToBottom(messages);
 
   // Queries / Mutations
   const sessionsQ = useChatSessions();
   const createSessionMut = useCreateSession();
-  const sendAgentMut = useSendAgentMessage();
   const deleteMut = useDeleteSession();
 
   // ── 세션 생성 ──────────────────────────────────────────────────────
@@ -96,19 +97,20 @@ export default function ChatPage() {
     }
   }, [modeParam, policyIdParam, activeSessionId]);
 
-  // ── 메시지 전송 ────────────────────────────────────────────────────
+  // ── 메시지 전송 (SSE 스트리밍) ──────────────────────────────────────
   const handleSend = useCallback(async () => {
     const text = input.trim();
-    if (!text || sendAgentMut.isPending) return;
+    if (!text || isStreaming) return;
     setInput("");
 
-    // 1. 유저 메시지 즉시 표시
+    // 1. 유저 메시지 즉시 표시 + 로딩 버블
     const userMsg: ChatDisplayMessage = {
       kind: "user",
       id: `u-${Date.now()}`,
       content: text,
       created_at: new Date().toISOString(),
     };
+    const tempId = `streaming-${Date.now()}`;
     setMessages((prev) => [...prev, userMsg, { kind: "loading" }]);
 
     try {
@@ -119,36 +121,106 @@ export default function ChatPage() {
         if (!sid) return;
       }
 
-      // 3. 에이전트 메시지 전송
-      const resp = await sendAgentMut.mutateAsync({ sessionId: sid, message: text });
+      // 3. SSE 스트리밍 시작
+      setIsStreaming(true);
+      let statusText = "";
 
-      // 4. 로딩 제거 + AI 응답 추가
-      setMessages((prev) => {
-        const without = prev.filter((m) => m.kind !== "loading");
-        const aiMsg: ChatDisplayMessage = {
-          kind: "agent",
-          id: resp.message_id,
-          content: resp.content,
-          agent_type: resp.agent_type,
-          diagnosis_report: resp.diagnosis_report,
-          simulation_report: resp.simulation_report,
-          stats_insight: resp.stats_insight,
-          rag_results: resp.rag_results,
-          created_at: resp.created_at,
-        };
-        return [...without, aiMsg];
+      await chatService.streamAgentMessage(sid, text, {
+        onStatus: (text) => {
+          statusText = text;
+          // 로딩 버블을 상태 텍스트로 교체
+          setMessages((prev) => {
+            const without = prev.filter((m) => m.kind !== "loading");
+            return [
+              ...without,
+              {
+                kind: "agent" as const,
+                id: tempId,
+                content: statusText,
+                agent_type: undefined,
+                diagnosis_report: null,
+                simulation_report: null,
+                stats_insight: null,
+                rag_results: null,
+                created_at: new Date().toISOString(),
+              },
+            ];
+          });
+          setStreamingMsgId(tempId);
+        },
+        onToken: (token) => {
+          // 토큰을 스트리밍 메시지에 누적
+          setMessages((prev) => {
+            const idx = prev.findIndex((m) => m.kind === "agent" && m.id === tempId);
+            if (idx === -1) {
+              // 최초 토큰: 로딩 버블 제거 + 스트리밍 버블 생성
+              const without = prev.filter((m) => m.kind !== "loading");
+              return [
+                ...without,
+                {
+                  kind: "agent" as const,
+                  id: tempId,
+                  content: token,
+                  agent_type: undefined,
+                  diagnosis_report: null,
+                  simulation_report: null,
+                  stats_insight: null,
+                  rag_results: null,
+                  created_at: new Date().toISOString(),
+                },
+              ];
+            }
+            // 기존 스트리밍 버블에 토큰 누적
+            return prev.map((m) =>
+              m.kind === "agent" && m.id === tempId
+                ? { ...m, content: m.content + token }
+                : m
+            );
+          });
+          setStreamingMsgId(tempId);
+        },
+        onDone: (evt) => {
+          setMessages((prev) => {
+            // 임시 ID → 실제 메시지 ID 로 교체 + 최종 데이터 반영
+            return prev.map((m) => {
+              if (m.kind === "agent" && m.id === tempId) {
+                return {
+                  kind: "agent" as const,
+                  id: evt.message_id,
+                  content: evt.content,
+                  agent_type: evt.agent_type,
+                  diagnosis_report: evt.diagnosis_report,
+                  simulation_report: evt.simulation_report,
+                  stats_insight: evt.stats_insight,
+                  rag_results: evt.rag_results,
+                  created_at: new Date().toISOString(),
+                };
+              }
+              return m;
+            });
+          });
+          if (evt.agent_type === "diagnosis") setHasDiagnosisResult(true);
+        },
+        onError: (err) => {
+          setMessages((prev) =>
+            prev.filter((m) => !(m.kind === "agent" && m.id === tempId) && m.kind !== "loading")
+          );
+          toast.error("응답을 받지 못했습니다.", {
+            message: "죄송해요, 잠시 후 다시 시도해주세요.",
+          });
+          console.error("[SSE] 에러:", err);
+        },
       });
-
-      if (resp.agent_type === "diagnosis") {
-        setHasDiagnosisResult(true);
-      }
     } catch {
       setMessages((prev) => prev.filter((m) => m.kind !== "loading"));
       toast.error("응답을 받지 못했습니다.", {
         message: "죄송해요, 제가 아직 배우는 중이라서요. 다시 시도해주세요.",
       });
+    } finally {
+      setIsStreaming(false);
+      setStreamingMsgId(null);
     }
-  }, [input, activeSessionId, sendAgentMut, createNewSession, toast]);
+  }, [input, activeSessionId, isStreaming, createNewSession, toast]);
 
   // ── 세션 선택 ──────────────────────────────────────────────────────
   const handleSelectSession = useCallback(
@@ -185,7 +257,7 @@ export default function ChatPage() {
     router.replace("/chat", { scroll: false });
   }, [router]);
 
-  const isLoading = sendAgentMut.isPending;
+  const isLoading = isStreaming;
   const quickReplies = hasDiagnosisResult
     ? POST_DIAGNOSIS_QUICK_REPLIES
     : DEFAULT_QUICK_REPLIES;
@@ -312,7 +384,11 @@ export default function ChatPage() {
             msg.kind === "loading" ? (
               <AgentLoadingBubble key={`loading-${idx}`} />
             ) : (
-              <ChatMessageBubble key={msg.id} message={msg} />
+              <ChatMessageBubble
+                key={msg.id}
+                message={msg}
+                isStreaming={msg.kind === "agent" && msg.id === streamingMsgId}
+              />
             )
           )}
         </div>
