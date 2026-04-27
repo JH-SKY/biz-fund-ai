@@ -10,7 +10,7 @@
 
 "use client";
 
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   businessService,
@@ -35,8 +35,15 @@ export function usePrepareDiagnosis() {
 
 // ── 진단 실행 mutation ───────────────────────────────────────────────
 export function useExecuteDiagnosis() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (req: ExecuteDiagnosisRequest) => diagnosisService.execute(req),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["diagnoses"] });
+      qc.invalidateQueries({ queryKey: ["policies", "recommend"] });
+      qc.invalidateQueries({ queryKey: ["business", "me"] });
+      qc.invalidateQueries({ queryKey: ["businesses", "finance"] });
+    },
   });
 }
 

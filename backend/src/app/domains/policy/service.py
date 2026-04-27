@@ -182,7 +182,15 @@ class PolicyService:
                 business.id
             )
 
-        tier = CompletionTier.L2 if financial_snapshot is not None else CompletionTier.L1
+        has_precise_finance = (
+            financial_snapshot is not None
+            and (
+                financial_snapshot.annual_revenue is not None
+                or financial_snapshot.total_debt is not None
+                or financial_snapshot.debt_ratio is not None
+            )
+        )
+        tier = CompletionTier.L2 if has_precise_finance else CompletionTier.L1
         policies = await self._repo.get_recommendation_candidates(
             limit=RECOMMENDATION_CANDIDATE_LIMIT
         )

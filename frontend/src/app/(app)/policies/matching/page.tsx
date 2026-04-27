@@ -34,19 +34,19 @@ export default function MatchingPoliciesPage() {
           <div className="flex items-start justify-between gap-3">
             <div className="space-y-1">
               <p className="text-sm font-medium text-blue-900">
-                지금은 1차 정보 기준 후보 정책만 보여주고 있어요.
+                지금은 1차 정보 기준 후보 정책만 조심스럽게 보여주고 있어요.
               </p>
               <p className="text-xs text-blue-700">
                 {upgradeHint ?? "재무 정보를 입력하면 실제 자격 조건까지 반영한 정밀 추천으로 바뀝니다."}
               </p>
             </div>
-            <Link href="/profile">
+            <Link href={"/diagnosis" as never}>
               <Button
                 size="sm"
                 variant="outline"
                 className="shrink-0 border-blue-300 text-blue-700 hover:bg-blue-100"
               >
-                추가 정보 입력
+                정밀진단 받고 정확하게 추천받기
               </Button>
             </Link>
           </div>
@@ -54,7 +54,7 @@ export default function MatchingPoliciesPage() {
       ) : (
         <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3">
           <p className="text-sm font-medium text-green-900">
-            재무 정보까지 반영한 정밀 추천 결과입니다.
+            정밀진단을 반영한 맞춤 정책 추천 결과입니다.
           </p>
           <p className="mt-0.5 text-xs text-green-700">
             정책 조건과 재무 조건을 함께 반영해 우선순위를 다시 계산했습니다.

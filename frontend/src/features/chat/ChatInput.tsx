@@ -1,15 +1,16 @@
 "use client";
 
-import { useRef, useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Send } from "lucide-react";
-import { cn } from "@/lib/utils";
+
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 export const POST_DIAGNOSIS_QUICK_REPLIES = [
-  "시뮬레이션해보기",
-  "매칭 정책 목록 보기",
-  "서류 준비 도와줘",
-  "다른 조건으로 재진단",
+  "시뮬레이션 해보기",
+  "맞춤 정책 목록 보기",
+  "우리 사업 리스크 더 알려줘",
+  "다른 조건으로 다시 진단해줘",
 ];
 
 interface ChatInputProps {
@@ -29,7 +30,6 @@ export function ChatInput({
 }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // textarea 높이 자동 조절 (최대 6줄)
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -57,7 +57,7 @@ export function ChatInput({
           placeholder={
             isLoading
               ? "비즈몽이 분석 중입니다..."
-              : "비즈몽에게 무엇이든 물어보세요 (Shift+Enter: 줄바꿈)"
+              : "비즈몽에게 무엇이든 물어보세요. (Shift+Enter: 줄바꿈)"
           }
           aria-label="메시지 입력"
           className={cn(
@@ -83,7 +83,7 @@ export function ChatInput({
       </div>
 
       <p className="mt-1.5 text-center text-[11px] text-ink-tertiary">
-        AI 응답은 참고용이며, 실제 신청 전 공식 공고를 반드시 확인하세요.
+        AI 응답은 참고용이며 실제 신청 전에는 공식 공고를 다시 확인해 주세요.
       </p>
     </div>
   );

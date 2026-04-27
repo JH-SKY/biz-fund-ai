@@ -241,6 +241,16 @@ class BusinessRepository:
         await self._session.refresh(snap)
         return snap
 
+    async def update_financial_snapshot(
+        self,
+        snap: BusinessFinancialSnapshot,
+        **kwargs: Any,
+    ) -> None:
+        for key, value in kwargs.items():
+            if hasattr(snap, key) and value is not None:
+                setattr(snap, key, value)
+        await self._session.flush()
+
     async def soft_delete_financial_snapshot(
         self,
         snap: BusinessFinancialSnapshot,

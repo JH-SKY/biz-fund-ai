@@ -453,7 +453,7 @@ export default function DiagnosisPage() {
               다시 진단하기
             </Button>
             <Button asChild variant="primary" className="flex-1">
-              <Link href={"/simulation" as never}>조건 바꿔보기 (시뮬레이션)</Link>
+              <Link href={"/policies/matching" as never}>정밀 추천 결과 보기</Link>
             </Button>
           </div>
         </div>

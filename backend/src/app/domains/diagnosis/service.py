@@ -1,14 +1,13 @@
-"""정밀진단 도메인 비즈니스 로직."""
+from __future__ import annotations
 
 import uuid
-from typing import Any, List
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.app.core.exceptions import NotFoundException, ForbiddenException
+from src.app.core.exceptions import ForbiddenException, NotFoundException
 from src.app.domains.business.model import Business
-# [추가] 타 도메인 데이터 조회를 위해 BusinessService 추가
-from src.app.domains.business.service import BusinessService 
+from src.app.domains.business.service import BusinessService
 from src.app.domains.diagnosis.interfaces import IDiagnosisEngine
 from src.app.domains.diagnosis.repository import DiagnosisRepository
 from src.app.domains.diagnosis.schema import (
@@ -36,22 +35,16 @@ class DiagnosisService:
         session: AsyncSession,
         repo: DiagnosisRepository,
         policy_service: PolicyService,
-        business_service: BusinessService, # [주입] 타 도메인 서비스 협력을 위해 추가
+        business_service: BusinessService,
         engine: IDiagnosisEngine,
     ) -> None:
         self._session = session
         self._repo = repo
         self._policy_service = policy_service
-        self._business_service = business_service # [할당]
+        self._business_service = business_service
         self._engine = engine
 
     async def prepare_diagnosis(self, business: Business) -> PrepareDiagnosisResponseData:
-        """
-        1. 기능: 정밀진단 전 기초 데이터 로드 및 누락 필드 파악.
-        2. 설계 의도: 사용자가 진단 폼을 채울 때 기존 재무 데이터를 불러와 편의성을 높입니다.
-        3. 수정 사항: DiagnosisRepository가 아닌 BusinessService를 통해 재무 스냅샷을 가져옵니다. (도메인 격리)
-        """
-        # [변경] 타 도메인(Business)의 Repository에 직접 접근하지 않고 서비스를 통해 요청
         snap = await self._business_service.get_latest_financial_snapshot_internal(business.id)
 
         if snap:
@@ -63,7 +56,7 @@ class DiagnosisService:
         else:
             snap_data = SnapshotData()
 
-        missing = []
+        missing: list[str] = []
         if snap_data.revenue is None:
             missing.append("revenue")
         if snap_data.employee_count is None:
@@ -72,7 +65,7 @@ class DiagnosisService:
         return PrepareDiagnosisResponseData(
             current_snapshot=snap_data,
             missing_fields=missing,
-            message="필수 정보가 일부 누락되었습니다. 보완 후 진단을 시작하세요." if missing else "모든 정보가 준비되었습니다.",
+            message="필수 정보가 일부 비어 있습니다. 보완 후 진단을 시작해 주세요." if missing else "모든 정보가 준비되었습니다.",
             suggest_nts_reverification=not business.is_biz_no_verified,
         )
 
@@ -81,10 +74,6 @@ class DiagnosisService:
         business: Business,
         req: ExecuteDiagnosisRequest,
     ) -> ExecuteDiagnosisResponseData:
-        """
-        1. 기능: 엔진을 통한 정밀진단 수행 및 결과 로깅.
-        2. 설계 의도: 진단 결과물과 함께 AI 엔진의 추적 정보(Model, Trace ID)를 기록합니다.
-        """
         result = await self._engine.execute_diagnosis(
             business=business,
             year=req.year,
@@ -92,7 +81,19 @@ class DiagnosisService:
             use_ai=req.use_ai_analysis,
         )
 
-        # [변경] Repository 업데이트에 따른 AI 추적 필드 전달
+        await self._business_service.sync_diagnosis_inputs_internal(
+            business,
+            year=req.year,
+            annual_revenue=req.final_inputs.annual_revenue,
+            total_debt=req.final_inputs.total_debt,
+            debt_ratio=req.final_inputs.debt_ratio,
+            employee_count=req.final_inputs.employee_count,
+            has_tax_arrears=req.final_inputs.has_tax_arrears,
+            has_patent=req.final_inputs.has_patent,
+            is_female_ent=req.final_inputs.is_female_ent,
+            is_ventured=req.final_inputs.is_ventured,
+        )
+
         log = await self._repo.create_simulation_log(
             business_id=business.id,
             sim_type="DIAGNOSIS",
@@ -104,9 +105,9 @@ class DiagnosisService:
                 "ai_comment": result.ai_comment,
                 "traffic_light": result.traffic_light,
             },
-            model_name="gpt-4o", # [예시] 실무에서는 엔진 설정값에서 가져옴
-            trace_id=f"diag-{uuid.uuid4()}", # 추적용 ID 생성
-            cost=0.01 # [예시] 예상 비용 기록
+            model_name="gpt-4o",
+            trace_id=f"diag-{uuid.uuid4()}",
+            cost=0.01,
         )
         await self._session.commit()
 
@@ -123,10 +124,6 @@ class DiagnosisService:
         business: Business,
         diagnosis_id: uuid.UUID,
     ) -> DiagnosisDetailResponseData:
-        """
-        1. 기능: 특정 진단 기록의 상세 내용 조회.
-        2. 설계 의도: 조회 시 business.id를 필수로 검증하여 데이터 접근 권한을 보장합니다.
-        """
         log = await self._repo.get_simulation_log(diagnosis_id, business.id)
         if not log or log.sim_type != "DIAGNOSIS":
             raise NotFoundException("진단 기록을 찾을 수 없습니다.")
@@ -139,12 +136,7 @@ class DiagnosisService:
             snapshot=log.input_data,
         )
 
-    async def get_diagnosis_history(
-        self, business: Business
-    ) -> List[DiagnosisHistoryItem]:
-        """
-        1. 기능: 사업장의 과거 정밀진단 전체 이력 목록 반환.
-        """
+    async def get_diagnosis_history(self, business: Business) -> list[DiagnosisHistoryItem]:
         logs = await self._repo.get_simulation_logs(business.id, "DIAGNOSIS")
         return [
             DiagnosisHistoryItem(
@@ -156,16 +148,9 @@ class DiagnosisService:
         ]
 
     async def delete_diagnosis(self, business: Business, diagnosis_id: uuid.UUID) -> None:
-        """
-        1. 기능: 진단 기록 물리 삭제.
-        2. 메커니즘: 본인 확인 절차를 거친 후 Repository의 물리 삭제 명령을 호출합니다.
-        """
         log = await self._repo.get_simulation_log(diagnosis_id, business.id)
         if not log:
             raise NotFoundException("진단 기록을 찾을 수 없습니다.")
-        
-        # [검토] get_simulation_log 내부에서 이미 business.id로 조회하므로 
-        # 추가 Forbidden 검증은 방어적 차원에서 유지하거나 신뢰할 수 있습니다.
         if log.business_id != business.id:
             raise ForbiddenException("삭제 권한이 없습니다.")
 
@@ -177,13 +162,8 @@ class DiagnosisService:
         business: Business,
         req: ExecuteSimulationRequest,
     ) -> ExecuteSimulationResponseData:
-        """
-        1. 기능: 가산점 시뮬레이션 실행 및 결과 전파.
-        2. policy_id=None 이면 종합 점수 시뮬(독립 시뮬 페이지용), 있으면 특정 정책 대상 시뮬.
-        """
-        # ── 최신 재무 스냅샷으로 base_inputs 구성 ────────────────────
         snap = await self._business_service.get_latest_financial_snapshot_internal(business.id)
-        base_inputs: dict = {
+        base_inputs: dict[str, Any] = {
             "annual_revenue": snap.annual_revenue if snap else None,
             "total_debt": snap.total_debt if snap else None,
             "employee_count": snap.employee_count if snap else (business.employee_count or 0),
@@ -192,14 +172,11 @@ class DiagnosisService:
             "is_ventured": business.is_ventured,
             "has_tax_arrears": business.has_tax_arrears,
         }
-
-        # 엔진에게 base_inputs + virtual_conditions 를 함께 전달
         conditions = {
             "base_inputs": base_inputs,
             "virtual_conditions": req.virtual_conditions,
         }
 
-        # ── 정책 조회 (policy_id 있을 때만) ──────────────────────────
         policy = None
         if req.policy_id is not None:
             policy = await self._policy_service.get_policy_by_id_internal(req.policy_id)
@@ -222,7 +199,6 @@ class DiagnosisService:
             "simulated_rate": result.simulated_rate,
             "gain_factors": result.gain_factors,
         }
-
         log = await self._repo.create_simulation_log(
             business_id=business.id,
             sim_type="SIMULATION",
@@ -232,7 +208,6 @@ class DiagnosisService:
             cost=0.0,
         )
 
-        # policy_id 있을 때만 match_log 생성
         if policy is not None:
             await self._repo.create_match_log(
                 business_id=business.id,
@@ -243,35 +218,25 @@ class DiagnosisService:
             )
 
         await self._session.commit()
-
         return ExecuteSimulationResponseData(
             base_rate=result.base_rate,
             simulated_rate=result.simulated_rate,
             gain_factors=result.gain_factors,
         )
 
-    async def get_simulation_history(
-        self, business: Business
-    ) -> List[SimulationHistoryItem]:
-        """
-        1. 기능: 사업장의 과거 가산점 시뮬레이션 이력 목록 반환.
-        """
+    async def get_simulation_history(self, business: Business) -> list[SimulationHistoryItem]:
         logs = await self._repo.get_simulation_logs(business.id, "SIMULATION")
         return [
             SimulationHistoryItem(
-                policy_title=log.input_data.get("policy_title", "알 수 없는 정책"),
+                policy_title=log.input_data.get("policy_title", "이름 없는 정책"),
                 sim_rate=log.output_data.get("simulated_rate", 0.0),
                 created_at=log.created_at.strftime("%Y-%m-%d"),
             )
             for log in logs
         ]
-    
-    # ── Admin 전용 (Internal) ─────────────────────────────────────────────
 
     async def get_all_logs_for_admin(self, sim_type: str | None = None) -> list:
-        """[Internal] 관리자 모니터링용: 시스템 전체 시뮬레이션/진단 이력 전수 조회"""
         return await self._repo.get_all_simulation_logs_for_admin(sim_type)
 
     async def get_log_detail_for_admin(self, diagnosis_id: uuid.UUID) -> Any:
-        """[Internal] 관리자 모니터링용: ID 기반 로그 단건 상세 조회"""
         return await self._repo.get_simulation_log_for_admin(diagnosis_id)

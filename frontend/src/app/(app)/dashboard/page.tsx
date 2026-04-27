@@ -98,6 +98,7 @@ export default function DashboardPage() {
         <section className="space-y-4 lg:col-span-7">
           <MatchSummaryCard
             matchedCount={matchedCount}
+            tier={completionTier}
             isLoading={recQ.isLoading}
           />
           <BenefitLevelCard myAvgScore={myAvgScore} />
@@ -108,6 +109,7 @@ export default function DashboardPage() {
         <aside className="space-y-4 lg:col-span-5">
           <OnePickSection
             items={recQ.data?.items}
+            tier={completionTier}
             isLoading={recQ.isLoading}
             onBookmarkToggle={(id) => bookmarkMut.mutate(id)}
           />

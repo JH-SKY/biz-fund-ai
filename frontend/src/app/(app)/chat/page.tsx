@@ -9,7 +9,7 @@
  *
  * URL 파라미터
  *  ?session={id}               → 기존 세션 재개
- *  ?mode=document&policyId={id}→ 서류 준비 모드로 신규 세션 시작
+ *  ?policyId={id}             → 정책 상세에서 질문 초안을 채운 채 시작
  *
  * 상태 관리
  *  - 세션 목록: React Query (useChatSessions)
@@ -52,7 +52,6 @@ export default function ChatPage() {
 
   // URL 파라미터
   const sessionParam = searchParams?.get("session") ?? null;
-  const modeParam = searchParams?.get("mode") ?? null;
   const policyIdParam = searchParams?.get("policyId") ?? null;
 
   // 세션 상태
@@ -97,13 +96,13 @@ export default function ChatPage() {
     [createSessionMut, router, toast]
   );
 
-  // ── mode=document 자동 시작 ────────────────────────────────────────
+  // 정책 상세에서 넘어오면 첫 질문을 자동으로 채운다.
   useEffect(() => {
-    if (modeParam === "document" && policyIdParam && !activeSessionId) {
-      const initMsg = `${decodeURIComponent(policyIdParam)} 정책의 서류 준비를 도와줘.`;
+    if (policyIdParam && !activeSessionId) {
+      const initMsg = `${decodeURIComponent(policyIdParam)} 정책이 우리 사업에 왜 맞는지 알려줘.`;
       setInput(initMsg);
     }
-  }, [modeParam, policyIdParam, activeSessionId]);
+  }, [policyIdParam, activeSessionId]);
 
   // ── 메시지 전송 (SSE 스트리밍) ──────────────────────────────────────
   const handleSend = useCallback(async () => {

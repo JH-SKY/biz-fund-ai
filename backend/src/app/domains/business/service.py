@@ -506,6 +506,64 @@ class BusinessService:
             await self._repo.update_business(biz, profile_score=new_score)
         await self._session.commit()
 
+    async def sync_diagnosis_inputs_internal(
+        self,
+        biz: Business,
+        *,
+        year: int,
+        annual_revenue: int | None,
+        total_debt: int | None,
+        debt_ratio: float | None,
+        employee_count: int,
+        has_tax_arrears: bool,
+        has_patent: bool,
+        is_female_ent: bool,
+        is_ventured: bool,
+    ) -> None:
+        """Persist diagnosis inputs so later recommendation can use the same source of truth."""
+        await self._repo.update_business(
+            biz,
+            employee_count=employee_count,
+            has_tax_arrears=has_tax_arrears,
+            has_patent=has_patent,
+            is_female_ent=is_female_ent,
+            is_ventured=is_ventured,
+        )
+
+        effective_debt_ratio = debt_ratio
+        if effective_debt_ratio is None:
+            effective_debt_ratio = _compute_debt_ratio(total_debt, annual_revenue)
+
+        existing = await self._repo.get_financial_snapshot_by_year(biz.id, year)
+        if existing is None:
+            await self._repo.create_financial_snapshot(
+                business_id=biz.id,
+                snapshot_year=year,
+                snapshot_period="ANNUAL",
+                term_type="ANNUAL",
+                annual_revenue=annual_revenue,
+                operating_profit=None,
+                net_income=None,
+                total_debt=total_debt,
+                capital=None,
+                debt_ratio=effective_debt_ratio,
+                employee_count=employee_count,
+                tax_arrears_yn=has_tax_arrears,
+            )
+        else:
+            await self._repo.update_financial_snapshot(
+                existing,
+                annual_revenue=annual_revenue,
+                total_debt=total_debt,
+                debt_ratio=effective_debt_ratio,
+                employee_count=employee_count,
+                tax_arrears_yn=has_tax_arrears,
+            )
+
+        has_real_finance = annual_revenue is not None
+        new_score = _compute_profile_score(biz, has_real_finance=has_real_finance)
+        await self._repo.update_business(biz, profile_score=new_score)
+
     async def get_financial_history(
         self, biz: Business
     ) -> list[FinanceSnapshotResponseData]:

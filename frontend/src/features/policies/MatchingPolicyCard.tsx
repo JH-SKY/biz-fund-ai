@@ -147,9 +147,9 @@ export function MatchingPolicyCard({
             </button>
           ) : (
             <Button asChild size="sm" variant="primary">
-              <Link href="/profile">
+              <Link href={"/diagnosis" as never}>
                 <ClipboardList className="h-3.5 w-3.5" />
-                추가 정보 입력
+                정밀진단 받고 정확도 높이기
               </Link>
             </Button>
           )}
