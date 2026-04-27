@@ -1,25 +1,24 @@
 "use client";
 
 /**
- * IndustryCombobox — 업종 검색형 자동완성 입력 (네이티브 select 대체).
- *
- * 설계
- *  - 검색어 입력 시 INDUSTRIES 에서 이름/동의어 키워드로 필터링
- *  - ↑↓ 방향키, Enter, Esc 키보드 내비게이션
- *  - 결과가 없으면 '기타 / 직접 입력' 힌트 노출 (기획서 §4 예외 대응)
- *
- * 접근성: role="combobox" + aria-expanded + aria-activedescendant
+ * KSIC 세세분류 검색 콤보 — 선택 시 `code`·`name`을 동시에 상위로 전달합니다.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Search } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { INDUSTRIES, searchIndustries, type IndustryItem } from "@/constants/industries";
+import {
+  KSIC_DETAILS,
+  searchKsicDetails,
+  type KsicDetailItem,
+} from "@/constants/ksic-detail";
 
 interface IndustryComboboxProps {
-  value: string; // 선택된 code
-  onChange: (code: string) => void;
+  /** 선택된 5자리 KSIC 코드 */
+  value: string;
+  /** 선택 항목의 표시명 (code + name) */
+  onChange: (next: { code: string; name: string }) => void;
   invalid?: boolean;
   placeholder?: string;
   id?: string;
@@ -29,7 +28,7 @@ export function IndustryCombobox({
   value,
   onChange,
   invalid,
-  placeholder = "예: 음식점, 제조, IT...",
+  placeholder = "예: 한식, 제조, IT...",
   id,
 }: IndustryComboboxProps) {
   const [open, setOpen] = useState(false);
@@ -38,10 +37,16 @@ export function IndustryCombobox({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  const selected = INDUSTRIES.find((i) => i.code === value) ?? null;
-  const results = useMemo<IndustryItem[]>(() => searchIndustries(query), [query]);
+  const results = useMemo<KsicDetailItem[]>(
+    () => searchKsicDetails(query),
+    [query]
+  );
 
-  // 외부 클릭 시 닫기
+  const labelForValue = useMemo(
+    () => (value ? (KSIC_DETAILS.find((i) => i.code === value)?.name ?? "") : ""),
+    [value]
+  );
+
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
       if (!containerRef.current?.contains(e.target as Node)) setOpen(false);
@@ -54,8 +59,8 @@ export function IndustryCombobox({
     setHighlight(0);
   }, [query]);
 
-  const select = (item: IndustryItem) => {
-    onChange(item.code);
+  const select = (item: KsicDetailItem) => {
+    onChange({ code: item.code, name: item.name });
     setQuery("");
     setOpen(false);
     inputRef.current?.blur();
@@ -65,7 +70,8 @@ export function IndustryCombobox({
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setOpen(true);
-      setHighlight((h) => Math.min(h + 1, results.length - 1));
+      if (results.length)
+        setHighlight((h) => Math.min(h + 1, results.length - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setHighlight((h) => Math.max(h - 1, 0));
@@ -99,9 +105,11 @@ export function IndustryCombobox({
           aria-autocomplete="list"
           aria-controls="industry-listbox"
           aria-activedescendant={
-            open && results[highlight] ? `industry-opt-${results[highlight].code}` : undefined
+            open && results[highlight]
+              ? `industry-opt-${results[highlight].code}`
+              : undefined
           }
-          value={open ? query : selected?.name ?? ""}
+          value={open ? query : labelForValue}
           placeholder={placeholder}
           onFocus={() => setOpen(true)}
           onChange={(e) => {
@@ -134,7 +142,7 @@ export function IndustryCombobox({
         >
           {results.length === 0 ? (
             <li className="px-3 py-2 text-sm text-ink-tertiary">
-              검색 결과가 없어요. &apos;기타&apos; 또는 직접 입력을 사용해보세요.
+              검색 결과가 없어요. 다른 키워드로 검색해 주세요.
             </li>
           ) : (
             results.map((item, idx) => (
@@ -155,10 +163,8 @@ export function IndustryCombobox({
                     : "text-ink hover:bg-surface-muted"
                 )}
               >
-                <span className="font-medium">{item.name}</span>
-                <span className="ml-2 text-xs text-ink-tertiary">
-                  {item.keywords.slice(0, 3).join(", ")}
-                </span>
+                <span className="text-xs text-ink-tertiary">{item.code}</span>
+                <span className="ml-2 font-medium">{item.name}</span>
               </li>
             ))
           )}

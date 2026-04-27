@@ -108,6 +108,16 @@ export interface ProfilePatchRequest {
 // 2. 사업장 / 재무 / 서류 (business)
 // ────────────────────────────────────────────────────────────────────
 
+export const FundingPurpose = {
+  FACILITY: "FACILITY",
+  OPERATING: "OPERATING",
+  WORKING: "WORKING",
+  MIXED: "MIXED",
+  UNSURE: "UNSURE",
+} as const;
+export type FundingPurpose =
+  (typeof FundingPurpose)[keyof typeof FundingPurpose];
+
 export interface BusinessInfo {
   biz_id: string;
   biz_name: string;
@@ -117,7 +127,12 @@ export interface BusinessInfo {
   region_sigungu: string | null;
   establishment_date: string | null; // ISO date
   ksic_code: string | null;
+  ksic_name: string | null;
   sector_code: string | null;
+  is_biz_no_verified: boolean;
+  employee_count: number | null;
+  funding_purpose: string | null;
+  has_tax_arrears: boolean;
   has_patent: boolean;
   is_female_ent: boolean;
   is_ventured: boolean;
@@ -129,12 +144,14 @@ export interface OnboardingRegisterRequest {
   biz_name: string;
   biz_no: string; // 10자리 숫자 또는 "000-00-00000"
   representative_name?: string | null;
-  ksic_code?: string | null;
+  ksic_code: string;
+  ksic_name: string;
   sector_code?: string | null;
   region_sido?: string | null;
   region_sigungu?: string | null;
-  establishment_date?: string | null; // ISO date
-  employee_count?: number | null;
+  establishment_date: string; // YYYY-MM-DD
+  employee_count: number;
+  funding_purpose?: FundingPurpose;
   has_patent?: boolean;
   is_female_ent?: boolean;
   is_ventured?: boolean;
@@ -167,7 +184,11 @@ export interface BusinessUpdateRequest {
   region_sigungu?: string | null;
   establishment_date?: string | null;
   ksic_code?: string | null;
+  ksic_name?: string | null;
   sector_code?: string | null;
+  employee_count?: number | null;
+  funding_purpose?: FundingPurpose | null;
+  has_tax_arrears?: boolean;
   has_patent?: boolean;
   is_female_ent?: boolean;
   is_ventured?: boolean;
@@ -288,7 +309,17 @@ export interface PolicyRecommendItem {
   match_level: MatchLevel;
   match_score: number; // 0~100
   reason: string;
+  estimated_probability: number | null; // L2 입력 시에만 제공되는 추정 확률 (0~100)
   is_bookmarked: boolean;
+}
+
+/** GET /policies/recommend 응답 본문 */
+export interface PolicyRecommendListData {
+  items: PolicyRecommendItem[];
+  completeness_tier: "L1" | "L2";
+  upgrade_hint: string | null; // L1일 때 L2 유도 안내 문구
+  missing_fields: string[];
+  unverified_notice: string | null;
 }
 
 /** 정책 상세 (GET /policies/{id}) */
@@ -334,12 +365,25 @@ export interface PrepareDiagnosisResponse {
   current_snapshot: SnapshotData;
   missing_fields: string[];
   message: string;
+  suggest_nts_reverification: boolean;
+}
+
+/** POST /diagnoses 의 final_inputs (백엔드 DiagnosisFinalInputs) */
+export interface DiagnosisFinalInputs {
+  has_tax_arrears: boolean;
+  annual_revenue: number | null;
+  total_debt: number | null;
+  debt_ratio: number | null;
+  employee_count: number;
+  has_patent: boolean;
+  is_female_ent: boolean;
+  is_ventured: boolean;
 }
 
 export interface ExecuteDiagnosisRequest {
   year: number;
   use_ai_analysis: boolean;
-  final_inputs: Record<string, unknown>;
+  final_inputs: DiagnosisFinalInputs;
 }
 
 export interface ExecuteDiagnosisResponse {
@@ -347,6 +391,7 @@ export interface ExecuteDiagnosisResponse {
   total_score: number;
   grade: string;
   created_at: string;
+  traffic_light: "RED" | "YELLOW" | "GREEN";
 }
 
 export interface DiagnosisScores {

@@ -40,6 +40,10 @@ export const businessService = {
       body
     ),
 
+  /** 국세청 사업자번호 재검증 (미검증 사업장) */
+  retryBizNoVerification: () =>
+    apiClient.post<VerifyBizNumberResponseData>("/businesses/verify-biz-retry"),
+
   fetchFinanceHistory: () =>
     apiClient.get<FinanceSnapshot[]>("/businesses/finance/history"),
 };

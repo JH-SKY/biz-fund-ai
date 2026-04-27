@@ -20,12 +20,15 @@ async function mockDashboardApis(page) {
       biz_id: "biz-001",
       biz_name: "데모 상점",
       biz_no: "1234567890",
-      sector_code: "G",
+      sector_code: "56111",
+      ksic_code: "56111",
+      ksic_name: "한식 일반 음식점업",
+      is_biz_no_verified: true,
     });
   });
 
   await page.route(`${API_BASE}/policies/recommend*`, async (route) => {
-    await fulfillApi(route, { items: [] });
+    await fulfillApi(route, { items: [], unverified_notice: null });
   });
 
   await page.route(`${API_BASE}/diagnoses`, async (route) => {
@@ -83,18 +86,24 @@ test("온보딩이 verify-biz 후 register로 이어지고 대시보드로 이�
       biz_no: "1234567890",
       is_manual: false,
       profile_score: 55,
+      employee_count: 2,
+      funding_purpose: "OPERATING",
     });
   });
 
   await page.goto("/onboarding");
   await page.getByTestId("onboarding-biz-name").fill("새로온 가게");
   await page.getByTestId("onboarding-biz-no").fill("123-45-67890");
-  await page.locator("#ob-industry").fill("도매");
+  await page.locator("#ob-industry").fill("한식");
   await page.locator("#ob-industry").press("ArrowDown");
   await page.locator("#ob-industry").press("Enter");
+  await page.getByTestId("onboarding-establishment-date").fill("2020-01-15");
+  await page.getByTestId("onboarding-employee-count").fill("3");
+  await page
+    .getByTestId("onboarding-funding-purpose")
+    .selectOption("OPERATING");
   await page.locator("#ob-region-sido").selectOption("11");
   await page.getByTestId("onboarding-region-sigungu").fill("강남구");
-  await page.getByTestId("onboarding-employee-count").fill("3");
   await page.getByTestId("onboarding-submit").click();
 
   await expect.poll(() => verifyCalled).toBeTruthy();

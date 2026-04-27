@@ -6,3 +6,4 @@ export * from "./OnePickSection";
 export * from "./TrafficLightWidget";
 export * from "./ApplicationStatusTracker";
 export * from "./DocumentsWidget";
+export * from "./ProfileCompletionBanner";

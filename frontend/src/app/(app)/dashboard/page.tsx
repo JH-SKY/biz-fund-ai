@@ -36,6 +36,7 @@ import {
   InsightTipCard,
   MatchSummaryCard,
   OnePickSection,
+  ProfileCompletionBanner,
   TrafficLightWidget,
   WelcomeHeader,
 } from "@/components/dashboard";
@@ -67,6 +68,7 @@ export default function DashboardPage() {
 
   // 집계 지표 계산
   const matchedCount = recQ.data?.items?.length ?? null;
+  const completionTier = recQ.data?.completeness_tier;
   const myAvgScore = useMemo(() => {
     const items = recQ.data?.items;
     if (!items?.length) return null;
@@ -87,6 +89,11 @@ export default function DashboardPage() {
         isLoading={bizQ.isLoading}
         isOnboarded={isOnboarded}
       />
+
+      {/* 재무정보 입력 유도 배너 — L1 단계 사용자에게만 표시 */}
+      {isOnboarded && (
+        <ProfileCompletionBanner tier={completionTier} />
+      )}
 
       {/* 2-컬럼 레이아웃: Desktop 에서만 분할, 모바일은 1-컬럼 */}
       <div className="grid gap-6 lg:grid-cols-12">

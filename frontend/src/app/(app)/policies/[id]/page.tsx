@@ -71,6 +71,8 @@ export default function PolicyDetailPage() {
     return recommend.items.find((i) => i.policy_id === policyId) ?? null;
   }, [recommend, policyId]);
 
+  const tier = recommend?.completeness_tier;
+
   if (isLoading) {
     return (
       <div className="space-y-4">
@@ -127,6 +129,7 @@ export default function PolicyDetailPage() {
         matchScore={matchInfo?.match_score ?? null}
         reason={matchInfo?.reason ?? null}
         hasBusinessProfile={!!matchInfo}
+        tier={tier}
       />
 
       <PolicyInfoTable

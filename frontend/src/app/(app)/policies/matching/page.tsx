@@ -5,6 +5,9 @@
  *
  * 데이터 소스: GET /policies/recommend (PolicyRecommendItem[])
  *  - 신호등(match_level), 적합도(match_score), 매칭 근거(reason) 제공.
+ *  - completeness_tier: L1(기본 프로필) / L2(재무 포함) 로 단계 구분.
+ *    L1: 전체 목록 노출 + 재무 입력 유도 CTA 배너
+ *    L2: estimated_probability 노출 활성
  *
  * UI 구성
  *  1. 상단 탭(맞춤/전체) — 전체 리스트와의 이동
@@ -14,6 +17,7 @@
  */
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 
 import { Tabs } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -51,6 +55,9 @@ export default function MatchingPoliciesPage() {
   const bookmarkMutation = useBookmarkToggle();
 
   const items: PolicyRecommendItem[] = data?.items ?? [];
+  const unverifiedNotice = data?.unverified_notice ?? null;
+  const tier = data?.completeness_tier ?? "L1";
+  const upgradeHint = data?.upgrade_hint ?? null;
 
   const decorated: DecoratedItem[] = useMemo(
     () => items.map((i, idx) => decorate(i, idx)),
@@ -87,6 +94,44 @@ export default function MatchingPoliciesPage() {
       </header>
 
       <PolicyPageTabs active="matching" />
+
+      {/* L1 단계 유도 배너 */}
+      {tier === "L1" && upgradeHint ? (
+        <div
+          role="status"
+          className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-blue-900">
+                🔍 지금은 1차 맞춤 추천입니다
+              </p>
+              <p className="text-xs text-blue-700">{upgradeHint}</p>
+            </div>
+            <Link href="/profile">
+              <Button size="sm" variant="outline" className="shrink-0 border-blue-300 text-blue-700 hover:bg-blue-100">
+                재무 입력 →
+              </Button>
+            </Link>
+          </div>
+        </div>
+      ) : tier === "L2" ? (
+        <div
+          role="status"
+          className="rounded-xl border border-green-200 bg-green-50 px-4 py-2 text-xs text-green-800"
+        >
+          ✅ 재무정보 반영 완전 맞춤 — 추정 확률이 카드에 표시됩니다
+        </div>
+      ) : null}
+
+      {unverifiedNotice ? (
+        <div
+          role="status"
+          className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+        >
+          {unverifiedNotice}
+        </div>
+      ) : null}
 
       <Tabs
         variant="pill"
@@ -125,9 +170,11 @@ export default function MatchingPoliciesPage() {
                 matchLevel={item.match_level}
                 matchScore={item.match_score}
                 reason={item.reason}
+                estimatedProbability={item.estimated_probability}
                 isBookmarked={item.is_bookmarked}
                 statusTag={item.statusTag}
                 dday={item.dday}
+                tier={tier}
                 onBookmarkToggle={(id) => bookmarkMutation.mutate(id)}
               />
             </li>

@@ -17,7 +17,7 @@ import type {
   BookmarkToggleResponse,
   PolicyDetail,
   PolicyListItem,
-  PolicyRecommendItem,
+  PolicyRecommendListData,
   PolicySearchParams,
 } from "@/types";
 
@@ -27,16 +27,12 @@ interface ListResponse {
   total_pages: number;
 }
 
-interface RecommendResponse {
-  items: PolicyRecommendItem[];
-}
-
 export const policyService = {
   fetchAllPolicies: (page = 1, size = 10) =>
     apiClient.get<ListResponse>("/policies", { params: { page, size } }),
 
   fetchRecommendedPolicies: (page = 1, size = 10) =>
-    apiClient.get<RecommendResponse>("/policies/recommend", {
+    apiClient.get<PolicyRecommendListData>("/policies/recommend", {
       params: { page, size },
     }),
 
