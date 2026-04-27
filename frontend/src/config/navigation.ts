@@ -1,17 +1,11 @@
-/**
- * 앱 전역 내비게이션 정의 — 한 곳에서 관리하여 Sidebar / BottomTab / Breadcrumb 이
- * 동일한 메뉴 구조를 공유한다.
- */
-
 import {
-  LayoutDashboard,
-  Target,
-  MessageSquareHeart,
-  Newspaper,
-  User,
-  FolderOpen,
   Bell,
   History,
+  LayoutDashboard,
+  MessageSquareHeart,
+  Newspaper,
+  Target,
+  User,
   type LucideIcon,
 } from "lucide-react";
 import type { Route } from "next";
@@ -21,9 +15,7 @@ export interface NavItem {
   label: string;
   href: Route;
   icon: LucideIcon;
-  /** 모바일 하단 탭바에도 노출할지 */
   showInBottomTab?: boolean;
-  /** 활성 상태 매칭용 prefix (예: /chat/123 도 /chat 으로 매칭) */
   matchPrefix?: string;
 }
 
@@ -39,7 +31,6 @@ export const NAV_ITEMS: NavItem[] = [
   {
     key: "policies",
     label: "맞춤 정책",
-    // 사이드바/탭바 클릭 시 기본적으로 '맞춤'(P06)으로 진입 — '/policies' 는 전체 탐색(P05).
     href: "/policies/matching",
     icon: Target,
     showInBottomTab: true,
@@ -55,7 +46,7 @@ export const NAV_ITEMS: NavItem[] = [
   },
   {
     key: "picks",
-    label: "비즈픽",
+    label: "BizPick",
     href: "/picks",
     icon: Newspaper,
     showInBottomTab: true,
@@ -68,14 +59,6 @@ export const NAV_ITEMS: NavItem[] = [
     icon: User,
     showInBottomTab: true,
     matchPrefix: "/profile",
-  },
-  {
-    key: "documents",
-    label: "서류 보관함",
-    href: "/documents",
-    icon: FolderOpen,
-    showInBottomTab: false,
-    matchPrefix: "/documents",
   },
   {
     key: "notifications",

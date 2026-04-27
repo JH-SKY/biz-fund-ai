@@ -36,7 +36,7 @@ function aiCommentOf(level?: MatchLevel | null, tier?: "L1" | "L2"): string {
   }
   switch (level) {
     case "GREEN":
-      return "사장님, 이 정책은 현재 조건에서 수혜 가능성이 매우 높습니다! (비즈몽 응원)";
+      return "사장님, 이 정책은 현재 조건에서 수혜 가능성이 매우 높습니다!";
     case "YELLOW":
       return "일부 조건을 보완하면 충분히 노려볼 만한 정책이에요.";
     case "RED":

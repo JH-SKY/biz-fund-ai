@@ -21,7 +21,11 @@ from src.app.agents.policy_sync_agent import PolicySyncAgent
 from src.app.database.postgres.database import get_db
 from src.app.domains.business.repository import BusinessRepository
 from src.app.domains.policy.embedding_service import PolicyEmbeddingService
-from src.app.domains.policy.interfaces import MockMatchEngine, RDBPolicySearcher, VectorPolicySearcher
+from src.app.domains.policy.interfaces import (
+    RDBPolicySearcher,
+    RuleBasedMatchEngine,
+    VectorPolicySearcher,
+)
 from src.app.domains.policy.repository import PolicyRepository
 from src.app.domains.policy.service import PolicyService
 from src.app.domains.policy.sync_service import BizinfoSyncService
@@ -40,7 +44,7 @@ async def get_policy_service(
     repo: Annotated[PolicyRepository, Depends(get_policy_repo)],
 ) -> PolicyService:
     searcher = RDBPolicySearcher(repo)
-    match_engine = MockMatchEngine()
+    match_engine = RuleBasedMatchEngine()
     vector_searcher = VectorPolicySearcher(repo)
     biz_repo = BusinessRepository(db)
     return PolicyService(

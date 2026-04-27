@@ -1,12 +1,5 @@
 "use client";
 
-/**
- * 정책 상세 하단 실행 버튼 영역 (Sticky on mobile).
- * - 찜하기(북마크 토글)
- * - 비즈몽과 서류 준비하기 → /chat?mode=document&policyId=...
- * - 공식 사이트 이동 (외부 링크)
- */
-
 import Link from "next/link";
 import { Bookmark, ExternalLink, MessageSquareHeart } from "lucide-react";
 
@@ -31,7 +24,6 @@ export function PolicyActionBar({
   return (
     <div
       className={cn(
-        // 모바일: 하단 탭바(bottom-tab) 바로 위에 sticky; 데스크톱: 일반 카드
         "sticky left-0 right-0 z-30 -mx-4 border-t border-surface-border bg-surface/95 px-4 py-3 backdrop-blur-sm",
         "bottom-[theme(spacing.bottom-tab)] lg:bottom-0",
         "sm:static sm:mx-0 sm:rounded-xl sm:border sm:px-5 sm:py-4 sm:shadow-card",
@@ -42,7 +34,7 @@ export function PolicyActionBar({
         <Button
           variant="secondary"
           onClick={onBookmarkToggle}
-          aria-label={isBookmarked ? "관심 정책 해제" : "관심 정책 저장"}
+          aria-label={isBookmarked ? "북마크 해제" : "북마크 추가"}
         >
           <Bookmark
             className={cn(isBookmarked && "fill-primary-600 text-primary-600")}
@@ -53,11 +45,9 @@ export function PolicyActionBar({
         </Button>
 
         <Button asChild variant="outline" className="flex-1 sm:flex-initial">
-          <Link
-            href={`/chat?mode=document&policyId=${encodeURIComponent(policyId)}`}
-          >
+          <Link href={`/chat?policyId=${encodeURIComponent(policyId)}`}>
             <MessageSquareHeart />
-            <span>비즈몽과 서류 준비</span>
+            <span>AI 상담하기</span>
           </Link>
         </Button>
 

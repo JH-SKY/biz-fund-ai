@@ -61,6 +61,20 @@ class PolicyRepository:
 
         return items, total_count, total_pages
 
+    async def get_recommendation_candidates(self, *, limit: int = 200) -> list[Policy]:
+        """Load a wider recruiting pool for recommendation ranking."""
+        stmt = (
+            select(Policy)
+            .where(
+                Policy.is_active.is_(True),
+                Policy.status == PolicyStatus.RECRUITING,
+            )
+            .order_by(Policy.closed_at.asc(), Policy.created_at.desc())
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
     async def get_policy_by_id(self, policy_id: uuid.UUID) -> Policy | None:
         """아이디로 정책 하나를 찾습니다. (비유: 특정 학번 학생 찾기)"""
         stmt = select(Policy).where(Policy.id == policy_id)
