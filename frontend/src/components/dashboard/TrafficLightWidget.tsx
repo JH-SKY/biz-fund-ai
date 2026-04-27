@@ -3,10 +3,10 @@
 /**
  * 사업장 신호등 위젯 — 현재 사업장의 '신청 준비 상태'를 즉각 전달.
  *
- * 판정 규칙 (프론트엔드 집계 — 백엔드 전용 엔드포인트 등장 전까지 클라이언트 로직)
- *  - GREEN  : profile_score >= 70 && 필수 서류(BIZ_REG) 존재
- *  - YELLOW : profile_score >= 40 || (필수 서류 누락 1건)
- *  - RED    : profile_score < 40
+ * 판정 규칙 (점수 기반 — 서류 여부와 무관)
+ *  - GREEN  : score >= 70
+ *  - YELLOW : score >= 40 (재무정보 미입력 포함)
+ *  - RED    : score < 40
  *
  * 최신 진단 점수(`latestDiagnosisScore`)가 있으면 그것을 우선 반영 (더 정밀).
  */
@@ -22,18 +22,17 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import type { BusinessInfo, DocumentListItem } from "@/types";
+import type { BusinessInfo } from "@/types";
 
 interface Props {
   business?: BusinessInfo | null;
   latestDiagnosisScore?: number | null;
-  documents?: DocumentListItem[];
   isLoading?: boolean;
 }
 
 type Light = "green" | "yellow" | "red";
 
-function computeLight(score: number, hasBizReg: boolean): {
+function computeLight(score: number): {
   level: Light;
   reasons: string[];
   advice: string[];
@@ -45,28 +44,28 @@ function computeLight(score: number, hasBizReg: boolean): {
   if (score < 40) level = "red";
   else if (score < 70) level = "yellow";
 
-  if (!hasBizReg) {
-    level = level === "green" ? "yellow" : level;
-    reasons.push("사업자등록증 미등록");
-    advice.push("서류 보관함에서 사업자등록증을 업로드 해주세요.");
+  if (score < 60) {
+    reasons.push(`프로필 점수 ${score}점 — 기본 정보를 더 채워주세요`);
+    advice.push("사업자번호·업종·지역·창업일·대표자명 등을 입력하면 점수가 올라갑니다.");
+  } else if (score < 70) {
+    reasons.push(`프로필 점수 ${score}점 — 재무정보 미입력`);
+    advice.push("재무정보(연매출·부채 등)를 입력하면 100점 만점이 되고 맞춤 정책 확률이 정확해집니다.");
+  } else if (score < 100) {
+    reasons.push(`프로필 점수 ${score}점 — 가점 항목을 보완해 보세요`);
+    advice.push("특허·벤처·여성기업 인증 여부를 추가하면 점수가 더 올라갑니다.");
   }
-  if (score < 70) {
-    reasons.push(`프로필 점수 ${score}점 — 가점 항목 보완 필요`);
-    advice.push(
-      "특허·벤처·여성기업 인증 여부를 프로필에서 추가 입력하면 점수가 올라갑니다."
-    );
-  }
+
   if (reasons.length === 0) {
-    reasons.push("필수 정보가 모두 입력되었습니다.");
+    reasons.push("모든 정보가 입력되었습니다.");
     advice.push("지금이 신청 적기에요. 원픽 카드에서 바로 신청하세요.");
   }
+
   return { level, reasons, advice };
 }
 
 export function TrafficLightWidget({
   business,
   latestDiagnosisScore,
-  documents,
   isLoading,
 }: Props) {
   if (isLoading || !business) {
@@ -85,10 +84,7 @@ export function TrafficLightWidget({
   const score = Math.round(
     latestDiagnosisScore ?? business.profile_score ?? 0
   );
-  const hasBizReg = Boolean(
-    documents?.some((d) => d.doc_type === "BIZ_REG")
-  );
-  const { level, reasons, advice } = computeLight(score, hasBizReg);
+  const { level, reasons, advice } = computeLight(score);
 
   const LightIcon =
     level === "green" ? CheckCircle2 : level === "yellow" ? Sparkles : AlertCircle;

@@ -32,7 +32,6 @@ import { useEffect, useMemo } from "react";
 import {
   ApplicationStatusTracker,
   BenefitLevelCard,
-  DocumentsWidget,
   InsightTipCard,
   MatchSummaryCard,
   OnePickSection,
@@ -43,7 +42,6 @@ import {
 import {
   useDiagnosisHistory,
   useMyBusiness,
-  useMyDocuments,
   useRecommendedPolicies,
   useToggleBookmark,
 } from "@/hooks/useDashboard";
@@ -56,7 +54,6 @@ export default function DashboardPage() {
   const bizQ = useMyBusiness();
   const recQ = useRecommendedPolicies({ size: 10 });
   const diagQ = useDiagnosisHistory();
-  const docsQ = useMyDocuments();
   const bookmarkMut = useToggleBookmark();
 
   // 사업장 조회 성공 → 스토어에 자동 반영 (이후 API 는 X-Business-Id 헤더 자동 첨부)
@@ -117,11 +114,9 @@ export default function DashboardPage() {
           <TrafficLightWidget
             business={bizQ.data}
             latestDiagnosisScore={latestDiagnosisScore}
-            documents={docsQ.data}
             isLoading={bizQ.isLoading}
           />
           <ApplicationStatusTracker latestApplication={null} />
-          <DocumentsWidget documents={docsQ.data} isLoading={docsQ.isLoading} />
         </aside>
       </div>
     </div>

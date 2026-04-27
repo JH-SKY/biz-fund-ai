@@ -56,7 +56,6 @@ export default function MatchingPoliciesPage() {
 
   const unverifiedNotice = data?.unverified_notice ?? null;
   const tier = data?.completeness_tier ?? "L1";
-  const upgradeHint = data?.upgrade_hint ?? null;
 
   const decorated: DecoratedItem[] = useMemo(
     () => (data?.items ?? []).map((i, idx) => decorate(i, idx)),
@@ -94,8 +93,8 @@ export default function MatchingPoliciesPage() {
 
       <PolicyPageTabs active="matching" />
 
-      {/* L1 단계 유도 배너 */}
-      {tier === "L1" && upgradeHint ? (
+      {/* L1/L2 안내 배너 */}
+      {tier === "L1" ? (
         <div
           role="status"
           className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3"
@@ -103,13 +102,17 @@ export default function MatchingPoliciesPage() {
           <div className="flex items-start justify-between gap-3">
             <div className="space-y-1">
               <p className="text-sm font-medium text-blue-900">
-                🔍 지금은 1차 맞춤 추천입니다
+                📋 재무정보를 입력하면 이런 혜택을 받을 수 있어요
               </p>
-              <p className="text-xs text-blue-700">{upgradeHint}</p>
+              <ul className="mt-1 space-y-0.5 text-xs text-blue-700">
+                <li>· 공고별 실제 수혜 가능 여부 (적합 / 조건부 / 어려움)</li>
+                <li>· 받을 확률 % 표시</li>
+                <li>· &ldquo;부채 줄이면 확률 10% 상승&rdquo; 같은 개인 맞춤 시뮬레이션</li>
+              </ul>
             </div>
             <Link href="/profile">
               <Button size="sm" variant="outline" className="shrink-0 border-blue-300 text-blue-700 hover:bg-blue-100">
-                재무 입력 →
+                재무정보 입력 →
               </Button>
             </Link>
           </div>
@@ -117,9 +120,10 @@ export default function MatchingPoliciesPage() {
       ) : tier === "L2" ? (
         <div
           role="status"
-          className="rounded-xl border border-green-200 bg-green-50 px-4 py-2 text-xs text-green-800"
+          className="rounded-xl border border-green-200 bg-green-50 px-4 py-3"
         >
-          ✅ 재무정보 반영 완전 맞춤 — 추정 확률이 카드에 표시됩니다
+          <p className="text-sm font-medium text-green-900">✅ 재무정보가 반영된 완전 맞춤 추천이에요</p>
+          <p className="mt-0.5 text-xs text-green-700">각 카드에서 수혜 가능 확률을 확인할 수 있어요.</p>
         </div>
       ) : null}
 

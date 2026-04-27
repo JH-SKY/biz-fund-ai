@@ -7,7 +7,7 @@
  */
 
 import Link from "next/link";
-import { MessageSquareHeart, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -62,9 +62,9 @@ export function MatchSummaryCard({ matchedCount, isLoading }: Props) {
         )}
 
         <Button asChild variant="primary" size="lg" className="w-full sm:w-auto">
-          <Link href="/chat">
-            <MessageSquareHeart />
-            비즈몽 AI 비서에게 물어보기
+          <Link href="/policies/matching">
+            <Sparkles />
+            맞춤 정책 보러가기
           </Link>
         </Button>
       </CardContent>

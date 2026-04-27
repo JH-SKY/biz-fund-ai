@@ -58,34 +58,41 @@ from src.app.domains.business.schema import (
 # ── 내부 유틸 ──────────────────────────────────────────────────────────────
 
 
-def _compute_profile_score(biz: Business) -> int:
+def _compute_profile_score(biz: Business, has_real_finance: bool = False) -> int:
     """사업장 정보 완성도 점수 계산 (0~100점).
 
-    완성도가 높을수록 정책 매칭 정밀도가 올라간다.
+    1차 기본정보만 입력 시 최대 60점.
+    2차 재무정보(연매출 등)까지 입력 시 +40점 추가 → 최대 100점.
     """
     score = 0
     if biz.biz_no:
-        score += 20
-    if biz.ksic_code:
-        score += 20
-    if biz.region_sido:
-        score += 10
-    if biz.region_sigungu:
-        score += 5
-    if biz.establishment_date:
         score += 15
+    if biz.ksic_code:
+        score += 15
+    if biz.region_sido:
+        score += 8
+    if biz.region_sigungu:
+        score += 4
+    if biz.establishment_date:
+        score += 10
     if biz.representative_name:
-        score += 10
-    if biz.has_patent:
-        score += 10
-    if biz.is_female_ent:
-        score += 5
-    if biz.is_ventured:
-        score += 5
+        score += 8
     if biz.employee_count is not None:
         score += 5
     if biz.funding_purpose and biz.funding_purpose != "UNSURE":
         score += 3
+    # 가점 항목
+    if biz.has_patent:
+        score += 5
+    if biz.is_female_ent:
+        score += 3
+    if biz.is_ventured:
+        score += 3
+    # 1차 정보만 있으면 최대 60점
+    score = min(score, 60)
+    # 2차 재무정보가 실제로 입력된 경우 +40점
+    if has_real_finance:
+        score += 40
     return min(score, 100)
 
 
@@ -402,7 +409,10 @@ class BusinessService:
             if body.has_tax_arrears is not None
             else None,
         )
-        score = _compute_profile_score(biz)
+        # 재무정보 유무 확인 후 score 재계산
+        latest_finance = await self._repo.get_latest_financial_snapshot_internal(biz.id)
+        has_real_finance = latest_finance is not None and latest_finance.annual_revenue is not None
+        score = _compute_profile_score(biz, has_real_finance=has_real_finance)
         await self._repo.update_business(biz, profile_score=score)
         await self._session.commit()
 
@@ -453,6 +463,10 @@ class BusinessService:
             employee_count=body.employee_count,
             tax_arrears_yn=body.tax_arrears_yn,
         )
+        # 재무정보 실제 입력 시 profile_score +40점 반영
+        if body.annual_revenue is not None:
+            new_score = _compute_profile_score(biz, has_real_finance=True)
+            await self._repo.update_business(biz, profile_score=new_score)
         await self._session.commit()
         return _to_finance_response(snap)
 
@@ -485,6 +499,11 @@ class BusinessService:
             employee_count=body.employee_count,
             tax_arrears_yn=body.tax_arrears_yn,
         )
+        # 연매출이 실제로 채워지면 profile_score +40점 반영
+        effective_revenue = body.annual_revenue if body.annual_revenue is not None else snap.annual_revenue
+        if effective_revenue is not None:
+            new_score = _compute_profile_score(biz, has_real_finance=True)
+            await self._repo.update_business(biz, profile_score=new_score)
         await self._session.commit()
 
     async def get_financial_history(
