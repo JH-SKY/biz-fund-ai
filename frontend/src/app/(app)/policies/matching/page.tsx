@@ -54,14 +54,13 @@ export default function MatchingPoliciesPage() {
   const { data, isLoading, isError, refetch } = useRecommendedPolicies();
   const bookmarkMutation = useBookmarkToggle();
 
-  const items: PolicyRecommendItem[] = data?.items ?? [];
   const unverifiedNotice = data?.unverified_notice ?? null;
   const tier = data?.completeness_tier ?? "L1";
   const upgradeHint = data?.upgrade_hint ?? null;
 
   const decorated: DecoratedItem[] = useMemo(
-    () => items.map((i, idx) => decorate(i, idx)),
-    [items]
+    () => (data?.items ?? []).map((i, idx) => decorate(i, idx)),
+    [data?.items]
   );
 
   const filtered = useMemo(() => {

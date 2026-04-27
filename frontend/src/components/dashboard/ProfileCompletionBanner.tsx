@@ -64,7 +64,7 @@ export function ProfileCompletionBanner({ tier }: Props) {
             </li>
             <li className="flex items-center gap-1.5">
               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary-400" />
-              시뮬레이션 ("부채 줄이면 확률 10% 상승" 등)
+              시뮬레이션 (&ldquo;부채 줄이면 확률 10% 상승&rdquo; 등)
             </li>
           </ul>
 

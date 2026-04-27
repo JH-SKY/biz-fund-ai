@@ -247,7 +247,6 @@ async def stream_agent_message(
 
     async def event_stream() -> AsyncGenerator[str, None]:
         from src.app.agents.biz_mong.nodes.router_node import router_node
-        from src.app.agents.biz_mong.nodes.chitchat_node import chitchat_node
         from src.app.agents.biz_mong.state import make_initial_state
         from openai import AsyncOpenAI
         from src.app.core.config import OPENAI_API_KEY
@@ -305,7 +304,6 @@ async def stream_agent_message(
 
                 from src.app.agents.biz_mong.nodes.chitchat_node import (
                     _SYSTEM_PROMPT_GENERAL,
-                    _get_last_user_message,
                 )
                 messages_hist: list = merged_state.get("messages") or []
                 history = [

@@ -1,5 +1,7 @@
 """정밀진단 도메인 Pydantic 스키마."""
 
+from __future__ import annotations
+
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional

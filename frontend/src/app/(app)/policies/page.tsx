@@ -72,18 +72,18 @@ export default function PoliciesPage() {
 
   const bookmarkMutation = useBookmarkToggle();
 
-  const items: PolicyListItem[] = data?.items ?? [];
   const totalCount = data?.total_count ?? 0;
   const totalPages = data?.total_pages ?? 1;
 
   const { displayItems } = useMemo(() => {
-    const sorted = sortPolicies(items, sort);
+    const _items = data?.items ?? [];
+    const sorted = sortPolicies(_items, sort);
     const active = sorted.filter((p) => !isClosed(p));
     const closed = sorted.filter((p) => isClosed(p));
     return {
       displayItems: includeClosed ? [...active, ...closed] : active,
     };
-  }, [items, sort, includeClosed]);
+  }, [data?.items, sort, includeClosed]);
 
   // 필터 변경 시 페이지 리셋
   const handleFilterChange = (next: PolicyFilterState) => {
