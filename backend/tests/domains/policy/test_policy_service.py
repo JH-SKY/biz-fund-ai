@@ -44,6 +44,10 @@ class _FakePolicyRepo:
     ):
         return self._policies[:size], len(self._policies), 1
 
+    async def get_recommendation_candidates(self, limit: int):
+        # 테스트용 가짜 정책 리스트 반환 (기존에 쓰던 데이터가 있다면 활용)
+        return self._policies[:limit]
+
     async def get_policy_by_id(self, policy_id: uuid.UUID):
         return SimpleNamespace(id=policy_id, is_active=True)
 
