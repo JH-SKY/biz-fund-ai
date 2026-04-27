@@ -17,7 +17,7 @@ import uuid
 from abc import ABC, abstractmethod
 from typing import Optional, Tuple
 
-from src.app.domains.business.model import Business
+from src.app.domains.business.model import Business, BusinessFinancialSnapshot
 from src.app.domains.policy.ksic_rules import is_ksic_policy_excluded
 from src.app.domains.policy.model import Policy
 from src.app.domains.policy.repository import PolicyRepository
@@ -36,11 +36,13 @@ class MatchResult:
         match_level: MatchLevel,
         match_score: float,
         reason: str,
+        estimated_probability: Optional[float] = None,
     ) -> None:
         self.policy_id = policy_id
         self.match_level = match_level
         self.match_score = match_score
         self.reason = reason
+        self.estimated_probability = estimated_probability
 
 
 class IPolicySearcher(ABC):
@@ -68,6 +70,7 @@ class IMatchEngine(ABC):
         *,
         policy: Policy,
         business: Business,
+        financial_snapshot: Optional[BusinessFinancialSnapshot] = None,
     ) -> MatchResult:
         pass
 
@@ -99,45 +102,126 @@ class RDBPolicySearcher(IPolicySearcher):
         )
 
 
+# L2 재무 기반 확률 추정 상수
+_PROB_BASE = 40.0        # L2 시작 기저
+_PROB_DEBT_PENALTY = 20.0   # 부채비율 > 200% 시 차감
+_PROB_TAX_PENALTY = 30.0    # 체납 시 차감
+_PROB_REVENUE_BONUS = 10.0  # 매출 > 1억 가점
+_PROB_PATENT_BONUS = 5.0    # 특허·벤처 가점
+
+
 class MockMatchEngine(IMatchEngine):
-    """테스트 및 초기 개발용 Mock 매칭 엔진."""
+    """테스트 및 초기 개발용 Mock 매칭 엔진.
+
+    L1(프로필만): score 최대 60 캡, estimated_probability=None
+    L2(재무 있음): 부채·체납·매출 룰 적용, estimated_probability 산출
+    """
 
     async def compute_match(
         self,
         *,
         policy: Policy,
         business: Business,
+        financial_snapshot: Optional[BusinessFinancialSnapshot] = None,
     ) -> MatchResult:
+        # ── 제외 업종 우선 처리 ──
         if is_ksic_policy_excluded(business.ksic_code):
             return MatchResult(
                 policy_id=policy.id,
                 match_level=MatchLevel.RED,
                 match_score=0.0,
                 reason="현재 KSIC(업종)는 정책자금 지원 제외(또는 별도 심사) 대상에 해당할 수 있습니다.",
+                estimated_probability=None,
             )
 
-        raw_score = business.profile_score if business.profile_score is not None else 0
-        score = float(raw_score)
-        if business.employee_count is None:
-            score = min(score, 45.0)
-        elif business.employee_count < 5:
+        raw_score = float(business.profile_score or 0)
+
+        # ── L1 전용 로직 (재무 없음) ──
+        if financial_snapshot is None:
+            score = min(raw_score, 60.0)
+            if business.employee_count is None:
+                score = min(score, 45.0)
+            elif business.employee_count < 5:
+                score = min(score, score + 3.0)
+
+            if score >= 50:
+                level = MatchLevel.YELLOW
+                reason = "기본 프로필 기준 잠재적 적합 공고입니다. 재무정보를 입력하면 정확도가 올라갑니다."
+            elif score >= 30:
+                level = MatchLevel.YELLOW
+                reason = "프로필 정보가 일부 부족합니다. 재무·인원 정보를 보완해 주세요."
+            else:
+                level = MatchLevel.RED
+                reason = "프로필(업종·인원·지역) 정보를 보강한 뒤 다시 맞춤을 받아보세요."
+
+            return MatchResult(
+                policy_id=policy.id,
+                match_level=level,
+                match_score=round(score, 1),
+                reason=reason,
+                estimated_probability=None,
+            )
+
+        # ── L2 로직 (재무 있음) ──
+        score = raw_score
+        if business.employee_count is not None and business.employee_count < 5:
             score = min(100.0, score + 3.0)
 
+        # 부채비율 패널티 (200% 초과 시 감점, 400% 초과 시 추가)
+        debt = float(financial_snapshot.debt_ratio or 0)
+        if debt > 400:
+            score = max(0.0, score - 25.0)
+        elif debt > 200:
+            score = max(0.0, score - 12.0)
+
+        # 체납 패널티
+        tax_arrears = financial_snapshot.tax_arrears_yn or business.has_tax_arrears
+        if tax_arrears:
+            score = max(0.0, score - 20.0)
+
+        # 매출 보너스 (1억 이상)
+        if financial_snapshot.annual_revenue and financial_snapshot.annual_revenue >= 100_000_000:
+            score = min(100.0, score + 5.0)
+
+        # 확률 추정 (참고용)
+        prob = _PROB_BASE + (score - 50) * 0.6
+        if debt > 200:
+            prob -= _PROB_DEBT_PENALTY
+        if tax_arrears:
+            prob -= _PROB_TAX_PENALTY
+        if financial_snapshot.annual_revenue and financial_snapshot.annual_revenue >= 100_000_000:
+            prob += _PROB_REVENUE_BONUS
+        if business.has_patent or business.is_ventured:
+            prob += _PROB_PATENT_BONUS
+        prob = round(max(5.0, min(95.0, prob)), 1)
+
+        # 신호등 판정
         if score >= 70:
             level = MatchLevel.GREEN
-            reason = "사업장 정보·규모(근로자)를 바탕으로 주요 자격을 충족하는 것으로 보입니다."
+            if tax_arrears:
+                reason = "프로필 적합도는 높지만 체납 이력이 불리하게 작용할 수 있습니다."
+            elif debt > 200:
+                reason = "적합도는 양호하나 부채비율 개선 시 추정 확률이 올라갑니다."
+            else:
+                reason = "사업장 정보·재무 기준을 충족하는 것으로 보입니다."
         elif score >= 40:
             level = MatchLevel.YELLOW
-            reason = "일부 요건(재무·가점) 보완 시 유리한 공고로 올릴 수 있습니다. 정밀진단을 권장합니다."
+            if tax_arrears:
+                reason = "체납 해소 후 재신청 시 승인 가능성이 높아집니다."
+            elif debt > 200:
+                reason = f"부채비율({debt:.0f}%)을 낮추면 추정 확률이 약 {_PROB_DEBT_PENALTY:.0f}%p 개선됩니다."
+            else:
+                reason = "일부 재무 요건 보완 시 유리한 공고로 상향됩니다."
         else:
             level = MatchLevel.RED
-            reason = "프로필(업종·인원·지역) 정보를 보강한 뒤 다시 맞춤을 받아보세요."
+            reason = "재무 상태(부채·체납)를 개선한 뒤 다시 맞춤을 받아보세요."
 
         return MatchResult(
             policy_id=policy.id,
             match_level=level,
             match_score=round(score, 1),
             reason=reason,
+            estimated_probability=prob,
         )
 
 

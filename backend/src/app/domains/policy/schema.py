@@ -29,6 +29,17 @@ class MatchLevel(str, Enum):
     RED = "RED"
 
 
+class CompletionTier(str, Enum):
+    """맞춤 추천 완성도 단계.
+
+    L1 — 사업자 기본정보만 입력된 상태 (업종·지역·인원·용도).
+    L2 — 재무 스냅샷까지 입력 완료 → 확률·시뮬레이션 활성.
+    """
+
+    L1 = "L1"
+    L2 = "L2"
+
+
 # ── 목록 조회 ──────────────────────────────────────────────────────────────
 
 
@@ -63,6 +74,12 @@ class PolicyRecommendItem(BaseModel):
     match_level: MatchLevel
     match_score: float = Field(..., ge=0.0, le=100.0, description="매칭 점수 (0~100)")
     reason: str = Field(..., min_length=1, description="매칭 판정 근거 문구")
+    estimated_probability: Optional[float] = Field(
+        None,
+        ge=0.0,
+        le=100.0,
+        description="추정 수혜 확률 (0~100). L2(재무) 입력 시에만 제공되는 참고 수치.",
+    )
     is_bookmarked: bool = False
 
     model_config = ConfigDict(from_attributes=True)
@@ -70,6 +87,18 @@ class PolicyRecommendItem(BaseModel):
 
 class PolicyRecommendResponse(BaseModel):
     items: list[PolicyRecommendItem]
+    completeness_tier: CompletionTier = Field(
+        CompletionTier.L1,
+        description="현재 추천 완성도 단계. L2 이면 확률·시뮬 기능 활성.",
+    )
+    upgrade_hint: Optional[str] = Field(
+        None,
+        description="L1 단계 사용자에게 보여줄 L2 유도 안내 문구",
+    )
+    missing_fields: list[str] = Field(
+        default_factory=list,
+        description="L2 전환에 필요한 누락 항목 목록",
+    )
     unverified_notice: Optional[str] = Field(
         None,
         description="사업자번호 국세청 미검증 시 맞춤 추천 상단 안내 문구",

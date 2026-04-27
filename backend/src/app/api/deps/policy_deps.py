@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.agents.policy_sync_agent import PolicySyncAgent
 from src.app.database.postgres.database import get_db
+from src.app.domains.business.repository import BusinessRepository
 from src.app.domains.policy.embedding_service import PolicyEmbeddingService
 from src.app.domains.policy.interfaces import MockMatchEngine, RDBPolicySearcher, VectorPolicySearcher
 from src.app.domains.policy.repository import PolicyRepository
@@ -41,12 +42,14 @@ async def get_policy_service(
     searcher = RDBPolicySearcher(repo)
     match_engine = MockMatchEngine()
     vector_searcher = VectorPolicySearcher(repo)
+    biz_repo = BusinessRepository(db)
     return PolicyService(
         session=db,
         repo=repo,
         searcher=searcher,
         match_engine=match_engine,
         vector_searcher=vector_searcher,
+        biz_repo=biz_repo,
     )
 
 

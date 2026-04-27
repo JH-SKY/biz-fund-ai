@@ -15,6 +15,7 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.domains.business.model import Business
 from src.app.domains.business.exception import business_not_found
+from src.app.domains.business.repository import BusinessRepository
 from src.app.domains.policy.exception import (
     policy_not_found,
 )
@@ -27,6 +28,7 @@ from src.app.domains.policy.model import Policy
 from src.app.domains.policy.repository import PolicyRepository
 from src.app.domains.policy.schema import (
     BookmarkToggleResponse,
+    CompletionTier,
     MatchLevel,
     PolicyDetailResponse,
     PolicyListItem,
@@ -88,12 +90,14 @@ class PolicyService:
         searcher: IPolicySearcher,
         match_engine: IMatchEngine,
         vector_searcher: IVectorSearcher | None = None,
+        biz_repo: BusinessRepository | None = None,
     ) -> None:
         self._session = session
         self._repo = repo
         self._searcher = searcher
         self._match_engine = match_engine
         self._vector_searcher = vector_searcher
+        self._biz_repo = biz_repo
 
     @staticmethod
     def _ensure_business_access(
@@ -206,24 +210,34 @@ class PolicyService:
 
         설계 의도:
           - [A5 권한 격리] 헤더로 들어온 ID와 DB에서 조회된 실제 사업장 객체가 일치하는지 검증합니다.
-          - 일치하지 않을 경우, 권한 없는 데이터 접근으로 간주하여 에러를 발생시킵니다.
+          - L1(기본 프로필만)/L2(재무 포함) 단계를 구분하여 엔진·응답을 다르게 구성합니다.
         """
-        # 1. 권한 검증 (라우터에서 이관된 로직)
+        # 1. 권한 검증
         self._ensure_business_access(business, requested_business_id)
 
-        # 2. 정책 데이터 로드
+        # 2. 최신 재무 스냅샷 조회 → L1/L2 티어 판단
+        financial_snapshot = None
+        if self._biz_repo is not None:
+            financial_snapshot = await self._biz_repo.get_latest_financial_snapshot_internal(
+                business.id
+            )
+
+        tier = CompletionTier.L2 if financial_snapshot is not None else CompletionTier.L1
+
+        # 3. 정책 데이터 로드
         policies, _, _ = await self._repo.get_active_policies(page=page, size=size)
 
-        # ... (이하 로직은 기존 원본과 동일)
         bookmarked_ids = await self._repo.get_bookmarked_policy_ids(
             business_id=business.id, policy_ids=[p.id for p in policies]
         )
 
+        # 4. 매칭 계산
         items: list[PolicyRecommendItem] = []
         for policy in policies:
-            # 인터페이스를 통한 매칭 계산 (현재는 Mock)
             result = await self._match_engine.compute_match(
-                policy=policy, business=business
+                policy=policy,
+                business=business,
+                financial_snapshot=financial_snapshot,
             )
             items.append(
                 PolicyRecommendItem(
@@ -232,13 +246,24 @@ class PolicyService:
                     match_level=result.match_level,
                     match_score=result.match_score,
                     reason=result.reason,
+                    estimated_probability=result.estimated_probability,
                     is_bookmarked=policy.id in bookmarked_ids,
                 )
             )
 
-        # 신호등 등급순(GREEN -> YELLOW -> RED) 및 점수 내림차순 정렬
+        # 5. 신호등 등급순(GREEN → YELLOW → RED) 및 점수 내림차순 정렬
         level_order = {MatchLevel.GREEN: 0, MatchLevel.YELLOW: 1, MatchLevel.RED: 2}
         items.sort(key=lambda x: (level_order[x.match_level], -x.match_score))
+
+        # 6. L1/L2 안내 문구
+        upgrade_hint: str | None = None
+        missing_fields: list[str] = []
+        if tier == CompletionTier.L1:
+            upgrade_hint = (
+                "재무정보(매출·부채·체납 여부)를 입력하면 "
+                "맞춤 강도·추정 확률·개선 시뮬레이션이 활성화됩니다."
+            )
+            missing_fields = ["annual_revenue", "total_debt", "debt_ratio"]
 
         unverified_notice: str | None = None
         if not business.is_biz_no_verified:
@@ -246,6 +271,9 @@ class PolicyService:
 
         return PolicyRecommendResponse(
             items=items,
+            completeness_tier=tier,
+            upgrade_hint=upgrade_hint,
+            missing_fields=missing_fields,
             unverified_notice=unverified_notice,
         )
 
