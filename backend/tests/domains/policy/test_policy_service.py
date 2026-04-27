@@ -152,7 +152,10 @@ async def test_get_recommended_policies_unverified_notice_when_not_verified():
         size=10,
     )
 
-    assert data.unverified_notice == "미검증 사업자 정보 기반 추천입니다"
+    assert (
+        data.unverified_notice
+        == "사업자번호 미검증 상태라 기본 사업 정보 기준으로만 추천합니다."
+    )
 
 
 @pytest.mark.asyncio
