@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import AsyncGenerator, Optional
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -224,6 +224,7 @@ def _sse(event_type: str, payload: dict) -> str:
 async def stream_agent_message(
     session_id: uuid.UUID,
     req: SendMessageRequest,
+    request: Request,
     svc: ChatServiceDep,
     agent: BizMongAgentDep,
     biz: ActiveBusiness,
@@ -381,14 +382,20 @@ async def stream_agent_message(
             "rag_results": None,
         })
 
+    origin = request.headers.get("origin", "")
+    cors_headers: dict[str, str] = {
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "Connection": "keep-alive",
+    }
+    if origin:
+        cors_headers["Access-Control-Allow-Origin"] = origin
+        cors_headers["Access-Control-Allow-Credentials"] = "true"
+
     return StreamingResponse(
         event_stream(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-        },
+        headers=cors_headers,
     )
 
 
