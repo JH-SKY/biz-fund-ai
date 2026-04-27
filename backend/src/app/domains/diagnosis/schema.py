@@ -93,7 +93,7 @@ class DiagnosisHistoryItem(BaseModel):
 
 
 class ExecuteSimulationRequest(BaseModel):
-    policy_id: uuid.UUID
+    policy_id: Optional[uuid.UUID] = Field(None, description="특정 정책 대상 시뮬 시 지정 (생략 시 종합 점수 시뮬)")
     virtual_conditions: Dict[str, Any]
 
 

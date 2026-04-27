@@ -414,7 +414,7 @@ export interface DiagnosisHistoryItem {
 }
 
 export interface ExecuteSimulationRequest {
-  policy_id: string;
+  policy_id?: string;
   virtual_conditions: Record<string, unknown>;
 }
 

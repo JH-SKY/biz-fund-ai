@@ -178,22 +178,43 @@ class DiagnosisService:
         req: ExecuteSimulationRequest,
     ) -> ExecuteSimulationResponseData:
         """
-        1. 기능: 특정 정책에 대한 가산점 시뮬레이션 실행 및 결과 전파.
-        2. 설계 의도: 시뮬레이션 결과를 매칭 로그(match_logs)에도 동기화하여 대시보드에 노출합니다.
+        1. 기능: 가산점 시뮬레이션 실행 및 결과 전파.
+        2. policy_id=None 이면 종합 점수 시뮬(독립 시뮬 페이지용), 있으면 특정 정책 대상 시뮬.
         """
-        policy = await self._policy_service.get_policy_by_id_internal(req.policy_id)
-        if not policy:
-            raise NotFoundException("정책을 찾을 수 없습니다.")
+        # ── 최신 재무 스냅샷으로 base_inputs 구성 ────────────────────
+        snap = await self._business_service.get_latest_financial_snapshot_internal(business.id)
+        base_inputs: dict = {
+            "annual_revenue": snap.annual_revenue if snap else None,
+            "total_debt": snap.total_debt if snap else None,
+            "employee_count": snap.employee_count if snap else (business.employee_count or 0),
+            "has_patent": business.has_patent,
+            "is_female_ent": business.is_female_ent,
+            "is_ventured": business.is_ventured,
+            "has_tax_arrears": business.has_tax_arrears,
+        }
+
+        # 엔진에게 base_inputs + virtual_conditions 를 함께 전달
+        conditions = {
+            "base_inputs": base_inputs,
+            "virtual_conditions": req.virtual_conditions,
+        }
+
+        # ── 정책 조회 (policy_id 있을 때만) ──────────────────────────
+        policy = None
+        if req.policy_id is not None:
+            policy = await self._policy_service.get_policy_by_id_internal(req.policy_id)
+            if not policy:
+                raise NotFoundException("정책을 찾을 수 없습니다.")
 
         result = await self._engine.execute_simulation(
             business=business,
             policy=policy,
-            conditions=req.virtual_conditions,
+            conditions=conditions,
         )
 
         input_data = {
-            "policy_id": str(policy.id),
-            "policy_title": policy.title,
+            "policy_id": str(req.policy_id) if req.policy_id else None,
+            "policy_title": policy.title if policy else "종합 점수 시뮬레이션",
             "virtual_conditions": req.virtual_conditions,
         }
         output_data = {
@@ -202,24 +223,24 @@ class DiagnosisService:
             "gain_factors": result.gain_factors,
         }
 
-        # [변경] Repository 업데이트에 따른 AI 추적 필드 반영
         log = await self._repo.create_simulation_log(
             business_id=business.id,
             sim_type="SIMULATION",
             input_data=input_data,
             output_data=output_data,
-            model_name="gpt-4o", # 시뮬레이션에 사용된 모델 기록
-            cost=0.005
+            model_name="rule-based",
+            cost=0.0,
         )
 
-        # match_logs 에도 삽입 (시뮬레이션된 매칭 점수)
-        await self._repo.create_match_log(
-            business_id=business.id,
-            policy_id=policy.id,
-            match_score=int(result.simulated_rate),
-            match_status="SIMULATED",
-            reason_json={"sim_log_id": str(log.id), "gain_factors": result.gain_factors},
-        )
+        # policy_id 있을 때만 match_log 생성
+        if policy is not None:
+            await self._repo.create_match_log(
+                business_id=business.id,
+                policy_id=policy.id,
+                match_score=int(result.simulated_rate),
+                match_status="SIMULATED",
+                reason_json={"sim_log_id": str(log.id), "gain_factors": result.gain_factors},
+            )
 
         await self._session.commit()
 

@@ -93,8 +93,25 @@ class RuleBasedDiagnosisEngine(IDiagnosisEngine):
     ):
         from src.app.domains.diagnosis.interfaces import SimulationResult
 
-        _ = business, policy
-        return SimulationResult(60.0, 78.0, ["(시뮬) 가점 가정: 특허 +10%p"])
+        _ = policy  # 종합 점수 시뮬에서는 미사용
+
+        # ── 현재 기준 점수 계산 ─────────────────────────────────────
+        # conditions 에 "base_inputs" 키로 현재 상태가 전달된다
+        base_raw: dict = conditions.get("base_inputs", {})
+        base = _score_from_dict(base_raw)
+
+        # ── 가상 조건 적용 후 점수 계산 ─────────────────────────────
+        virt_raw: dict = {**base_raw, **conditions.get("virtual_conditions", {})}
+        simulated = _score_from_dict(virt_raw)
+
+        # ── gain_factors 생성 ────────────────────────────────────────
+        gain_factors = _build_gain_factors(base_raw, virt_raw)
+
+        return SimulationResult(
+            base_rate=float(base),
+            simulated_rate=float(simulated),
+            gain_factors=gain_factors,
+        )
 
 
 def _build_comment(
@@ -112,3 +129,83 @@ def _build_comment(
         parts.append("특허·벤처 가점이 없다면, 취득 시 시뮬레이션에서 효과를 비교해보세요.")
     parts.append(f"규칙 기반 총점 {total}점(참고)입니다. 최종은 기관·공고마다 다릅니다.")
     return " ".join(parts)
+
+
+def _score_from_dict(d: dict) -> float:
+    """virtual_conditions 또는 base_inputs dict 에서 점수를 계산한다."""
+    if d.get("has_tax_arrears"):
+        return 0.0
+
+    total_debt = d.get("total_debt")
+    annual_revenue = d.get("annual_revenue")
+    if total_debt is not None and annual_revenue and annual_revenue > 0:
+        dr: float | None = round(total_debt / annual_revenue * 100, 2)
+    else:
+        dr = d.get("debt_ratio")
+
+    if dr is not None and dr >= _DEBT_SEVERE:
+        return 20.0
+
+    base = 45.0
+    emp = d.get("employee_count", 0) or 0
+    if emp < 5:
+        base += 6.0
+    elif emp < 10:
+        base += 2.0
+
+    if annual_revenue and annual_revenue >= 100_000_000:
+        base += 4.0
+    if d.get("has_patent"):
+        base += 10.0
+    if d.get("is_female_ent"):
+        base += 4.0
+    if d.get("is_ventured"):
+        base += 4.0
+    if dr is not None and dr >= _DEBT_WARN:
+        base -= 12.0
+
+    return float(max(0.0, min(100.0, round(base, 1))))
+
+
+def _build_gain_factors(base: dict, virt: dict) -> list[str]:
+    """변경 항목 기반으로 gain_factors 문자열 목록을 생성한다."""
+    factors: list[str] = []
+    base_score = _score_from_dict(base)
+    virt_score = _score_from_dict(virt)
+    diff = round(virt_score - base_score, 1)
+
+    if virt.get("has_patent") and not base.get("has_patent"):
+        factors.append("특허 등록 +10점")
+    if virt.get("is_ventured") and not base.get("is_ventured"):
+        factors.append("벤처 인증 +4점")
+    if virt.get("is_female_ent") and not base.get("is_female_ent"):
+        factors.append("여성기업 인증 +4점")
+
+    b_emp = base.get("employee_count", 0) or 0
+    v_emp = virt.get("employee_count", 0) or 0
+    if v_emp != b_emp:
+        factors.append(f"직원 수 {b_emp}명 → {v_emp}명 변경")
+
+    b_rev = base.get("annual_revenue") or 0
+    v_rev = virt.get("annual_revenue") or 0
+    if v_rev != b_rev:
+        factors.append(f"연매출 {b_rev // 10_000:,}만원 → {v_rev // 10_000:,}만원")
+
+    b_debt = base.get("total_debt") or 0
+    v_debt = virt.get("total_debt") or 0
+    if v_debt != b_debt:
+        factors.append(f"총부채 {b_debt // 10_000:,}만원 → {v_debt // 10_000:,}만원")
+
+    if not base.get("has_tax_arrears") and virt.get("has_tax_arrears"):
+        factors.append("세금 체납 → 결격")
+    elif base.get("has_tax_arrears") and not virt.get("has_tax_arrears"):
+        factors.append("세금 체납 해소")
+
+    if diff > 0:
+        factors.append(f"종합 점수 +{diff}점 예상")
+    elif diff < 0:
+        factors.append(f"종합 점수 {diff}점 예상")
+    else:
+        factors.append("점수 변화 없음")
+
+    return factors

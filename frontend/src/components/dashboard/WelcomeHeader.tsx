@@ -54,14 +54,24 @@ export function WelcomeHeader({ business, isLoading, isOnboarded }: Props) {
   }
 
   return (
-    <section>
-      <p className="text-sm text-ink-tertiary">안녕하세요</p>
-      <h1 className="text-2xl sm:text-3xl">
-        <span className="text-primary-700">{displayName}</span> 사장님 👋
-      </h1>
-      <p className="mt-1 text-sm text-ink-secondary">
-        오늘도 사장님의 사업을 응원합니다. 아래는 오늘의 핵심 브리핑이에요.
-      </p>
+    <section className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div>
+        <p className="text-sm text-ink-tertiary">안녕하세요</p>
+        <h1 className="text-2xl sm:text-3xl">
+          <span className="text-primary-700">{displayName}</span> 사장님 👋
+        </h1>
+        <p className="mt-1 text-sm text-ink-secondary">
+          오늘도 사장님의 사업을 응원합니다. 아래는 오늘의 핵심 브리핑이에요.
+        </p>
+      </div>
+      <div className="flex shrink-0 gap-2">
+        <Button asChild variant="outline" size="sm">
+          <Link href={"/simulation" as never}>시뮬레이션</Link>
+        </Button>
+        <Button asChild variant="primary" size="sm">
+          <Link href={"/diagnosis" as never}>정밀진단받기</Link>
+        </Button>
+      </div>
     </section>
   );
 }

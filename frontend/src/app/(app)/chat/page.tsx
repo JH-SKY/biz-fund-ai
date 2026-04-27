@@ -23,7 +23,7 @@ import { PanelLeft, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ChatSidebar } from "@/features/chat/ChatSidebar";
-import { ChatInput, DEFAULT_QUICK_REPLIES, POST_DIAGNOSIS_QUICK_REPLIES } from "@/features/chat/ChatInput";
+import { ChatInput } from "@/features/chat/ChatInput";
 import { ChatMessageBubble } from "@/features/chat/ChatMessageBubble";
 import { AgentLoadingBubble } from "@/features/chat/AgentLoadingBubble";
 import {
@@ -62,9 +62,17 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<ChatDisplayMessage[]>([]);
   const [input, setInput] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [hasDiagnosisResult, setHasDiagnosisResult] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
+  const [showGreetingReplies, setShowGreetingReplies] = useState(false);
+
+  /** 인사 응답 후 보여줄 4개 빠른 답변 */
+  const GREETING_QUICK_REPLIES = [
+    "내 사업장 진단해줘",
+    "정책 자금 검색해줘",
+    "시뮬레이션 분석해줘",
+    "우리 업종 통계 알려줘",
+  ];
 
   const scrollRef = useScrollToBottom(messages);
 
@@ -102,6 +110,7 @@ export default function ChatPage() {
     const text = input.trim();
     if (!text || isStreaming) return;
     setInput("");
+    setShowGreetingReplies(false);
 
     // 1. 유저 메시지 즉시 표시 + 로딩 버블
     const userMsg: ChatDisplayMessage = {
@@ -199,7 +208,7 @@ export default function ChatPage() {
               return m;
             });
           });
-          if (evt.agent_type === "diagnosis") setHasDiagnosisResult(true);
+          if (evt.agent_type === "greeting") setShowGreetingReplies(true);
         },
         onError: (err) => {
           setMessages((prev) =>
@@ -227,7 +236,7 @@ export default function ChatPage() {
     (id: string) => {
       setActiveSessionId(id);
       setMessages([]);
-      setHasDiagnosisResult(false);
+      setShowGreetingReplies(false);
       setSidebarOpen(false);
       router.replace(`/chat?session=${id}`, { scroll: false });
     },
@@ -241,6 +250,7 @@ export default function ChatPage() {
       if (activeSessionId === id) {
         setActiveSessionId(null);
         setMessages([]);
+        setShowGreetingReplies(false);
         router.replace("/chat", { scroll: false });
       }
       toast.success("상담 세션이 삭제됐습니다.");
@@ -252,15 +262,12 @@ export default function ChatPage() {
   const handleNewSession = useCallback(() => {
     setActiveSessionId(null);
     setMessages([]);
-    setHasDiagnosisResult(false);
+    setShowGreetingReplies(false);
     setSidebarOpen(false);
     router.replace("/chat", { scroll: false });
   }, [router]);
 
   const isLoading = isStreaming;
-  const quickReplies = hasDiagnosisResult
-    ? POST_DIAGNOSIS_QUICK_REPLIES
-    : DEFAULT_QUICK_REPLIES;
 
   return (
     <div
@@ -391,6 +398,29 @@ export default function ChatPage() {
               />
             )
           )}
+
+          {/* 인사 응답 후 빠른 선택지 */}
+          {showGreetingReplies && !isStreaming && (
+            <div className="flex flex-wrap gap-2 pl-11">
+              {GREETING_QUICK_REPLIES.map((reply) => (
+                <button
+                  key={reply}
+                  type="button"
+                  onClick={() => {
+                    setInput(reply);
+                    setTimeout(handleSend, 50);
+                  }}
+                  className={cn(
+                    "rounded-full border border-primary-200 bg-primary-50",
+                    "px-3 py-1.5 text-xs font-semibold text-primary-700",
+                    "transition-colors hover:bg-primary-100"
+                  )}
+                >
+                  {reply}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* 입력창 */}
@@ -399,7 +429,6 @@ export default function ChatPage() {
           onChange={setInput}
           onSend={handleSend}
           isLoading={isLoading}
-          quickReplies={quickReplies}
           disabled={isLoading}
         />
       </div>
