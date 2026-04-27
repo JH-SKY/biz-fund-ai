@@ -35,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.agents.biz_mong.checkpointer import get_langgraph_checkpointer
 from src.app.agents.biz_mong.checkpointer import initialize_langgraph_checkpointer
+from src.app.agents.biz_mong.nodes.chitchat_node import chitchat_node
 from src.app.agents.biz_mong.nodes.hard_filter import hard_filter_node
 from src.app.agents.biz_mong.nodes.llm_evaluator import llm_evaluator_node
 from src.app.agents.biz_mong.nodes.router_node import router_node
@@ -134,6 +135,9 @@ class BizMongAgent:
         async def _router(state: dict) -> dict:
             return await router_node(state, client=client)
 
+        async def _chitchat(state: dict) -> dict:
+            return await chitchat_node(state, client=client)
+
         async def _hard_filter(state: dict) -> dict:
             result = await hard_filter_node(state, session=session)
             await _write_through(state, "diagnosis_filter", result)
@@ -170,6 +174,7 @@ class BizMongAgent:
         builder = StateGraph(dict)
 
         builder.add_node("router", _router)
+        builder.add_node("chitchat", _chitchat)
         builder.add_node("hard_filter", _hard_filter)
         builder.add_node("llm_evaluator", _llm_evaluator)
         builder.add_node("simulator", _simulator)
@@ -183,12 +188,17 @@ class BizMongAgent:
             "router",
             lambda s: s.get("current_agent", "diagnosis"),
             {
-                "diagnosis": "hard_filter",
-                "simulator": "simulator",
-                "rag": "rag",
-                "stats": "stats",
+                "greeting":   "chitchat",
+                "general_qa": "chitchat",
+                "diagnosis":  "hard_filter",
+                "simulator":  "simulator",
+                "rag":        "rag",
+                "stats":      "stats",
             },
         )
+
+        # chitchat → END (도구 없이 즉시 종료)
+        builder.add_edge("chitchat", END)
 
         # diagnosis 서브 플로우 (순차)
         builder.add_edge("hard_filter", "llm_evaluator")

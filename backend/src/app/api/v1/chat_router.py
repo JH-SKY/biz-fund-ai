@@ -202,6 +202,16 @@ async def send_agent_message(
 
 def _build_response_content(agent_type: str, state: dict) -> str:
     """에이전트 결과에서 사용자에게 보여줄 한국어 요약 텍스트를 생성한다."""
+    # chitchat (greeting / general_qa): messages 에 이미 assistant 응답이 들어있음
+    if agent_type in ("greeting", "general_qa"):
+        messages = state.get("messages") or []
+        for msg in reversed(messages):
+            if isinstance(msg, dict) and msg.get("role") == "assistant":
+                return msg.get("content", "")
+            if hasattr(msg, "type") and msg.type == "ai":
+                return msg.content
+        return "안녕하세요! 무엇이든 편하게 물어보세요."
+
     if agent_type == "diagnosis":
         report = state.get("diagnosis_report") or {}
         if not report:
