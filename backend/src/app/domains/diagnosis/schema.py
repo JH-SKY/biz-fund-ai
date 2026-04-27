@@ -17,6 +17,10 @@ class PrepareDiagnosisResponseData(BaseModel):
     current_snapshot: SnapshotData
     missing_fields: List[str]
     message: str
+    suggest_nts_reverification: bool = Field(
+        False,
+        description="사업자번호 국세청 미검증이면 True — 재검증(POST /businesses/verify-biz-retry) 안내에 사용",
+    )
 
 
 class ExecuteDiagnosisRequest(BaseModel):

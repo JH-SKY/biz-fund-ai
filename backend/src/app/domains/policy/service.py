@@ -240,7 +240,14 @@ class PolicyService:
         level_order = {MatchLevel.GREEN: 0, MatchLevel.YELLOW: 1, MatchLevel.RED: 2}
         items.sort(key=lambda x: (level_order[x.match_level], -x.match_score))
 
-        return PolicyRecommendResponse(items=items)
+        unverified_notice: str | None = None
+        if not business.is_biz_no_verified:
+            unverified_notice = "미검증 사업자 정보 기반 추천입니다"
+
+        return PolicyRecommendResponse(
+            items=items,
+            unverified_notice=unverified_notice,
+        )
 
     async def get_bookmarked_policies(
         self,

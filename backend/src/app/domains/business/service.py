@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.domains.auth.model import User
 from src.app.domains.business.exception import (
@@ -28,6 +28,7 @@ from src.app.domains.business.exception import (
     document_not_found,
     finance_already_exists,
     finance_not_found,
+    user_already_has_business,
 )
 from src.app.domains.business.interfaces import (
     IBizVerificationService,
@@ -104,7 +105,9 @@ def _to_info_response(biz: Business) -> BusinessInfoResponseData:
         region_sigungu=biz.region_sigungu,
         establishment_date=biz.establishment_date,
         ksic_code=biz.ksic_code,
+        ksic_name=biz.ksic_name,
         sector_code=biz.sector_code,
+        is_biz_no_verified=bool(biz.is_biz_no_verified),
         has_patent=biz.has_patent,
         is_female_ent=biz.is_female_ent,
         is_ventured=biz.is_ventured,
@@ -180,6 +183,7 @@ class BusinessService:
         """온보딩: 사업장 최초 등록.
 
         [로직 순서]
+        0. 계정당 1개 사업장 — 이미 활성 사업장이 있으면 차단
         1. 사업자번호 중복 체크 (이미 등록된 활성 사업장)
         2. 국세청 API 호출하여 상태 확인
            - is_manual=True 이면 스킵 (API 점검 중 수동 등록 허용)
@@ -187,13 +191,18 @@ class BusinessService:
            - 폐업/휴업 상태면 등록 차단
            - API 호출 실패(타임아웃·오류) 시 503 반환 → 프론트가 is_manual=True 재시도 유도
         3. 사업장 생성 + 검증 결과 즉시 저장
-        4. employee_count 입력 시 현재 연도 재무 스냅샷 자동 생성
-        5. profile_score 자동 계산
+        4. profile_score 자동 계산
         """
+        # [0] 1인 1사업장 (포트폴리오 정책)
+        if await self._repo.get_active_business_by_user_id(user.id) is not None:
+            raise user_already_has_business()
+
         # [1] 중복 체크
         existing = await self._repo.get_business_by_biz_no(body.biz_no)
         if existing is not None:
             raise business_already_registered()
+
+        sector_val = body.sector_code if body.sector_code else body.ksic_code
 
         # [2] 국세청 검증 (is_manual=False 일 때만 수행)
         is_biz_no_verified = False
@@ -240,7 +249,8 @@ class BusinessService:
             biz_no=body.biz_no,
             representative_name=(body.representative_name or user.name),
             ksic_code=body.ksic_code,
-            sector_code=body.sector_code,
+            ksic_name=body.ksic_name,
+            sector_code=sector_val,
             region_sido=body.region_sido,
             region_sigungu=body.region_sigungu,
             establishment_date=body.establishment_date,
@@ -254,25 +264,7 @@ class BusinessService:
             biz_verified_at=verified_at,
         )
 
-        # [4] employee_count 입력 시 현재 연도 재무 스냅샷 자동 생성
-        if body.employee_count is not None:
-            current_year = datetime.now(timezone.utc).year
-            await self._repo.create_financial_snapshot(
-                business_id=biz.id,
-                snapshot_year=current_year,
-                snapshot_period="ANNUAL",
-                term_type="ANNUAL",
-                annual_revenue=None,
-                operating_profit=None,
-                net_income=None,
-                total_debt=None,
-                capital=None,
-                debt_ratio=None,
-                employee_count=body.employee_count,
-                tax_arrears_yn=False,
-            )
-
-        # [5] profile_score 자동 계산
+        # [4] profile_score 자동 계산
         score = _compute_profile_score(biz)
         await self._repo.update_business(biz, profile_score=score)
         await self._session.commit()
@@ -283,6 +275,60 @@ class BusinessService:
             biz_no=biz.biz_no or "",
             is_manual=body.is_manual,
             profile_score=score,
+        )
+
+    async def retry_biz_no_verification(
+        self,
+        biz: Business,
+    ) -> VerifyBizNumberResponseData:
+        """국세청 사업자 상태 재검증 (수동 등록 등으로 미검증인 사업장용).
+
+        이미 검증 완료된 사업장은 API를 호출하지 않고 현재 상태를 반환한다.
+        """
+        if biz.is_biz_no_verified:
+            return VerifyBizNumberResponseData(
+                is_valid=True,
+                biz_status=biz.biz_verified_status,
+                tax_type=biz.tax_type,
+                error_code=None,
+            )
+        if not biz.biz_no:
+            raise HTTPException(
+                status_code=400,
+                detail="사업자등록번호가 없어 검증을 진행할 수 없습니다.",
+            )
+
+        result = await self._biz_verification.verify(biz.biz_no)
+
+        if result.error_code in (
+            NTS_ERR_TIMEOUT,
+            NTS_ERR_API_ERROR,
+            NTS_ERR_SERVER_CONFIG,
+        ):
+            raise biz_no_api_unavailable()
+
+        if result.biz_status == "폐업자":
+            raise biz_no_closed()
+
+        if result.biz_status == "휴업자":
+            raise biz_no_suspended()
+
+        if result.is_valid:
+            verified_at = datetime.now(timezone.utc)
+            await self._repo.update_biz_verification(
+                biz,
+                is_biz_no_verified=True,
+                biz_verified_status=result.biz_status,
+                tax_type=result.tax_type,
+                biz_verified_at=verified_at,
+            )
+            await self._session.commit()
+
+        return VerifyBizNumberResponseData(
+            is_valid=result.is_valid,
+            biz_status=result.biz_status,
+            tax_type=result.tax_type,
+            error_code=result.error_code,
         )
 
     # ── 사업장 조회 / 수정 ────────────────────────────────────────────────
@@ -316,6 +362,7 @@ class BusinessService:
             region_sigungu=body.region_sigungu,
             establishment_date=body.establishment_date,
             ksic_code=body.ksic_code,
+            ksic_name=body.ksic_name,
             sector_code=body.sector_code,
             has_patent=body.has_patent,
             is_female_ent=body.is_female_ent,

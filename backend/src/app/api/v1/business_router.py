@@ -37,6 +37,7 @@ from src.app.domains.business.schema import (
     OnboardingRegisterRequest,
     ValidateStatsRequest,
     VerifyBizNumberRequest,
+    VerifyBizNumberResponseData,
 )
 
 router = APIRouter(tags=["사업장 (Business)"])
@@ -71,7 +72,7 @@ async def verify_biz_number(
     description=(
         "[PAGE 03] 신규 가입 유저의 사업장 기본 정보를 등록합니다. "
         "완료 후 대시보드(PAGE 04) 접근이 허용됩니다. "
-        "employee_count 입력 시 현재 연도 재무 스냅샷이 자동 생성됩니다."
+        "계정당 사업장 1개이며, 상시근로자 수는 정밀진단/재무 입력에서 수집합니다."
     ),
     status_code=status.HTTP_201_CREATED,
 )
@@ -82,6 +83,22 @@ async def register_business(
 ) -> JSONResponse:
     data = await svc.register_business(current_user, body)
     return api_json(http_status=201, data=data.model_dump())
+
+
+@router.post(
+    "/businesses/verify-biz-retry",
+    summary="사업자번호 국세청 재검증",
+    description=(
+        "수동 등록 등으로 is_biz_no_verified=False 인 사업장에 대해 "
+        "국세청 API를 다시 호출합니다. 정밀진단 직전 재검증에 활용할 수 있습니다."
+    ),
+)
+async def retry_biz_no_verification(
+    biz: ActiveBusiness,
+    svc: BusinessServiceDep,
+) -> JSONResponse:
+    data: VerifyBizNumberResponseData = await svc.retry_biz_no_verification(biz)
+    return api_json(http_status=200, data=data.model_dump())
 
 
 # ─────────────────────────────────────────────────────────────────────────────

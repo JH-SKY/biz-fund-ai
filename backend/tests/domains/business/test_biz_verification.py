@@ -217,6 +217,10 @@ class _MockRepo:
         self._verified_cache = verified_cache
         self.created_biz: MagicMock | None = None
         self.created_snap: MagicMock | None = None
+        self._active_biz_for_user = None  # 1인 1사업장: 기본 없음
+
+    async def get_active_business_by_user_id(self, _user_id):
+        return self._active_biz_for_user
 
     async def get_business_by_biz_no(self, biz_no: str):
         return None  # 중복 없음
@@ -270,11 +274,16 @@ def _make_service(mock_repo, biz_verification_result: BizVerificationResult):
 
 
 def _make_register_body(is_manual: bool = False):
+    from datetime import date
+
     from src.app.domains.business.schema import OnboardingRegisterRequest
 
     return OnboardingRegisterRequest(
         biz_name="테스트 업체",
         biz_no="1234567890",
+        ksic_code="56111",
+        ksic_name="한식 일반 음식점업",
+        establishment_date=date(2020, 1, 1),
         is_manual=is_manual,
     )
 

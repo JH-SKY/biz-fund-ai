@@ -45,12 +45,29 @@ class OnboardingRegisterRequest(BaseModel):
         description="사업자등록번호 (10자리 숫자 또는 000-00-00000 형식)",
     )
     representative_name: Optional[str] = Field(None, max_length=50, description="대표자명")
-    ksic_code: Optional[str] = Field(None, max_length=20, description="표준산업분류코드")
-    sector_code: Optional[str] = Field(None, max_length=20, description="세부 업종 코드")
+    ksic_code: str = Field(
+        ...,
+        min_length=1,
+        max_length=20,
+        description="KSIC 세세분류 코드 (예: 56111)",
+    )
+    ksic_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+        description="KSIC 세세분류 표시명 (예: 한식 일반 음식점업)",
+    )
+    sector_code: Optional[str] = Field(
+        None,
+        max_length=20,
+        description="세부 업종 코드 (미전달 시 ksic_code와 동일하게 저장될 수 있음)",
+    )
     region_sido: Optional[str] = Field(None, max_length=50, description="시·도")
     region_sigungu: Optional[str] = Field(None, max_length=50, description="시·군·구")
-    establishment_date: Optional[date] = Field(None, description="개업일")
-    employee_count: Optional[int] = Field(None, ge=0, description="상시 근로자 수 (본인 제외)")
+    establishment_date: date = Field(
+        ...,
+        description="개업일 (필수 — 정책 매칭·업력 산정)",
+    )
     has_patent: bool = Field(False, description="특허 보유 여부")
     is_female_ent: bool = Field(False, description="여성 기업 여부")
     is_ventured: bool = Field(False, description="벤처 기업 여부")
@@ -109,7 +126,11 @@ class BusinessInfoResponseData(BaseModel):
     region_sigungu: Optional[str] = None
     establishment_date: Optional[date] = None
     ksic_code: Optional[str] = None
+    ksic_name: Optional[str] = None
     sector_code: Optional[str] = None
+    is_biz_no_verified: bool = Field(
+        False, description="국세청 사업자진위·상태검증 완료 여부"
+    )
     has_patent: bool
     is_female_ent: bool
     is_ventured: bool
@@ -126,6 +147,7 @@ class BusinessUpdateRequest(BaseModel):
     region_sigungu: Optional[str] = Field(None, max_length=50)
     establishment_date: Optional[date] = None
     ksic_code: Optional[str] = Field(None, max_length=20)
+    ksic_name: Optional[str] = Field(None, max_length=200)
     sector_code: Optional[str] = Field(None, max_length=20)
     has_patent: Optional[bool] = None
     is_female_ent: Optional[bool] = None

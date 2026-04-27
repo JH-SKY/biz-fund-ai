@@ -23,6 +23,14 @@ def business_already_registered() -> HTTPException:
     )
 
 
+def user_already_has_business() -> HTTPException:
+    """1인 1사업장 정책: 이미 활성 사업장이 있는 경우 추가 온보딩 차단."""
+    return HTTPException(
+        status_code=409,
+        detail="이미 등록된 사업장이 있습니다. 계정당 하나의 사업장만 등록할 수 있습니다.",
+    )
+
+
 def finance_not_found(year: int) -> HTTPException:
     return HTTPException(
         status_code=404,

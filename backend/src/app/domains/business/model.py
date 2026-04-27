@@ -61,6 +61,9 @@ class Business(Base):
     ksic_code: Mapped[Optional[str]] = mapped_column(
         String(20), nullable=True, comment="표준산업분류코드"
     )
+    ksic_name: Mapped[Optional[str]] = mapped_column(
+        String(200), nullable=True, comment="KSIC 세세분류 표시명 (예: 한식 일반 음식점업)"
+    )
     sector_code: Mapped[Optional[str]] = mapped_column(
         String(20), nullable=True, comment="세부 업종 코드"
     )

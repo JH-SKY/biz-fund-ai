@@ -98,6 +98,7 @@ class BusinessRepository:
         biz_verified_status: Optional[str] = None,
         tax_type: Optional[str] = None,
         biz_verified_at: Optional[datetime] = None,
+        ksic_name: Optional[str] = None,
     ) -> Business:
         """3. 새 사업장 그릇 만들기:
         사장님이 입력한 정보를 바탕으로 새로운 사업장 레코드를 생성하고 '활성(True)' 상태로 저장해요.
@@ -108,6 +109,7 @@ class BusinessRepository:
             biz_no=biz_no,
             representative_name=representative_name,
             ksic_code=ksic_code,
+            ksic_name=ksic_name,
             sector_code=sector_code,
             region_sido=region_sido,
             region_sigungu=region_sigungu,

@@ -70,6 +70,10 @@ class PolicyRecommendItem(BaseModel):
 
 class PolicyRecommendResponse(BaseModel):
     items: list[PolicyRecommendItem]
+    unverified_notice: Optional[str] = Field(
+        None,
+        description="사업자번호 국세청 미검증 시 맞춤 추천 상단 안내 문구",
+    )
 
 
 # ── 상세 조회 ──────────────────────────────────────────────────────────────

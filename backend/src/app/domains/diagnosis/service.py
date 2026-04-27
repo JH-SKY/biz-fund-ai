@@ -73,6 +73,7 @@ class DiagnosisService:
             current_snapshot=snap_data,
             missing_fields=missing,
             message="필수 정보가 일부 누락되었습니다. 보완 후 진단을 시작하세요." if missing else "모든 정보가 준비되었습니다.",
+            suggest_nts_reverification=not business.is_biz_no_verified,
         )
 
     async def execute_diagnosis(

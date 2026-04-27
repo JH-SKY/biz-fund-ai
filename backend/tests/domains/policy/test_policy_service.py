@@ -68,7 +68,9 @@ def _make_policy_service(repo: _FakePolicyRepo) -> PolicyService:
 
 
 def _make_business() -> SimpleNamespace:
-    return SimpleNamespace(id=uuid.uuid4(), profile_score=80)
+    return SimpleNamespace(
+        id=uuid.uuid4(), profile_score=80, is_biz_no_verified=True
+    )
 
 
 @pytest.mark.asyncio
@@ -121,3 +123,37 @@ async def test_toggle_bookmark_uses_authenticated_business_context():
 
     assert data.is_bookmarked is True
     assert repo.toggled_with == (business.id, policy_id)
+
+
+@pytest.mark.asyncio
+async def test_get_recommended_policies_unverified_notice_when_not_verified():
+    repo = _FakePolicyRepo()
+    svc = _make_policy_service(repo)
+    business = SimpleNamespace(
+        id=uuid.uuid4(), profile_score=80, is_biz_no_verified=False
+    )
+
+    data = await svc.get_recommended_policies(
+        business=business,
+        requested_business_id=business.id,
+        page=1,
+        size=10,
+    )
+
+    assert data.unverified_notice == "미검증 사업자 정보 기반 추천입니다"
+
+
+@pytest.mark.asyncio
+async def test_get_recommended_policies_no_notice_when_verified():
+    repo = _FakePolicyRepo()
+    svc = _make_policy_service(repo)
+    business = _make_business()
+
+    data = await svc.get_recommended_policies(
+        business=business,
+        requested_business_id=business.id,
+        page=1,
+        size=10,
+    )
+
+    assert data.unverified_notice is None
