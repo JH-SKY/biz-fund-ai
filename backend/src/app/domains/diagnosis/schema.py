@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class SnapshotData(BaseModel):
@@ -23,10 +23,41 @@ class PrepareDiagnosisResponseData(BaseModel):
     )
 
 
+class DiagnosisFinalInputs(BaseModel):
+    """정밀진단 최종 입력 — 신호등·심사형 로직에 필요한 최소 항목을 고정한다."""
+
+    has_tax_arrears: bool = Field(
+        ...,
+        description="국세·지방세 체납(미완납) 여부. True면 사실상 결격(빨강) 축.",
+    )
+    annual_revenue: Optional[int] = Field(None, ge=0, description="연매출(원, 근사)")
+    total_debt: Optional[int] = Field(None, ge=0, description="총부채(원, 근사)")
+    debt_ratio: Optional[float] = Field(
+        None, ge=0, le=100_000, description="부채비율(%) — 미입력 시 매출·부채로 산정"
+    )
+    employee_count: int = Field(..., ge=0, description="상시 근로자 수(대략)")
+    has_patent: bool = False
+    is_female_ent: bool = False
+    is_ventured: bool = False
+
+    @model_validator(mode="after")
+    def _derive_debt_ratio(self) -> DiagnosisFinalInputs:
+        if self.debt_ratio is not None:
+            return self
+        if (
+            self.annual_revenue is not None
+            and self.annual_revenue > 0
+            and self.total_debt is not None
+        ):
+            dr = round(self.total_debt / self.annual_revenue * 100, 2)
+            return self.model_copy(update={"debt_ratio": dr})
+        return self
+
+
 class ExecuteDiagnosisRequest(BaseModel):
     year: int = Field(..., description="진단 기준 연도")
     use_ai_analysis: bool = Field(default=True, description="AI 분석 사용 여부")
-    final_inputs: Dict[str, Any] = Field(..., description="최종 확인된 데이터")
+    final_inputs: DiagnosisFinalInputs = Field(..., description="최종 확정 심사형 입력")
 
 
 class ExecuteDiagnosisResponseData(BaseModel):
@@ -34,6 +65,10 @@ class ExecuteDiagnosisResponseData(BaseModel):
     total_score: float
     grade: str
     created_at: datetime
+    traffic_light: str = Field(
+        "GREEN",
+        description="심사형 신호등: RED | YELLOW | GREEN",
+    )
 
 
 class DiagnosisScores(BaseModel):

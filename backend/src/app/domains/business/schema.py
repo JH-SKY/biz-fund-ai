@@ -11,9 +11,20 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime
+from enum import StrEnum
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator
+
+
+class FundingPurpose(StrEnum):
+    """자금(지원) 용도 — 온보딩/매칭 시설·운전 구분에 사용."""
+
+    FACILITY = "FACILITY"  # 시설·기계·도입
+    OPERATING = "OPERATING"  # 운영·인건비
+    WORKING = "WORKING"  # 운전(유동) 자금
+    MIXED = "MIXED"  # 복합
+    UNSURE = "UNSURE"  # 미정
 
 
 # ── 공통 사업자번호 Validator ───────────────────────────────────────────────
@@ -62,11 +73,30 @@ class OnboardingRegisterRequest(BaseModel):
         max_length=20,
         description="세부 업종 코드 (미전달 시 ksic_code와 동일하게 저장될 수 있음)",
     )
-    region_sido: Optional[str] = Field(None, max_length=50, description="시·도")
-    region_sigungu: Optional[str] = Field(None, max_length=50, description="시·군·구")
+    region_sido: str = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        description="시·도 (필수 — 프론트에서 반드시 선택)",
+    )
+    region_sigungu: str = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        description="시·군·구 (필수)",
+    )
     establishment_date: date = Field(
         ...,
         description="개업일 (필수 — 정책 매칭·업력 산정)",
+    )
+    employee_count: int = Field(
+        ...,
+        ge=0,
+        description="상시 근로자 수(대략) — 소상공인/중소 구분·추천에 필수",
+    )
+    funding_purpose: FundingPurpose = Field(
+        default=FundingPurpose.UNSURE,
+        description="필요 자금 용도(시설/운영/운전 등)",
     )
     has_patent: bool = Field(False, description="특허 보유 여부")
     is_female_ent: bool = Field(False, description="여성 기업 여부")
@@ -75,6 +105,13 @@ class OnboardingRegisterRequest(BaseModel):
         False,
         description="수동 입력 모드 플래그 (외부 API 호출 실패 시 True)",
     )
+
+    @field_validator("region_sido", "region_sigungu", mode="before")
+    @classmethod
+    def _strip_region(cls, v: object) -> object:
+        if isinstance(v, str):
+            return v.strip()
+        return v
 
     @field_validator("biz_no")
     @classmethod
@@ -131,6 +168,9 @@ class BusinessInfoResponseData(BaseModel):
     is_biz_no_verified: bool = Field(
         False, description="국세청 사업자진위·상태검증 완료 여부"
     )
+    employee_count: Optional[int] = None
+    funding_purpose: Optional[str] = None
+    has_tax_arrears: bool = False
     has_patent: bool
     is_female_ent: bool
     is_ventured: bool
@@ -152,6 +192,9 @@ class BusinessUpdateRequest(BaseModel):
     has_patent: Optional[bool] = None
     is_female_ent: Optional[bool] = None
     is_ventured: Optional[bool] = None
+    employee_count: Optional[int] = Field(None, ge=0)
+    funding_purpose: Optional[FundingPurpose] = None
+    has_tax_arrears: Optional[bool] = None
 
     @field_validator("biz_name", "representative_name", mode="before")
     @classmethod

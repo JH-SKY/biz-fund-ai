@@ -4,22 +4,27 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict
 
 from src.app.domains.business.model import Business
+from src.app.domains.diagnosis.schema import DiagnosisFinalInputs
 from src.app.domains.policy.model import Policy
 
 
 class DiagnosisResult:
     """진단 엔진 결과 DTO."""
+
     def __init__(
         self,
         total_score: float,
         grade: str,
         scores: Dict[str, float],
         ai_comment: str,
+        *,
+        traffic_light: str = "GREEN",
     ) -> None:
         self.total_score = total_score
         self.grade = grade
         self.scores = scores
         self.ai_comment = ai_comment
+        self.traffic_light = traffic_light
 
 
 class SimulationResult:
@@ -43,7 +48,7 @@ class IDiagnosisEngine(ABC):
         self,
         business: Business,
         year: int,
-        inputs: Dict[str, Any],
+        inputs: DiagnosisFinalInputs,
         use_ai: bool = True,
     ) -> DiagnosisResult:
         """정밀진단 실행"""
@@ -61,20 +66,22 @@ class IDiagnosisEngine(ABC):
 
 
 class MockDiagnosisEngine(IDiagnosisEngine):
-    """테스트용 Mock 진단 엔진."""
+    """호환용 — RuleBased로 교체됨. 테스트는 RuleBased 권장."""
 
     async def execute_diagnosis(
         self,
         business: Business,
         year: int,
-        inputs: Dict[str, Any],
+        inputs: DiagnosisFinalInputs,
         use_ai: bool = True,
     ) -> DiagnosisResult:
+        _ = business, year, use_ai, inputs
         return DiagnosisResult(
             total_score=85.5,
             grade="EXCELLENT",
             scores={"stability": 80.0, "growth": 90.0, "tech": 85.0},
-            ai_comment="매출 대비 고용 지표가 우수하여 인건비 지원사업에 최적화된 상태입니다."
+            ai_comment="Mock — RuleBasedDiagnosisEngine 사용을 권장합니다.",
+            traffic_light="GREEN",
         )
 
     async def execute_simulation(

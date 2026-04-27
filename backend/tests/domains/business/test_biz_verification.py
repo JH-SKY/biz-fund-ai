@@ -276,14 +276,18 @@ def _make_service(mock_repo, biz_verification_result: BizVerificationResult):
 def _make_register_body(is_manual: bool = False):
     from datetime import date
 
-    from src.app.domains.business.schema import OnboardingRegisterRequest
+    from src.app.domains.business.schema import FundingPurpose, OnboardingRegisterRequest
 
     return OnboardingRegisterRequest(
         biz_name="테스트 업체",
         biz_no="1234567890",
         ksic_code="56111",
         ksic_name="한식 일반 음식점업",
+        region_sido="서울",
+        region_sigungu="강남구",
         establishment_date=date(2020, 1, 1),
+        employee_count=3,
+        funding_purpose=FundingPurpose.OPERATING,
         is_manual=is_manual,
     )
 

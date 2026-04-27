@@ -96,12 +96,13 @@ class DiagnosisService:
         log = await self._repo.create_simulation_log(
             business_id=business.id,
             sim_type="DIAGNOSIS",
-            input_data=req.final_inputs,
+            input_data=req.final_inputs.model_dump(),
             output_data={
                 "total_score": result.total_score,
                 "grade": result.grade,
                 "scores": result.scores,
                 "ai_comment": result.ai_comment,
+                "traffic_light": result.traffic_light,
             },
             model_name="gpt-4o", # [예시] 실무에서는 엔진 설정값에서 가져옴
             trace_id=f"diag-{uuid.uuid4()}", # 추적용 ID 생성
@@ -114,6 +115,7 @@ class DiagnosisService:
             total_score=result.total_score,
             grade=result.grade,
             created_at=log.created_at,
+            traffic_light=result.traffic_light,
         )
 
     async def get_diagnosis_detail(

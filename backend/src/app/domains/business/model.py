@@ -88,6 +88,19 @@ class Business(Base):
     is_ventured: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False, comment="벤처 기업 여부"
     )
+    employee_count: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, comment="온보딩/프로필의 상시 근로자 수(대략)"
+    )
+    funding_purpose: Mapped[Optional[str]] = mapped_column(
+        String(32), nullable=True, comment="자금 용도: FACILITY|OPERATING|WORKING|MIXED|UNSURE"
+    )
+    has_tax_arrears: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=text("false"),
+        nullable=False,
+        comment="세금 체납(미완납) 자가 신고",
+    )
     profile_score: Mapped[int] = mapped_column(
         Integer, default=0, nullable=False, comment="사업장 정보 완성도 (0~100)"
     )

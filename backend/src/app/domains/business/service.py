@@ -82,6 +82,10 @@ def _compute_profile_score(biz: Business) -> int:
         score += 5
     if biz.is_ventured:
         score += 5
+    if biz.employee_count is not None:
+        score += 5
+    if biz.funding_purpose and biz.funding_purpose != "UNSURE":
+        score += 3
     return min(score, 100)
 
 
@@ -108,6 +112,9 @@ def _to_info_response(biz: Business) -> BusinessInfoResponseData:
         ksic_name=biz.ksic_name,
         sector_code=biz.sector_code,
         is_biz_no_verified=bool(biz.is_biz_no_verified),
+        employee_count=biz.employee_count,
+        funding_purpose=biz.funding_purpose,
+        has_tax_arrears=bool(biz.has_tax_arrears),
         has_patent=biz.has_patent,
         is_female_ent=biz.is_female_ent,
         is_ventured=biz.is_ventured,
@@ -262,9 +269,29 @@ class BusinessService:
             biz_verified_status=biz_verified_status,
             tax_type=tax_type_val,
             biz_verified_at=verified_at,
+            employee_count=body.employee_count,
+            funding_purpose=body.funding_purpose.value,
+            has_tax_arrears=False,
         )
 
-        # [4] profile_score 자동 계산
+        # [4] 당해 연도 재무 스냅샷(상시근로자만 우선 기록) — 정밀진단 prepare 연동
+        current_year = datetime.now(timezone.utc).year
+        await self._repo.create_financial_snapshot(
+            business_id=biz.id,
+            snapshot_year=current_year,
+            snapshot_period="ANNUAL",
+            term_type="ANNUAL",
+            annual_revenue=None,
+            operating_profit=None,
+            net_income=None,
+            total_debt=None,
+            capital=None,
+            debt_ratio=None,
+            employee_count=body.employee_count,
+            tax_arrears_yn=False,
+        )
+
+        # [5] profile_score 자동 계산
         score = _compute_profile_score(biz)
         await self._repo.update_business(biz, profile_score=score)
         await self._session.commit()
@@ -367,6 +394,13 @@ class BusinessService:
             has_patent=body.has_patent,
             is_female_ent=body.is_female_ent,
             is_ventured=body.is_ventured,
+            employee_count=body.employee_count,
+            funding_purpose=body.funding_purpose.value
+            if body.funding_purpose is not None
+            else None,
+            has_tax_arrears=body.has_tax_arrears
+            if body.has_tax_arrears is not None
+            else None,
         )
         score = _compute_profile_score(biz)
         await self._repo.update_business(biz, profile_score=score)

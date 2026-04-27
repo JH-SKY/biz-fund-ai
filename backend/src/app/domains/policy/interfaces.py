@@ -18,6 +18,7 @@ from abc import ABC, abstractmethod
 from typing import Optional, Tuple
 
 from src.app.domains.business.model import Business
+from src.app.domains.policy.ksic_rules import is_ksic_policy_excluded
 from src.app.domains.policy.model import Policy
 from src.app.domains.policy.repository import PolicyRepository
 from src.app.domains.policy.schema import MatchLevel
@@ -107,20 +108,30 @@ class MockMatchEngine(IMatchEngine):
         policy: Policy,
         business: Business,
     ) -> MatchResult:
+        if is_ksic_policy_excluded(business.ksic_code):
+            return MatchResult(
+                policy_id=policy.id,
+                match_level=MatchLevel.RED,
+                match_score=0.0,
+                reason="현재 KSIC(업종)는 정책자금 지원 제외(또는 별도 심사) 대상에 해당할 수 있습니다.",
+            )
+
         raw_score = business.profile_score if business.profile_score is not None else 0
         score = float(raw_score)
+        if business.employee_count is None:
+            score = min(score, 45.0)
+        elif business.employee_count < 5:
+            score = min(100.0, score + 3.0)
 
         if score >= 70:
             level = MatchLevel.GREEN
-            reason = "사업장 정보 완성도가 높아 필수 요건을 충족합니다."
+            reason = "사업장 정보·규모(근로자)를 바탕으로 주요 자격을 충족하는 것으로 보입니다."
         elif score >= 40:
             level = MatchLevel.YELLOW
-            reason = "일부 가점 요건 미충족 — 추가 정보 입력 시 GREEN 상향 가능합니다."
+            reason = "일부 요건(재무·가점) 보완 시 유리한 공고로 올릴 수 있습니다. 정밀진단을 권장합니다."
         else:
             level = MatchLevel.RED
-            reason = (
-                "사업장 정보가 부족하여 자격 판단이 어렵습니다. 온보딩을 완료해 주세요."
-            )
+            reason = "프로필(업종·인원·지역) 정보를 보강한 뒤 다시 맞춤을 받아보세요."
 
         return MatchResult(
             policy_id=policy.id,

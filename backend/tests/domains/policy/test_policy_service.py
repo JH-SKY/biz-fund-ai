@@ -69,7 +69,11 @@ def _make_policy_service(repo: _FakePolicyRepo) -> PolicyService:
 
 def _make_business() -> SimpleNamespace:
     return SimpleNamespace(
-        id=uuid.uuid4(), profile_score=80, is_biz_no_verified=True
+        id=uuid.uuid4(),
+        profile_score=80,
+        is_biz_no_verified=True,
+        employee_count=3,
+        ksic_code="56111",
     )
 
 
@@ -130,7 +134,11 @@ async def test_get_recommended_policies_unverified_notice_when_not_verified():
     repo = _FakePolicyRepo()
     svc = _make_policy_service(repo)
     business = SimpleNamespace(
-        id=uuid.uuid4(), profile_score=80, is_biz_no_verified=False
+        id=uuid.uuid4(),
+        profile_score=80,
+        is_biz_no_verified=False,
+        employee_count=2,
+        ksic_code="56111",
     )
 
     data = await svc.get_recommended_policies(
