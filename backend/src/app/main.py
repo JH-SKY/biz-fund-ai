@@ -15,9 +15,10 @@ import src.app.domains.diagnosis.model  # noqa: F401
 import src.app.domains.notification.model  # noqa: F401
 import src.app.domains.policy.model  # noqa: F401
 import src.app.domains.system.model  # noqa: F401
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -68,6 +69,23 @@ app.add_exception_handler(
     BaseAppException,
     base_app_exception_handler,
 )
+
+
+async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """500 에러에도 CORS 헤더를 포함시켜 프론트에서 오류를 확인할 수 있게 한다."""
+    origin = request.headers.get("origin", "")
+    headers = {}
+    if origin in FRONTEND_ORIGINS:
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+        headers=headers,
+    )
+
+
+app.add_exception_handler(Exception, _unhandled_exception_handler)
 app.include_router(api_router)
 
 db_session = Annotated[AsyncSession, Depends(get_db)]

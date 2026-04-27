@@ -48,22 +48,14 @@ class DiagnosisRepository:
         sim_type: str,
         input_data: Dict[str, Any],
         output_data: Dict[str, Any],
-        model_name: Optional[str] = None, # [추가] 사용된 AI 모델명
-        trace_id: Optional[str] = None,  # [추가] LangSmith 등 추적용 ID
-        cost: float = 0.0,               # [추가] 발생 비용 (USD)
+        **_kwargs: Any,
     ) -> SimulationLog:
-        """
-        1. 기능: 시뮬레이션 로그 생성.
-        2. 설계 의도: 사용자의 가상 조건 입력값과 AI 엔진의 결과물을 기록하며, 운영 비용(Cost)을 추적합니다.
-        """
+        """시뮬레이션 로그 생성."""
         log = SimulationLog(
             business_id=business_id,
             sim_type=sim_type,
             input_data=input_data,
             output_data=output_data,
-            model_name=model_name, # AI 추적 필드 매핑
-            trace_id=trace_id,
-            cost=cost,
         )
         self._session.add(log)
         await self._session.flush()
