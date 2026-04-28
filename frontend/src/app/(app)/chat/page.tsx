@@ -92,9 +92,10 @@ export default function ChatPage() {
       setMessages([]);
       return;
     }
+    if (isStreaming) return;
     if (!historyQ.data) return;
     setMessages(mapHistoryToDisplayMessages(historyQ.data));
-  }, [activeSessionId, historyQ.data]);
+  }, [activeSessionId, historyQ.data, isStreaming]);
 
   const createNewSession = useCallback(
     async (initialMessage: string) => {

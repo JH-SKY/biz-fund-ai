@@ -46,13 +46,15 @@ class ChatService:
         self,
         business: Business,
         session_id: uuid.UUID,
+        *,
+        allow_closed: bool = False,
     ) -> ChatRoom:
         room = await self._repo.get_chat_room_by_id(session_id)
         if not room:
             raise chat_room_not_found()
         if room.business_id != business.id:
             raise chat_room_forbidden()
-        if room.status == "CLOSED":
+        if room.status == "CLOSED" and not allow_closed:
             raise chat_room_closed()
         return room
 
@@ -172,7 +174,11 @@ class ChatService:
         business: Business,
         session_id: uuid.UUID,
     ) -> list[ChatMessageItem]:
-        room = await self._verify_ownership_and_status(business, session_id)
+        room = await self._verify_ownership_and_status(
+            business,
+            session_id,
+            allow_closed=True,
+        )
         logs = await self._repo.get_chat_logs_by_room(room.id)
         return [
             ChatMessageItem(
