@@ -56,6 +56,12 @@ export const ADMIN_KEYS = {
   latency: (range: MonitoringRange) =>
     ["admin", "monitoring", "latency", range] as const,
   cost: (date?: string) => ["admin", "monitoring", "cost", date ?? "today"] as const,
+  agentOverview: (range: MonitoringRange) =>
+    ["admin", "monitoring", "agent-overview", range] as const,
+  agentNodes: (range: MonitoringRange) =>
+    ["admin", "monitoring", "agent-nodes", range] as const,
+  agentRuns: (params: { range?: MonitoringRange; page?: number; size?: number }) =>
+    ["admin", "monitoring", "agent-runs", params] as const,
   unmetDemand: (page: number, size: number) =>
     ["admin", "insights", "unmet-demand", page, size] as const,
   conversion: (from?: string, to?: string) =>
@@ -354,6 +360,31 @@ export function useTokenCost(date?: string) {
   return useQuery({
     queryKey: ADMIN_KEYS.cost(date),
     queryFn: () => adminService.monitoring.cost(date),
+    refetchInterval: 60_000,
+  });
+}
+
+export function useAgentOverview(range: MonitoringRange = "24h") {
+  return useQuery({
+    queryKey: ADMIN_KEYS.agentOverview(range),
+    queryFn: () => adminService.monitoring.agentOverview(range),
+    refetchInterval: 60_000,
+  });
+}
+
+export function useAgentNodes(range: MonitoringRange = "24h") {
+  return useQuery({
+    queryKey: ADMIN_KEYS.agentNodes(range),
+    queryFn: () => adminService.monitoring.agentNodes(range),
+    refetchInterval: 60_000,
+  });
+}
+
+export function useAgentRuns(params: { range?: MonitoringRange; page?: number; size?: number }) {
+  return useQuery({
+    queryKey: ADMIN_KEYS.agentRuns(params),
+    queryFn: () => adminService.monitoring.agentRuns(params),
+    placeholderData: keepPreviousData,
     refetchInterval: 60_000,
   });
 }

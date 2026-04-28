@@ -50,6 +50,9 @@ import type {
   AdminPolicyCreateRequest,
   AdminPolicyUpdateRequest,
   AdminUserItem,
+  AgentMonitoringOverview,
+  AgentNodeMetricsResponse,
+  AgentRunItem,
   AdminUsersParams,
   AiCardNewsGenerateRequest,
   AiCardNewsGenerateResponse,
@@ -295,6 +298,24 @@ export const adminMonitoringService = {
     return adminApiClient.get<TokenCostSummary>("/admin/monitoring/cost", {
       params: date ? { date } : undefined,
     });
+  },
+  agentOverview(range: MonitoringRange = "24h") {
+    return adminApiClient.get<AgentMonitoringOverview>(
+      "/admin/monitoring/agent-overview",
+      { params: { range } }
+    );
+  },
+  agentNodes(range: MonitoringRange = "24h") {
+    return adminApiClient.get<AgentNodeMetricsResponse>(
+      "/admin/monitoring/agent-nodes",
+      { params: { range } }
+    );
+  },
+  agentRuns(params: { range?: MonitoringRange; page?: number; size?: number } = {}) {
+    return adminApiClient.get<Paginated<AgentRunItem>>(
+      "/admin/monitoring/agent-runs",
+      { params }
+    );
   },
 };
 

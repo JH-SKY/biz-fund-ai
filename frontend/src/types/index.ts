@@ -1053,6 +1053,69 @@ export interface TokenCostSummary {
   }>;
 }
 
+export interface AgentMonitoringOverview {
+  range: MonitoringRange;
+  total_runs: number;
+  success_rate_pct: number;
+  avg_latency_ms: number;
+  p50_latency_ms: number;
+  p95_latency_ms: number;
+  total_tokens_in: number;
+  total_tokens_out: number;
+  total_cost_usd: number;
+  total_cost_krw: number;
+  fallback_runs: number;
+  by_intent: Array<{
+    intent: string;
+    runs: number;
+    avg_latency_ms: number;
+    cost_usd: number;
+    error_rate_pct: number;
+  }>;
+  by_model: Array<{
+    model: string;
+    runs: number;
+    tokens_in: number;
+    tokens_out: number;
+    cost_usd: number;
+  }>;
+}
+
+export interface AgentNodeMetricItem {
+  node_name: string;
+  executions: number;
+  avg_latency_ms: number;
+  p95_latency_ms: number;
+  tokens_in: number;
+  tokens_out: number;
+  cost_usd: number;
+  error_count: number;
+}
+
+export interface AgentNodeMetricsResponse {
+  range: MonitoringRange;
+  items: AgentNodeMetricItem[];
+}
+
+export interface AgentRunItem {
+  run_id: string;
+  session_id: string;
+  route_intent: string | null;
+  final_agent: string | null;
+  status: string;
+  question_preview: string | null;
+  total_latency_ms: number | null;
+  first_token_latency_ms: number | null;
+  tokens_in: number | null;
+  tokens_out: number | null;
+  total_cost_usd: number;
+  fallback_mode: string | null;
+  rag_hit_count: number | null;
+  prompt_version: string | null;
+  model_name: string | null;
+  created_at: string | null;
+}
+
 // ── 9-10. 비즈니스 인사이트 ──────────────────────────────────────
 
 export interface UnmetDemandKeyword {
