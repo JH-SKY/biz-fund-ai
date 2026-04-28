@@ -44,8 +44,12 @@ class DiagnosisService:
         self._business_service = business_service
         self._engine = engine
 
-    async def prepare_diagnosis(self, business: Business) -> PrepareDiagnosisResponseData:
-        snap = await self._business_service.get_latest_financial_snapshot_internal(business.id)
+    async def prepare_diagnosis(
+        self, business: Business
+    ) -> PrepareDiagnosisResponseData:
+        snap = await self._business_service.get_latest_financial_snapshot_internal(
+            business.id
+        )
 
         if snap:
             snap_data = SnapshotData(
@@ -65,7 +69,9 @@ class DiagnosisService:
         return PrepareDiagnosisResponseData(
             current_snapshot=snap_data,
             missing_fields=missing,
-            message="필수 정보가 일부 비어 있습니다. 보완 후 진단을 시작해 주세요." if missing else "모든 정보가 준비되었습니다.",
+            message="필수 정보가 일부 비어 있습니다. 보완 후 진단을 시작해 주세요."
+            if missing
+            else "모든 정보가 준비되었습니다.",
             suggest_nts_reverification=not business.is_biz_no_verified,
         )
 
@@ -74,6 +80,11 @@ class DiagnosisService:
         business: Business,
         req: ExecuteDiagnosisRequest,
     ) -> ExecuteDiagnosisResponseData:
+        """
+        기업 진단 실행 서비스:
+        입력된 기업 데이터를 바탕으로 AI 분석을 수행하고,
+        그 결과를 DB 동기화 및 이력(Log)으로 남기는 핵심 비즈니스 로직입니다.
+        """
         result = await self._engine.execute_diagnosis(
             business=business,
             year=req.year,
@@ -102,7 +113,10 @@ class DiagnosisService:
                 "total_score": result.total_score,
                 "grade": result.grade,
                 "scores": result.scores,
-                "ai_comment": result.ai_comment,
+                "summary": result.summary,
+                "strengths": result.strengths,
+                "risk_signals": result.risk_signals,
+                "action_items": result.action_items,
                 "traffic_light": result.traffic_light,
             },
             model_name="gpt-4o",
@@ -131,12 +145,20 @@ class DiagnosisService:
         out = log.output_data
         return DiagnosisDetailResponseData(
             diagnosis_id=str(log.id),
+            total_score=out.get("total_score", 0.0),
+            grade=out.get("grade", "NORMAL"),
+            traffic_light=out.get("traffic_light", "GREEN"),
             scores=DiagnosisScores(**out.get("scores", {})),
-            ai_comment=out.get("ai_comment", ""),
+            summary=out.get("summary", ""),
+            strengths=out.get("strengths", []),
+            risk_signals=out.get("risk_signals", []),
+            action_items=out.get("action_items", []),
             snapshot=log.input_data,
         )
 
-    async def get_diagnosis_history(self, business: Business) -> list[DiagnosisHistoryItem]:
+    async def get_diagnosis_history(
+        self, business: Business
+    ) -> list[DiagnosisHistoryItem]:
         logs = await self._repo.get_simulation_logs(business.id, "DIAGNOSIS")
         return [
             DiagnosisHistoryItem(
@@ -147,7 +169,9 @@ class DiagnosisService:
             for log in logs
         ]
 
-    async def delete_diagnosis(self, business: Business, diagnosis_id: uuid.UUID) -> None:
+    async def delete_diagnosis(
+        self, business: Business, diagnosis_id: uuid.UUID
+    ) -> None:
         log = await self._repo.get_simulation_log(diagnosis_id, business.id)
         if not log:
             raise NotFoundException("진단 기록을 찾을 수 없습니다.")
@@ -162,11 +186,15 @@ class DiagnosisService:
         business: Business,
         req: ExecuteSimulationRequest,
     ) -> ExecuteSimulationResponseData:
-        snap = await self._business_service.get_latest_financial_snapshot_internal(business.id)
+        snap = await self._business_service.get_latest_financial_snapshot_internal(
+            business.id
+        )
         base_inputs: dict[str, Any] = {
             "annual_revenue": snap.annual_revenue if snap else None,
             "total_debt": snap.total_debt if snap else None,
-            "employee_count": snap.employee_count if snap else (business.employee_count or 0),
+            "employee_count": snap.employee_count
+            if snap
+            else (business.employee_count or 0),
             "has_patent": business.has_patent,
             "is_female_ent": business.is_female_ent,
             "is_ventured": business.is_ventured,
@@ -214,7 +242,10 @@ class DiagnosisService:
                 policy_id=policy.id,
                 match_score=int(result.simulated_rate),
                 match_status="SIMULATED",
-                reason_json={"sim_log_id": str(log.id), "gain_factors": result.gain_factors},
+                reason_json={
+                    "sim_log_id": str(log.id),
+                    "gain_factors": result.gain_factors,
+                },
             )
 
         await self._session.commit()
@@ -224,7 +255,9 @@ class DiagnosisService:
             gain_factors=result.gain_factors,
         )
 
-    async def get_simulation_history(self, business: Business) -> list[SimulationHistoryItem]:
+    async def get_simulation_history(
+        self, business: Business
+    ) -> list[SimulationHistoryItem]:
         logs = await self._repo.get_simulation_logs(business.id, "SIMULATION")
         return [
             SimulationHistoryItem(

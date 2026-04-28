@@ -95,7 +95,7 @@ async def get_required_business_id(
     """
     try:
         return uuid.UUID(x_business_id)
-    except ValueError:
+    except ValueError: 
         raise HTTPException(
             status_code=400,
             detail="X-Business-Id 헤더 형식이 올바르지 않습니다. (UUID 형식 필요)",

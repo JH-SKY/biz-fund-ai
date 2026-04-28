@@ -66,7 +66,7 @@ async def base_app_exception_handler(
 class BaseAppException(Exception):
     """
     [주석 3. 에러의 큰 뿌리 (부모 클래스)]
-    우리 서비스에서 발생하는 모든 예외들이 공통적으로 가져야 할 '상태 코드'와 '안내 문구'라는 그릇을 미리 만들어 둔 것이에요.
+    우리 서비스에서 발생하는 모든 예외들이 공통적으로 가져야 할 '상태 코드'와 '안내 문구'라는 그릇을 미리 만들어 둔 것
     """
     def __init__(self, status_code: int, message: str):
         self.status_code = status_code

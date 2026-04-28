@@ -1,5 +1,5 @@
 # src/app/core/config.py
-"""Application configuration loaded from environment variables."""
+"""전역 환경 설정 관리: .env 파일의 변수들을 검증하고 앱 전체에서 사용할 Settings 객체를 생성함."""
 
 import os
 

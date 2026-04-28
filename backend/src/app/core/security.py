@@ -18,7 +18,7 @@ from src.app.core.config import (
     USER_REFRESH_TOKEN_EXPIRE_DAYS,
 )
 
-ALGORITHM = "HS256"
+ALGORITHM = "HS256"  # JWT 암호화 방식
 
 
 # ── bcrypt ─────────────────────────────────────────────

@@ -43,6 +43,7 @@ class SendMessageResponseData(BaseModel):
 class ChatMessageItem(BaseModel):
     role: str
     content: str
+    created_at: datetime
 
 
 class AutoSummaryResponseData(BaseModel):

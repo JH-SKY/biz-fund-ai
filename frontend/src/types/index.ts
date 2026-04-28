@@ -395,15 +395,22 @@ export interface ExecuteDiagnosisResponse {
 }
 
 export interface DiagnosisScores {
-  stability: number;
-  growth: number;
-  tech: number;
+  financial_health: number;
+  growth_potential: number;
+  operational_stability: number;
+  risk_management: number;
 }
 
 export interface DiagnosisDetail {
   diagnosis_id: string;
+  total_score: number;
+  grade: string;
+  traffic_light: "RED" | "YELLOW" | "GREEN";
   scores: DiagnosisScores;
-  ai_comment: string;
+  summary: string;
+  strengths: string[];
+  risk_signals: string[];
+  action_items: string[];
   snapshot: Record<string, unknown>;
 }
 

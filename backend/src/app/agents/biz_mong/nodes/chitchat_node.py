@@ -1,18 +1,4 @@
-# src/app/agents/biz_mong/nodes/chitchat_node.py
-"""Node: Chitchat — 인사/잡담 및 일반 질문 직접 처리 노드.
-
-두 가지 경우를 처리한다:
-  1. greeting (인사/잡담): LLM 호출 없이 규칙 기반 웰컴 메시지 반환.
-  2. general_qa (일반 개념 질문): GPT-4o-mini 1회 직접 응답.
-     - DB 조회 없음, 벡터 검색 없음, 도구 없음.
-     - 단순 용어 설명, 개념 풀이 등에 활용.
-
-[설계 의도]:
-  - 인사/잡담/단순 질문은 heavy pipeline (hard_filter → llm_evaluator) 을
-    완전히 우회한다 → 비용 0 또는 GPT 1회로 즉각 응답.
-  - biz_info 가 있으면 사장님 호칭에 상호명을 쓴다.
-  - stream_callback 을 넘기면 general_qa 에서 토큰 단위 스트리밍을 지원한다.
-"""
+"""Lightweight counselor node for BizMong."""
 
 from __future__ import annotations
 
@@ -26,25 +12,31 @@ from src.app.core.config import OPENAI_API_KEY
 logger = logging.getLogger(__name__)
 
 _GREETING_RESPONSES = [
-    "안녕하세요 사장님! 😊 저는 비즈몽 AI 상담사입니다.\n\n"
-    "궁금한 게 있으시면 편하게 물어보세요!\n\n"
-    "**할 수 있는 것들**\n"
-    "• 내 사업장에 맞는 정책자금 진단\n"
-    "• 조건 바꿨을 때 점수 시뮬레이션\n"
-    "• 특정 공고·제도 설명\n"
-    "• 동종업계 비교 통계",
+    "안녕하세요. 비즈몽입니다.\n\n"
+    "정책자금 용어를 쉽게 풀어드리고, 공고 내용을 해석해드리고, "
+    "대표님 사업장 상황에 맞는 다음 행동을 같이 정리해드릴게요.\n\n"
+    "정밀진단이나 시뮬레이션이 필요하면 전용 페이지로 안내해드리고, "
+    "결과를 가져오시면 쉽게 설명해드릴 수 있어요.",
 ]
 
-_SYSTEM_PROMPT_GENERAL = (
-    "당신은 대한민국 중소기업·소상공인 정책자금 전문 상담사 비즈몽입니다.\n"
-    "사용자의 질문에 대해 친절하고 간결하게 답변하세요.\n"
-    "- 재무·회계·정책 용어 설명은 쉬운 말로 풀어서 설명하세요.\n"
-    "- 모르거나 불확실한 내용은 단정하지 말고 '정확한 내용은 담당 기관에 문의하세요'라고 안내하세요.\n"
-    "- 답변은 3~5문장 이내로 짧게 유지하세요.\n"
-    "- 정책자금 진단이 필요하면 '진단 요청'을 해달라고 안내하세요."
-)
+_SYSTEM_PROMPT_GENERAL = """
+너는 중소기업 대표를 돕는 정책자금 전문 비서 '비즈몽'이다.
 
-# stream_callback 타입: 토큰 청크를 받아 처리하는 코루틴
+역할:
+- 정책자금, 보증, 대출, 공고 용어를 쉽게 설명한다.
+- 사용자의 사업장 고민을 듣고 현실적인 조언을 준다.
+- 특정 공고가 언급되면 이해하기 쉽게 해석해준다.
+- 정밀진단이나 시뮬레이션을 채팅에서 직접 실행하지 않는다.
+- 대신 필요할 때 정밀진단 페이지나 시뮬레이션 페이지를 친절히 권한다.
+- 사용자가 이미 받은 진단 결과를 가져오면 이해하기 쉽게 풀어준다.
+
+답변 원칙:
+- 과장하지 말고, 모르면 단정하지 않는다.
+- 한국어로 답하고, 3~6문장 정도로 간결하지만 친절하게 답한다.
+- 딱딱한 심사관이 아니라 대표의 실무 비서처럼 말한다.
+- 정밀진단/시뮬레이션 요청이 오면 "채팅에서 바로 계산하기보다 진단 페이지에서 확인하는 게 정확하다"고 안내한다.
+"""
+
 StreamCallback = Callable[[str], Awaitable[None]]
 
 
@@ -53,45 +45,32 @@ async def chitchat_node(
     client: AsyncOpenAI | None = None,
     stream_callback: StreamCallback | None = None,
 ) -> dict:
-    """인사/잡담 또는 일반 개념 질문에 응답한다.
-
-    State 입력:
-        current_agent: "greeting" | "general_qa"
-        messages: 대화 히스토리
-        biz_info: 사업장 기본정보 (선택)
-    State 출력:
-        messages: assistant 응답 추가
-    """
     current_agent: str = state.get("current_agent", "greeting")
     messages: list = state.get("messages") or []
     biz_info: dict = state.get("biz_info") or {}
     biz_name: str = biz_info.get("biz_name", "")
 
-    # ── greeting: LLM 없이 바로 응답 ──────────────────────────────────────
     if current_agent == "greeting":
         greeting = _GREETING_RESPONSES[0]
         if biz_name:
-            greeting = greeting.replace("사장님!", f"{biz_name} 사장님!")
+            greeting = greeting.replace("대표", f"{biz_name} 대표")
         if stream_callback:
             await stream_callback(greeting)
-        logger.info("[chitchat] greeting → 규칙 기반 응답")
-        return {
-            "messages": messages + [{"role": "assistant", "content": greeting}],
-        }
+        return {"messages": messages + [{"role": "assistant", "content": greeting}]}
 
-    # ── general_qa: GPT 직접 답변 ─────────────────────────────────────────
     last_msg = _get_last_user_message(messages)
     if not last_msg:
-        fallback = "질문을 입력해 주세요."
+        fallback = "궁금한 점을 편하게 적어주세요."
         if stream_callback:
             await stream_callback(fallback)
-        return {
-            "messages": messages + [{"role": "assistant", "content": fallback}],
-        }
+        return {"messages": messages + [{"role": "assistant", "content": fallback}]}
 
     _client = client or AsyncOpenAI(api_key=OPENAI_API_KEY)
-    history = [m for m in messages if isinstance(m, dict) and m.get("role") in ("user", "assistant")]
-    history = history[-12:]
+    history = [
+        message
+        for message in messages
+        if isinstance(message, dict) and message.get("role") in ("user", "assistant")
+    ][-12:]
     gpt_messages = [{"role": "system", "content": _SYSTEM_PROMPT_GENERAL}] + history
 
     try:
@@ -104,17 +83,15 @@ async def chitchat_node(
                 temperature=0.3,
                 max_tokens=400,
             )
-            answer = response.choices[0].message.content.strip()
-        logger.info("[chitchat] general_qa → 응답 완료 (%d chars)", len(answer))
+            answer = (response.choices[0].message.content or "").strip()
+        logger.info("[bizmong-chitchat] answer generated (%d chars)", len(answer))
     except Exception as exc:
-        logger.warning("[chitchat] GPT 호출 실패: %s", exc)
-        answer = "죄송합니다, 잠시 오류가 발생했습니다. 다시 시도해 주세요."
+        logger.warning("[bizmong-chitchat] generation failed: %s", exc)
+        answer = "잠시 오류가 있었어요. 같은 질문을 한 번만 더 보내주시면 바로 이어서 도와드릴게요."
         if stream_callback:
             await stream_callback(answer)
 
-    return {
-        "messages": messages + [{"role": "assistant", "content": answer}],
-    }
+    return {"messages": messages + [{"role": "assistant", "content": answer}]}
 
 
 async def _stream_general_qa(
@@ -122,7 +99,6 @@ async def _stream_general_qa(
     gpt_messages: list,
     callback: StreamCallback,
 ) -> str:
-    """GPT 스트리밍으로 토큰마다 callback 을 호출하고 전체 텍스트를 반환한다."""
     collected: list[str] = []
     stream = await client.chat.completions.create(
         model="gpt-4o-mini",

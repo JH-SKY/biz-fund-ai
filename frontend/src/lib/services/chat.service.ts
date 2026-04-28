@@ -40,7 +40,7 @@ export const chatService = {
     ),
 
   getMessages: (sessionId: string) =>
-    apiClient.get<{ role: string; content: string }[]>(
+    apiClient.get<{ role: string; content: string; created_at: string }[]>(
       `/chats/sessions/${sessionId}/messages`
     ),
 

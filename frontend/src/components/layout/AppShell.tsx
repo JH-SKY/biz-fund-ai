@@ -20,7 +20,6 @@ import { Header } from "./Header";
 import { Sidebar } from "./Sidebar";
 import { BottomTabBar } from "./BottomTabBar";
 import { Footer } from "./Footer";
-import { BizmongWidget } from "@/components/BizmongWidget";
 
 export function AppShell({ children }: { children: ReactNode }) {
   return (
@@ -43,7 +42,6 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
 
       <BottomTabBar />
-      <BizmongWidget />
     </div>
   );
 }
