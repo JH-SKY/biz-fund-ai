@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import AbstractAsyncContextManager
 from typing import Any
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
+
+logger = logging.getLogger(__name__)
 
 APP_ENV = os.getenv("APP_ENV", "development")
 LANGGRAPH_CHECKPOINTER_BACKEND = os.getenv(
@@ -24,7 +27,12 @@ _checkpointer_ctx: AbstractAsyncContextManager[Any] | None = None
 
 
 async def initialize_langgraph_checkpointer() -> BaseCheckpointSaver:
-    """Initialize a singleton checkpointer for BizMong graphs."""
+    """Initialize a singleton checkpointer for BizMong graphs.
+
+    Production prefers postgres, but if the runtime lacks the required psycopg /
+    libpq pieces we gracefully fall back to in-memory mode instead of taking the
+    whole chat service down.
+    """
     global _checkpointer, _checkpointer_ctx
 
     if _checkpointer is not None:
@@ -35,30 +43,56 @@ async def initialize_langgraph_checkpointer() -> BaseCheckpointSaver:
         return _checkpointer
 
     if LANGGRAPH_CHECKPOINTER_BACKEND != "postgres":
-        raise RuntimeError(
-            f"Unsupported LANGGRAPH_CHECKPOINTER_BACKEND: {LANGGRAPH_CHECKPOINTER_BACKEND}"
+        logger.warning(
+            "Unsupported LANGGRAPH_CHECKPOINTER_BACKEND=%s; falling back to memory.",
+            LANGGRAPH_CHECKPOINTER_BACKEND,
         )
+        _checkpointer = InMemorySaver()
+        return _checkpointer
 
     if not LANGGRAPH_CHECKPOINTER_DSN:
-        raise RuntimeError("LANGGRAPH_CHECKPOINTER_DSN is required for postgres checkpointer")
+        logger.warning(
+            "LANGGRAPH_CHECKPOINTER_DSN is missing; falling back to memory checkpointer."
+        )
+        _checkpointer = InMemorySaver()
+        return _checkpointer
 
     try:
         from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-    except ImportError as exc:
-        raise RuntimeError(
-            "langgraph-checkpoint-postgres 패키지가 설치되지 않아 postgres checkpointer를 초기화할 수 없습니다."
-        ) from exc
+    except Exception as exc:
+        logger.warning(
+            "Postgres checkpointer import failed; falling back to memory. reason=%s",
+            exc,
+        )
+        _checkpointer = InMemorySaver()
+        return _checkpointer
 
-    _checkpointer_ctx = AsyncPostgresSaver.from_conn_string(LANGGRAPH_CHECKPOINTER_DSN)
-    _checkpointer = await _checkpointer_ctx.__aenter__()
+    try:
+        _checkpointer_ctx = AsyncPostgresSaver.from_conn_string(
+            LANGGRAPH_CHECKPOINTER_DSN
+        )
+        _checkpointer = await _checkpointer_ctx.__aenter__()
 
-    setup = getattr(_checkpointer, "setup", None)
-    if callable(setup):
-        maybe_awaitable = setup()
-        if maybe_awaitable is not None:
-            await maybe_awaitable
+        setup = getattr(_checkpointer, "setup", None)
+        if callable(setup):
+            maybe_awaitable = setup()
+            if maybe_awaitable is not None:
+                await maybe_awaitable
 
-    return _checkpointer
+        return _checkpointer
+    except Exception as exc:
+        logger.warning(
+            "Postgres checkpointer initialization failed; falling back to memory. reason=%s",
+            exc,
+        )
+        if _checkpointer_ctx is not None:
+            try:
+                await _checkpointer_ctx.__aexit__(None, None, None)
+            except Exception:
+                pass
+            _checkpointer_ctx = None
+        _checkpointer = InMemorySaver()
+        return _checkpointer
 
 
 def get_langgraph_checkpointer() -> BaseCheckpointSaver:
