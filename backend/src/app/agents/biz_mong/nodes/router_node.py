@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 import logging
+import time
 
 from openai import AsyncOpenAI
 
+from src.app.agents.biz_mong.telemetry import build_node_log
 from src.app.core.config import OPENAI_API_KEY
 
 logger = logging.getLogger(__name__)
@@ -21,21 +24,65 @@ async def router_node(
 ) -> dict:
     """Route the latest user message to the lightweight counselor flow."""
     _client = client or AsyncOpenAI(api_key=OPENAI_API_KEY)
+    started_at = datetime.now(timezone.utc)
+    started_mono = time.monotonic()
 
     messages: list = state.get("messages") or []
     last_msg = _get_last_user_message(messages)
     if not last_msg:
-        return {"current_agent": DEFAULT_INTENT}
+        completed_at = datetime.now(timezone.utc)
+        return {
+            "current_agent": DEFAULT_INTENT,
+            "node_logs": [
+                build_node_log(
+                    node_name="router",
+                    sequence=1,
+                    status="SUCCESS",
+                    latency_ms=int((time.monotonic() - started_mono) * 1000),
+                    started_at=started_at,
+                    completed_at=completed_at,
+                    metadata={"reason": "empty_message", "fallback": True},
+                )
+            ],
+        }
 
-    intent = await _classify_intent_llm(_client, last_msg)
+    intent, telemetry = await _classify_intent_llm(_client, last_msg)
+    fallback_reason: str | None = None
     if intent not in VALID_INTENTS:
         intent = _classify_by_keyword(last_msg)
+        fallback_reason = "keyword_fallback"
 
     logger.info("[bizmong-router] '%s' -> %s", last_msg[:80], intent)
-    return {"current_agent": intent}
+    completed_at = datetime.now(timezone.utc)
+    return {
+        "current_agent": intent,
+        "node_logs": [
+            build_node_log(
+                node_name="router",
+                sequence=1,
+                status="SUCCESS",
+                latency_ms=int((time.monotonic() - started_mono) * 1000),
+                model_name=telemetry.get("model_name"),
+                tokens_in=telemetry.get("tokens_in"),
+                tokens_out=telemetry.get("tokens_out"),
+                started_at=started_at,
+                completed_at=completed_at,
+                metadata={
+                    "classified_intent": telemetry.get("classified_intent"),
+                    "final_intent": intent,
+                    "fallback_reason": fallback_reason,
+                },
+            )
+        ],
+        "fallback_mode": "keyword" if fallback_reason else None,
+        "fallback_reason": fallback_reason,
+    }
 
 
-async def _classify_intent_llm(client: AsyncOpenAI, message: str) -> str:
+async def _classify_intent_llm(
+    client: AsyncOpenAI,
+    message: str,
+) -> tuple[str, dict]:
     system_prompt = """
 사용자 메시지를 아래 4가지 중 하나로만 분류하세요.
 반드시 JSON 하나만 반환하세요.
@@ -63,10 +110,22 @@ async def _classify_intent_llm(client: AsyncOpenAI, message: str) -> str:
             max_tokens=20,
         )
         payload = json.loads(response.choices[0].message.content or "{}")
-        return str(payload.get("intent", "")).lower()
+        usage = getattr(response, "usage", None)
+        intent = str(payload.get("intent", "")).lower()
+        return intent, {
+            "model_name": "gpt-4o-mini",
+            "tokens_in": getattr(usage, "prompt_tokens", None),
+            "tokens_out": getattr(usage, "completion_tokens", None),
+            "classified_intent": intent,
+        }
     except Exception as exc:
         logger.warning("[bizmong-router] intent classification failed: %s", exc)
-        return ""
+        return "", {
+            "model_name": "gpt-4o-mini",
+            "tokens_in": None,
+            "tokens_out": None,
+            "classified_intent": "",
+        }
 
 
 def _classify_by_keyword(message: str) -> str:

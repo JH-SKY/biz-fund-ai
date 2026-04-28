@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 import logging
+import time
 import uuid
 from typing import Any
 
@@ -17,6 +19,7 @@ from src.app.agents.biz_mong.nodes.chitchat_node import chitchat_node
 from src.app.agents.biz_mong.nodes.router_node import router_node
 from src.app.agents.biz_mong.nodes.stats_node import stats_node
 from src.app.agents.biz_mong.state import make_initial_state
+from src.app.agents.biz_mong.telemetry import build_node_log
 from src.app.agents.biz_mong.tools.policy_rag import policy_rag_search
 from src.app.core.config import OPENAI_API_KEY
 from src.app.domains.chat.model import ChatLog
@@ -25,15 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 class BizMongAgent:
-    """Counselor-style BizMong agent.
-
-    The chat agent is intentionally lightweight:
-    - `greeting` and `general_qa` answer like a policy-funding secretary
-    - `rag` searches policy documents and explains them
-    - `stats` compares with industry statistics
-
-    Detailed diagnosis and simulation are handled on their own pages, not here.
-    """
+    """Counselor-style BizMong agent."""
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -180,14 +175,27 @@ async def _run_rag(
     session: AsyncSession,
     client: AsyncOpenAI,
 ) -> dict:
-    import time as _time
-
     messages: list = state.get("messages") or []
     last_msg = _get_last_user_message(messages)
     biz_info: dict = state.get("biz_info") or {}
     region = biz_info.get("region_sido")
+    node_logs: list[dict[str, Any]] = []
 
+    retrieval_started_at = datetime.now(timezone.utc)
+    retrieval_started = time.monotonic()
     rag_results = await policy_rag_search(last_msg, session, region_filter=region)
+    retrieval_elapsed_ms = int((time.monotonic() - retrieval_started) * 1000)
+    node_logs.append(
+        build_node_log(
+            node_name="rag_retrieval",
+            sequence=2,
+            status="SUCCESS",
+            latency_ms=retrieval_elapsed_ms,
+            started_at=retrieval_started_at,
+            completed_at=datetime.now(timezone.utc),
+            metadata={"region_filter": region, "result_count": len(rag_results)},
+        )
+    )
 
     if not rag_results:
         return {
@@ -195,9 +203,10 @@ async def _run_rag(
             "messages": [
                 {
                     "role": "assistant",
-                    "content": "관련 정책 정보를 바로 찾지 못했습니다. 정책명, 기관명, 지역, 지원 분야를 조금 더 구체적으로 알려주시면 다시 찾아볼게요.",
+                    "content": "관련 정책 정보를 바로 찾지 못했습니다. 정책명이나 기관명, 지역, 분야를 조금 더 구체적으로 알려주시면 다시 찾아볼게요.",
                 }
             ],
+            "node_logs": node_logs,
         }
 
     context = "\n\n".join(
@@ -205,18 +214,34 @@ async def _run_rag(
         for result in rag_results[:3]
     )
 
-    started = _time.monotonic()
+    generation_started_at = datetime.now(timezone.utc)
+    generation_started = time.monotonic()
     answer, usage = await _generate_rag_answer(client, last_msg, context)
-    elapsed_ms = int((_time.monotonic() - started) * 1000)
+    generation_elapsed_ms = int((time.monotonic() - generation_started) * 1000)
+    node_logs.append(
+        build_node_log(
+            node_name="rag_generation",
+            sequence=3,
+            status="SUCCESS" if answer else "ERROR",
+            latency_ms=generation_elapsed_ms,
+            model_name="gpt-4o-mini",
+            tokens_in=getattr(usage, "prompt_tokens", None),
+            tokens_out=getattr(usage, "completion_tokens", None),
+            started_at=generation_started_at,
+            completed_at=datetime.now(timezone.utc),
+            metadata={"result_count": len(rag_results)},
+        )
+    )
 
     return {
         "rag_results": rag_results,
         "messages": [{"role": "assistant", "content": answer}],
+        "node_logs": node_logs,
         "last_usage": {
-            "tokens_in": usage.prompt_tokens if usage else None,
-            "tokens_out": usage.completion_tokens if usage else None,
+            "tokens_in": getattr(usage, "prompt_tokens", None),
+            "tokens_out": getattr(usage, "completion_tokens", None),
             "model_name": "gpt-4o-mini",
-            "response_time_ms": elapsed_ms,
+            "response_time_ms": generation_elapsed_ms,
         },
     }
 
@@ -227,9 +252,9 @@ async def _generate_rag_answer(
     context: str,
 ) -> tuple[str, object | None]:
     system_prompt = (
-        "너는 정책자금 전문 비서 비즈몽이다. 아래 검색된 정책 정보만 근거로 답하라. "
-        "대표가 이해하기 쉽게 풀어서 설명하고, 핵심은 신청 자격, 지원 내용, 주의할 조건 순서로 정리하라. "
-        "근거에 없는 내용은 추측하지 말고 공고 원문 확인이 필요하다고 말하라."
+        "당신은 정책자금 전문 비서 비즈몽이다. 아래 정책 정보만 근거로 설명하고, "
+        "지원 대상, 신청 자격, 지원 내용, 주의할 조건 순서로 간단히 정리하라. "
+        "근거가 없는 내용은 추측하지 말고 공고 원문 확인이 필요하다고 말하라."
     )
     user_content = f"[정책 정보]\n{context}\n\n[질문]\n{question}"
 

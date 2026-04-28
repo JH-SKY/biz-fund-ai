@@ -14,12 +14,15 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import logging
+import time
 from typing import Any
 
 from sqlalchemy import Float, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.app.agents.biz_mong.telemetry import build_node_log
 from src.app.domains.business.model import Business, BusinessFinancialSnapshot
 
 logger = logging.getLogger(__name__)
@@ -43,6 +46,8 @@ async def stats_node(
     State 출력:
         stats_insight: {market_trend, peer_comparison, percentile}
     """
+    started_at = datetime.now(timezone.utc)
+    started_mono = time.monotonic()
     biz_info: dict = state.get("biz_info") or {}
     financial_data: dict = state.get("financial_data") or {}
 
@@ -82,7 +87,23 @@ async def stats_node(
         ksic_code or "전업종", peer_stats["peer_count"],
     )
 
-    return {"stats_insight": stats_insight}
+    return {
+        "stats_insight": stats_insight,
+        "node_logs": [
+            build_node_log(
+                node_name="stats",
+                sequence=2,
+                status="SUCCESS",
+                latency_ms=int((time.monotonic() - started_mono) * 1000),
+                started_at=started_at,
+                completed_at=datetime.now(timezone.utc),
+                metadata={
+                    "peer_count": peer_stats["peer_count"],
+                    "ksic_code": ksic_code,
+                },
+            )
+        ],
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
