@@ -262,6 +262,38 @@ async def admin_monitoring_cost(
     return api_json(http_status=200, data=data, message="success")
 
 
+@router.get("/monitoring/agent-overview")
+async def admin_monitoring_agent_overview(
+    _: CurrentAdmin,
+    svc: Annotated[AdminService, Depends(get_admin_service)],
+    range: str = Query("24h"),
+):
+    data = await svc.monitoring_agent_overview(range_value=range)
+    return api_json(http_status=200, data=data, message="success")
+
+
+@router.get("/monitoring/agent-nodes")
+async def admin_monitoring_agent_nodes(
+    _: CurrentAdmin,
+    svc: Annotated[AdminService, Depends(get_admin_service)],
+    range: str = Query("24h"),
+):
+    data = await svc.monitoring_agent_nodes(range_value=range)
+    return api_json(http_status=200, data=data, message="success")
+
+
+@router.get("/monitoring/agent-runs")
+async def admin_monitoring_agent_runs(
+    _: CurrentAdmin,
+    svc: Annotated[AdminService, Depends(get_admin_service)],
+    range: str = Query("24h"),
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=200),
+):
+    data = await svc.monitoring_agent_runs(range_value=range, page=page, size=size)
+    return api_json(http_status=200, data=data, message="success")
+
+
 @router.get("/insights/unmet-demand")
 async def admin_unmet_demand(
     _: CurrentAdmin,

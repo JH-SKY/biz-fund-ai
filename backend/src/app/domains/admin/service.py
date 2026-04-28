@@ -37,7 +37,7 @@ from src.app.domains.admin.schema import (
 from src.app.domains.auth.model import User
 from src.app.domains.auth.service import AuthService
 from src.app.domains.biz_pick.service import BizPickService
-from src.app.domains.chat.model import ChatLog
+from src.app.domains.chat.model import AgentNodeLog, AgentRunLog, ChatLog
 from src.app.domains.chat.service import ChatService
 from src.app.domains.diagnosis.service import DiagnosisService
 from src.app.domains.policy.model import PolicyStatus
@@ -90,6 +90,17 @@ class AdminService:
         }
         key = (reason or "OTHER").upper()
         return mapping.get(key, "기타")
+
+    @staticmethod
+    def _range_to_since(range_value: str) -> datetime:
+        now = datetime.now(timezone.utc)
+        if range_value == "1h":
+            return now - timedelta(hours=1)
+        if range_value == "24h":
+            return now - timedelta(hours=24)
+        if range_value == "7d":
+            return now - timedelta(days=7)
+        return now - timedelta(days=30)
 
     async def login(self, body: AdminLoginRequest) -> dict:
         admin = await self._repo.get_admin_by_login_id(body.login_id)
@@ -1036,6 +1047,182 @@ class AdminService:
             "total_tokens_in": total_tokens_in,
             "total_tokens_out": total_tokens_out,
             "by_model": by_model,
+        }
+
+    async def monitoring_agent_overview(self, *, range_value: str) -> dict[str, Any]:
+        since = self._range_to_since(range_value)
+
+        overview_stmt = select(
+            func.count(AgentRunLog.id).label("runs"),
+            func.count().filter(AgentRunLog.status == "SUCCESS").label("success_runs"),
+            func.avg(AgentRunLog.total_latency_ms).label("avg_latency"),
+            func.percentile_cont(0.5)
+            .within_group(AgentRunLog.total_latency_ms)
+            .label("p50_latency"),
+            func.percentile_cont(0.95)
+            .within_group(AgentRunLog.total_latency_ms)
+            .label("p95_latency"),
+            func.coalesce(func.sum(AgentRunLog.tokens_in), 0).label("tokens_in"),
+            func.coalesce(func.sum(AgentRunLog.tokens_out), 0).label("tokens_out"),
+            func.coalesce(func.sum(AgentRunLog.total_cost_usd), 0).label("total_cost_usd"),
+            func.count().filter(AgentRunLog.fallback_mode.isnot(None)).label("fallback_runs"),
+        ).where(AgentRunLog.created_at >= since)
+        overview = (await self._session.execute(overview_stmt)).one()
+
+        intent_stmt = (
+            select(
+                AgentRunLog.route_intent,
+                func.count(AgentRunLog.id).label("runs"),
+                func.avg(AgentRunLog.total_latency_ms).label("avg_latency"),
+                func.coalesce(func.sum(AgentRunLog.total_cost_usd), 0).label("cost_usd"),
+                func.count().filter(AgentRunLog.status != "SUCCESS").label("error_runs"),
+            )
+            .where(AgentRunLog.created_at >= since)
+            .group_by(AgentRunLog.route_intent)
+            .order_by(func.count(AgentRunLog.id).desc())
+        )
+        intent_rows = (await self._session.execute(intent_stmt)).all()
+
+        model_stmt = (
+            select(
+                AgentRunLog.model_name,
+                func.count(AgentRunLog.id).label("runs"),
+                func.coalesce(func.sum(AgentRunLog.tokens_in), 0).label("tokens_in"),
+                func.coalesce(func.sum(AgentRunLog.tokens_out), 0).label("tokens_out"),
+                func.coalesce(func.sum(AgentRunLog.total_cost_usd), 0).label("cost_usd"),
+            )
+            .where(AgentRunLog.created_at >= since, AgentRunLog.model_name.isnot(None))
+            .group_by(AgentRunLog.model_name)
+            .order_by(func.count(AgentRunLog.id).desc())
+        )
+        model_rows = (await self._session.execute(model_stmt)).all()
+
+        total_runs = int(overview.runs or 0)
+        success_runs = int(overview.success_runs or 0)
+        return {
+            "range": range_value,
+            "total_runs": total_runs,
+            "success_rate_pct": round((success_runs / total_runs) * 100, 2) if total_runs else 0.0,
+            "avg_latency_ms": int(overview.avg_latency or 0),
+            "p50_latency_ms": int(overview.p50_latency or 0),
+            "p95_latency_ms": int(overview.p95_latency or 0),
+            "total_tokens_in": int(overview.tokens_in or 0),
+            "total_tokens_out": int(overview.tokens_out or 0),
+            "total_cost_usd": round(float(overview.total_cost_usd or 0), 6),
+            "total_cost_krw": round(float(overview.total_cost_usd or 0) * 1350, 2),
+            "fallback_runs": int(overview.fallback_runs or 0),
+            "by_intent": [
+                {
+                    "intent": intent or "unknown",
+                    "runs": int(runs or 0),
+                    "avg_latency_ms": int(avg_latency or 0),
+                    "cost_usd": round(float(cost_usd or 0), 6),
+                    "error_rate_pct": round((int(error_runs or 0) / int(runs or 1)) * 100, 2),
+                }
+                for intent, runs, avg_latency, cost_usd, error_runs in intent_rows
+            ],
+            "by_model": [
+                {
+                    "model": model or "unknown",
+                    "runs": int(runs or 0),
+                    "tokens_in": int(tokens_in or 0),
+                    "tokens_out": int(tokens_out or 0),
+                    "cost_usd": round(float(cost_usd or 0), 6),
+                }
+                for model, runs, tokens_in, tokens_out, cost_usd in model_rows
+            ],
+        }
+
+    async def monitoring_agent_nodes(self, *, range_value: str) -> dict[str, Any]:
+        since = self._range_to_since(range_value)
+        stmt = (
+            select(
+                AgentNodeLog.node_name,
+                func.count(AgentNodeLog.id).label("executions"),
+                func.avg(AgentNodeLog.latency_ms).label("avg_latency"),
+                func.percentile_cont(0.95)
+                .within_group(AgentNodeLog.latency_ms)
+                .label("p95_latency"),
+                func.coalesce(func.sum(AgentNodeLog.tokens_in), 0).label("tokens_in"),
+                func.coalesce(func.sum(AgentNodeLog.tokens_out), 0).label("tokens_out"),
+                func.coalesce(func.sum(AgentNodeLog.cost_usd), 0).label("cost_usd"),
+                func.count().filter(AgentNodeLog.status != "SUCCESS").label("error_count"),
+            )
+            .where(AgentNodeLog.created_at >= since)
+            .group_by(AgentNodeLog.node_name)
+            .order_by(func.count(AgentNodeLog.id).desc())
+        )
+        rows = (await self._session.execute(stmt)).all()
+        return {
+            "range": range_value,
+            "items": [
+                {
+                    "node_name": node_name,
+                    "executions": int(executions or 0),
+                    "avg_latency_ms": int(avg_latency or 0),
+                    "p95_latency_ms": int(p95_latency or 0),
+                    "tokens_in": int(tokens_in or 0),
+                    "tokens_out": int(tokens_out or 0),
+                    "cost_usd": round(float(cost_usd or 0), 6),
+                    "error_count": int(error_count or 0),
+                }
+                for (
+                    node_name,
+                    executions,
+                    avg_latency,
+                    p95_latency,
+                    tokens_in,
+                    tokens_out,
+                    cost_usd,
+                    error_count,
+                ) in rows
+            ],
+        }
+
+    async def monitoring_agent_runs(
+        self,
+        *,
+        range_value: str,
+        page: int,
+        size: int,
+    ) -> dict[str, Any]:
+        since = self._range_to_since(range_value)
+        total_stmt = select(func.count(AgentRunLog.id)).where(AgentRunLog.created_at >= since)
+        total = int((await self._session.execute(total_stmt)).scalar() or 0)
+        total_pages = (total + size - 1) // size if size > 0 else 0
+
+        stmt = (
+            select(AgentRunLog)
+            .where(AgentRunLog.created_at >= since)
+            .order_by(AgentRunLog.created_at.desc())
+            .offset((page - 1) * size)
+            .limit(size)
+        )
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return {
+            "items": [
+                {
+                    "run_id": str(row.id),
+                    "session_id": str(row.room_id),
+                    "route_intent": row.route_intent,
+                    "final_agent": row.final_agent,
+                    "status": row.status,
+                    "question_preview": row.question_preview,
+                    "total_latency_ms": row.total_latency_ms,
+                    "first_token_latency_ms": row.first_token_latency_ms,
+                    "tokens_in": row.tokens_in,
+                    "tokens_out": row.tokens_out,
+                    "total_cost_usd": round(float(row.total_cost_usd or 0), 6),
+                    "fallback_mode": row.fallback_mode,
+                    "rag_hit_count": row.rag_hit_count,
+                    "prompt_version": row.prompt_version,
+                    "model_name": row.model_name,
+                    "created_at": self._to_iso(row.created_at),
+                }
+                for row in rows
+            ],
+            "total_count": total,
+            "total_pages": total_pages,
         }
 
     async def list_unmet_demand(self, *, page: int, size: int) -> dict[str, Any]:
