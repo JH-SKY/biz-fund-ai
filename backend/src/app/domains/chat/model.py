@@ -174,3 +174,119 @@ class ChatLog(Base):
         foreign_keys=[ref_policy_id],
     )
     room: Mapped["ChatRoom"] = relationship("ChatRoom", back_populates="chat_logs")
+
+
+class AgentRunLog(Base):
+    """Turn-level BizMong observability log."""
+
+    __tablename__ = "agent_run_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    room_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("chat_rooms.id"),
+        nullable=False,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id"),
+        nullable=False,
+    )
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("businesses.id"),
+        nullable=False,
+    )
+    user_message_log_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("chat_logs.id"),
+        nullable=True,
+    )
+    assistant_message_log_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("chat_logs.id"),
+        nullable=True,
+    )
+    route_intent: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    final_agent: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    prompt_version: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    graph_version: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    rag_strategy_version: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True
+    )
+    model_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="SUCCESS",
+        server_default=text("'SUCCESS'"),
+    )
+    fallback_mode: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    fallback_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    question_preview: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP,
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    completed_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP, nullable=True)
+    total_latency_ms: Mapped[Optional[int]] = mapped_column(nullable=True)
+    first_token_latency_ms: Mapped[Optional[int]] = mapped_column(nullable=True)
+    tokens_in: Mapped[Optional[int]] = mapped_column(nullable=True)
+    tokens_out: Mapped[Optional[int]] = mapped_column(nullable=True)
+    total_cost_usd: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(12, 8), nullable=True
+    )
+    rag_hit_count: Mapped[Optional[int]] = mapped_column(nullable=True)
+    error_code: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    extra: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP,
+        server_default=text("CURRENT_TIMESTAMP"),
+        nullable=False,
+    )
+
+
+class AgentNodeLog(Base):
+    """Node-level BizMong observability log."""
+
+    __tablename__ = "agent_node_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("agent_run_logs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    node_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    sequence: Mapped[int] = mapped_column(nullable=False, default=1)
+    status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="SUCCESS",
+        server_default=text("'SUCCESS'"),
+    )
+    model_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    started_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP, nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP, nullable=True)
+    latency_ms: Mapped[Optional[int]] = mapped_column(nullable=True)
+    tokens_in: Mapped[Optional[int]] = mapped_column(nullable=True)
+    tokens_out: Mapped[Optional[int]] = mapped_column(nullable=True)
+    cost_usd: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 8), nullable=True)
+    error_code: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    metadata: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP,
+        server_default=text("CURRENT_TIMESTAMP"),
+        nullable=False,
+    )
