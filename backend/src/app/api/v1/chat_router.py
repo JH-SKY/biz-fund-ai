@@ -37,7 +37,11 @@ async def create_chat_session(
     biz: ActiveBusiness,
 ):
     data = await svc.create_session(biz, req)
-    return api_json(status.HTTP_201_CREATED, data=data.model_dump(), message="success")
+    return api_json(
+        http_status=status.HTTP_201_CREATED,
+        data=data.model_dump(),
+        message="success",
+    )
 
 
 @router.get("/sessions")
@@ -47,7 +51,7 @@ async def get_chat_sessions(
 ):
     data = await svc.get_sessions(biz)
     return api_json(
-        status.HTTP_200_OK,
+        http_status=status.HTTP_200_OK,
         data=[item.model_dump() for item in data],
         message="success",
     )
@@ -61,7 +65,11 @@ async def send_chat_message(
     biz: ActiveBusiness,
 ):
     data = await svc.send_message(biz, session_id, req)
-    return api_json(status.HTTP_200_OK, data=data.model_dump(), message="success")
+    return api_json(
+        http_status=status.HTTP_200_OK,
+        data=data.model_dump(),
+        message="success",
+    )
 
 
 @router.get("/sessions/{session_id}/messages")
@@ -72,7 +80,7 @@ async def get_chat_messages(
 ):
     data = await svc.get_messages(biz, session_id)
     return api_json(
-        status.HTTP_200_OK,
+        http_status=status.HTTP_200_OK,
         data=[item.model_dump() for item in data],
         message="success",
     )
@@ -85,7 +93,11 @@ async def auto_summary_chat_session(
     biz: ActiveBusiness,
 ):
     data = await svc.auto_summary(biz, session_id)
-    return api_json(status.HTTP_200_OK, data=data.model_dump(), message="success")
+    return api_json(
+        http_status=status.HTTP_200_OK,
+        data=data.model_dump(),
+        message="success",
+    )
 
 
 @router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -158,7 +170,11 @@ async def send_agent_message(
         created_at=ai_log.created_at,
     )
 
-    return api_json(status.HTTP_200_OK, data=response_data.model_dump(), message="success")
+    return api_json(
+        http_status=status.HTTP_200_OK,
+        data=response_data.model_dump(),
+        message="success",
+    )
 
 
 def _sse(event_type: str, payload: dict) -> str:
