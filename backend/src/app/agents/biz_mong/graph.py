@@ -63,6 +63,23 @@ class BizMongAgent:
 
         return await self._graph.ainvoke(initial, config=config)
 
+    async def run_from_route(
+        self,
+        *,
+        state: dict[str, Any],
+        route_intent: str,
+    ) -> dict[str, Any]:
+        if route_intent in ("greeting", "general_qa"):
+            return await chitchat_node(state, client=self._client)
+        if route_intent == "rag":
+            return await _run_rag(state, session=self._session, client=self._client)
+        if route_intent == "stats":
+            return await stats_node(state, session=self._session)
+        return await chitchat_node(
+            {**state, "current_agent": "general_qa"},
+            client=self._client,
+        )
+
     def _build_graph(self):
         session = self._session
         client = self._client

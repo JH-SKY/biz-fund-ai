@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from openai import AsyncOpenAI
 from pydantic import BaseModel
+from sqlalchemy import select
 
 from src.app.agents.biz_mong.nodes.chitchat_node import (
     PROMPT_VERSION_GENERAL,
@@ -26,7 +27,7 @@ from src.app.api.deps.business_deps import ActiveBusiness
 from src.app.api.deps.chat_deps import BizMongAgentDep, ChatServiceDep
 from src.app.core.config import OPENAI_API_KEY
 from src.app.core.response import api_json
-from src.app.domains.chat.model import AgentNodeLog, AgentRunLog
+from src.app.domains.chat.model import AgentCtaLog, AgentNodeLog, AgentRunLog
 from src.app.domains.chat.schema import CreateSessionRequest, SendMessageRequest
 
 router = APIRouter(prefix="/chats", tags=["chats"])
@@ -43,6 +44,14 @@ class AgentMessageResponse(BaseModel):
     stats_insight: Optional[dict] = None
     rag_results: Optional[list] = None
     created_at: datetime
+
+
+class AgentCtaEventRequest(BaseModel):
+    assistant_message_id: uuid.UUID
+    cta_type: str
+    target_path: str
+    ref_policy_id: Optional[uuid.UUID] = None
+    metadata: Optional[dict[str, Any]] = None
 
 
 @router.post("/sessions")
@@ -202,17 +211,11 @@ async def stream_agent_message(
         run_started_mono = time.monotonic()
         first_token_latency_ms: int | None = None
         openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-        config = {"configurable": {"thread_id": str(room.id)}}
-        existing = agent._graph.get_state(config)
-        if existing and existing.values:
-            init_state: dict[str, Any] = {"messages": [{"role": "user", "content": req.message}]}
-        else:
-            init_state = make_initial_state(
-                user_id=str(biz.user_id),
-                business_id=str(biz.id),
-                room_id=str(room.id),
-                first_message=req.message,
-            )
+        init_state = await _build_stream_state(
+            svc=svc,
+            biz=biz,
+            room_id=room.id,
+        )
 
         try:
             router_result = await router_node(init_state, client=openai_client)
@@ -295,10 +298,13 @@ async def stream_agent_message(
                     "stats": "비슷한 사업장 통계와 비교 정보를 정리하고 있어요...",
                 }
                 yield _sse("status", {"text": status_map.get(intent, "답변을 준비하고 있어요...")})
-                final_state = await agent._graph.ainvoke(merged_state, config=config)
+                final_state = await agent.run_from_route(
+                    state=merged_state,
+                    route_intent=intent,
+                )
                 agent_type = final_state.get("current_agent") or intent
                 full_content = _build_response_content(agent_type, final_state)
-                node_logs = _normalize_node_logs(final_state.get("node_logs"))
+                node_logs.extend(_normalize_node_logs(final_state.get("node_logs")))
                 prompt_version = final_state.get("prompt_version") or prompt_version
                 stats_insight = final_state.get("stats_insight")
                 rag_results = final_state.get("rag_results")
@@ -377,6 +383,46 @@ async def stream_agent_message(
     return StreamingResponse(event_stream(), media_type="text/event-stream", headers=cors_headers)
 
 
+@router.post("/sessions/{session_id}/cta-events")
+async def track_agent_cta_event(
+    session_id: uuid.UUID,
+    body: AgentCtaEventRequest,
+    svc: ChatServiceDep,
+    biz: ActiveBusiness,
+):
+    room = await _verify_room_access(svc, biz, session_id)
+    assistant_log = await svc._repo.get_chat_log_by_id(body.assistant_message_id)
+    if assistant_log is None or assistant_log.room_id != room.id or assistant_log.role != "assistant":
+        raise HTTPException(status_code=404, detail="assistant message not found")
+
+    run_stmt = (
+        select(AgentRunLog)
+        .where(
+            AgentRunLog.room_id == room.id,
+            AgentRunLog.assistant_message_log_id == assistant_log.id,
+        )
+        .order_by(AgentRunLog.created_at.desc())
+        .limit(1)
+    )
+    run = (await svc._session.execute(run_stmt)).scalar_one_or_none()
+
+    svc._session.add(
+        AgentCtaLog(
+            run_id=run.id if run else None,
+            room_id=room.id,
+            user_id=biz.user_id,
+            business_id=biz.id,
+            assistant_message_log_id=assistant_log.id,
+            cta_type=body.cta_type.upper(),
+            target_path=body.target_path,
+            ref_policy_id=body.ref_policy_id,
+            metadata=body.metadata or {},
+        )
+    )
+    await svc._session.commit()
+    return api_json(http_status=status.HTTP_201_CREATED, data={"success": True}, message="success")
+
+
 def _build_response_content(agent_type: str, state: dict[str, Any]) -> str:
     if agent_type in ("greeting", "general_qa", "rag"):
         messages = state.get("messages") or []
@@ -407,6 +453,32 @@ async def _verify_room_access(
     if not room or room.business_id != biz.id:
         raise HTTPException(status_code=403, detail="세션 접근 권한이 없습니다.")
     return room
+
+
+async def _build_stream_state(
+    *,
+    svc: ChatServiceDep,
+    biz: ActiveBusiness,
+    room_id: uuid.UUID,
+) -> dict[str, Any]:
+    state = make_initial_state(
+        user_id=str(biz.user_id),
+        business_id=str(biz.id),
+        room_id=str(room_id),
+        first_message="",
+    )
+    logs = await svc._repo.get_chat_logs_by_room(room_id)
+    state["messages"] = [
+        {"role": log.role, "content": log.content}
+        for log in logs
+        if log.role in {"user", "assistant"}
+    ]
+    state["biz_info"] = {
+        "biz_name": getattr(biz, "biz_name", None),
+        "ksic_code": getattr(biz, "ksic_code", None),
+        "region_sido": getattr(biz, "region_sido", None),
+    }
+    return state
 
 
 def _normalize_node_logs(raw: Any) -> list[dict[str, Any]]:

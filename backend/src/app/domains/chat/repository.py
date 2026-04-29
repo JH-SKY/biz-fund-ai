@@ -108,6 +108,11 @@ class ChatRepository:
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_chat_log_by_id(self, log_id: uuid.UUID) -> Optional[ChatLog]:
+        stmt = select(ChatLog).where(ChatLog.id == log_id)
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def get_last_message_by_room(self, room_id: uuid.UUID) -> Optional[ChatLog]:
         """
         6. 상담 세션의 마지막 메시지를 확인합니다. (세션 자동 종료 로직 등에서 활용)
