@@ -1,4 +1,20 @@
-"""정밀진단 API 라우터."""
+# src/app/api/v1/diagnosis_router.py
+"""정밀진단(Diagnosis) 및 시뮬레이션(Simulation) API 라우터.
+
+[제공 엔드포인트 — 진단]
+  GET    /diagnoses/prepare     — 진단 가능 여부 확인 및 부족 항목 안내
+  POST   /diagnoses             — 진단 실행 및 결과 저장
+  GET    /diagnoses/{id}        — 진단 상세 조회 (점수, 등급, 강점, 리스크 등)
+  GET    /diagnoses             — 진단 이력 목록
+  DELETE /diagnoses/{id}        — 진단 기록 삭제
+
+[제공 엔드포인트 — 시뮬레이션]
+  POST   /simulations           — 가상 조건 시뮬레이션 실행
+  GET    /simulations/history   — 시뮬레이션 이력 목록
+
+[권한]
+모든 엔드포인트는 ActiveBusiness(온보딩 완료) 가드가 적용된다.
+"""
 
 import uuid
 

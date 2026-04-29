@@ -1,5 +1,17 @@
 # src/app/api/v1/auth_router.py
-"""인증 API (auth.md #1~#3)."""
+"""인증(Auth) API 라우터.
+
+[제공 엔드포인트]
+  POST /auth/kakao/callback  — 카카오 OAuth 인가 코드 교환 → 사용자 인증
+  POST /auth/naver/callback  — 네이버 OAuth 인가 코드 교환 → 사용자 인증
+  POST /auth/social-login    — 소셜 액세스 토큰으로 로그인 (신규 가입 or 기존 로그인)
+  POST /auth/logout          — Refresh Token 무효화 (로그아웃)
+  POST /auth/refresh         — Refresh Token → 새 Access Token 발급
+
+[인증 흐름]
+프론트엔드 → OAuth 제공자 → 인가 코드 수신 → 이 API로 코드 전달
+→ 서버가 OAuth 제공자에 토큰 교환 → 사용자 조회/생성 → JWT 발급
+"""
 
 from __future__ import annotations
 

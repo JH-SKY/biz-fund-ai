@@ -1,5 +1,19 @@
 # src/app/api/deps/user_auth.py
-"""사용자 Bearer Access Token 검증 및 DI."""
+"""사용자 Bearer Access Token 검증 및 FastAPI 의존성(Depends) 모음.
+
+[역할]
+FastAPI 라우터에서 `Depends(get_current_user)` 또는 타입 별칭 `CurrentUser` 로 주입하면
+Authorization 헤더의 Access Token 을 자동으로 검증하고 활성 사용자 객체를 반환한다.
+
+[토큰 검증 흐름]
+1. Authorization: Bearer <token> 헤더에서 토큰 추출
+2. JWT 디코딩 및 type="access" 확인
+3. sub(user UUID)로 DB 조회 → 탈퇴/비활성 사용자 차단
+
+[제공 타입 별칭]
+- CurrentUser       : 반드시 로그인이 필요한 엔드포인트에 사용
+- OptionalCurrentUser: 비로그인도 허용하는 공개 엔드포인트에 사용
+"""
 
 from __future__ import annotations
 
@@ -26,6 +40,7 @@ bearer_scheme = HTTPBearer(auto_error=False)
 async def get_auth_repo(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> AuthRepository:
+    """DB 세션으로 AuthRepository 인스턴스를 생성한다."""
     return AuthRepository(db)
 
 
@@ -96,8 +111,12 @@ async def get_auth_service(
     db: Annotated[AsyncSession, Depends(get_db)],
     repo: Annotated[AuthRepository, Depends(get_auth_repo)],
 ) -> "AuthService":
-    # 🔥 함수 안에서 임포트 (Local Import)
-    # 이렇게 해야 '순환 참조' 에러가 안 나고 서버가 켜집니다!
+    """AuthService 인스턴스를 반환한다.
+
+    함수 내부에서 임포트하는 이유:
+    auth/service.py 와 auth/deps.py 가 서로를 참조하는 '순환 참조' 문제를 방지하기 위해
+    모듈 최상단이 아닌 함수 호출 시점에 임포트한다.
+    """
     from src.app.domains.auth.service import AuthService
 
     return AuthService(db, repo)

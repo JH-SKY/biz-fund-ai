@@ -1,3 +1,14 @@
+# backend/tests/domains/policy/test_policy_sync_service.py
+"""BizinfoSyncService 유닛 테스트.
+
+테스트 범위:
+  - _extract_ai_policy_fields: AI 구조화 결과에서 날짜/지원금 필드 추출 로직 검증
+
+[설계 의도]
+  - BizinfoSyncService 의 내부 변환 로직만 격리 테스트한다.
+  - 외부 API 호출은 AsyncMock 으로 대체한다.
+"""
+
 from __future__ import annotations
 
 from datetime import date

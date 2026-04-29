@@ -1,3 +1,16 @@
+# backend/tests/domains/policy/test_policy_service.py
+"""PolicyService 유닛 테스트.
+
+테스트 범위:
+  - get_active_policies: 활성 정책 목록 조회 및 필드 검증
+  - get_policy_detail: 정책 상세 조회 (북마크 상태 포함)
+  - toggle_bookmark: 북마크 추가/해제 토글 로직
+
+[설계 의도]
+  - DB I/O 는 _FakePolicyRepo(Mock) 로 대체하여 서비스 로직만 격리 테스트한다.
+  - 검색/매칭 인터페이스도 Mock 으로 교체하여 외부 의존성을 제거한다.
+"""
+
 from __future__ import annotations
 
 import uuid

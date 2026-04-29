@@ -1,4 +1,14 @@
-"""정밀진단 도메인 FastAPI 의존성(Depends)."""
+# src/app/api/deps/diagnosis_deps.py
+"""정밀진단 도메인 FastAPI 의존성(Depends) 모음.
+
+[역할]
+- DiagnosisServiceDep: DiagnosisService 인스턴스를 요청마다 생성하여 라우터에 주입
+- RuleBasedDiagnosisEngine 을 IDiagnosisEngine 으로 주입 (AI/규칙 엔진 교체 지점)
+
+[엔진 교체 방법]
+테스트 환경에서는 `get_diagnosis_service` 함수를 오버라이드하여
+MockDiagnosisEngine 을 주입하면 LLM 없이 테스트할 수 있다.
+"""
 
 from typing import Annotated
 
@@ -17,6 +27,7 @@ from src.app.domains.policy.service import PolicyService
 async def get_diagnosis_repo(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> DiagnosisRepository:
+    """DB 세션으로 DiagnosisRepository 인스턴스를 생성한다."""
     return DiagnosisRepository(db)
 
 
@@ -26,7 +37,8 @@ async def get_diagnosis_service(
     policy_service: Annotated[PolicyService, Depends(get_policy_service)],
     business_service: Annotated[BusinessService, Depends(get_business_service)],
 ) -> DiagnosisService:
-    engine = RuleBasedDiagnosisEngine()
+    """규칙 기반 진단 엔진을 주입하여 DiagnosisService 를 생성한다."""
+    engine = RuleBasedDiagnosisEngine()  # 운영 환경: RuleBasedDiagnosisEngine
     return DiagnosisService(
         session=db,
         repo=repo,

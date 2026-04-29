@@ -1,5 +1,20 @@
 # src/app/api/deps/admin_auth.py
-"""관리자 Bearer JWT 검증."""
+"""관리자 Bearer JWT 검증 및 FastAPI 의존성(Depends) 모음.
+
+[역할]
+관리자 전용 라우터에서 사용되는 인증/DI 모듈.
+- get_current_admin: 관리자 JWT 토큰을 검증하고 활성 Admin 객체 반환
+- get_admin_service: AdminService 에 필요한 모든 서비스를 조립하여 반환
+
+[관리자 토큰 검증 흐름]
+1. Authorization: Bearer <token> 에서 토큰 추출
+2. JWT 디코딩 후 is_admin=True 확인 (is_admin=False 면 403 Forbidden)
+3. sub(admin UUID)로 DB 조회 → 존재하지 않으면 403
+
+[CurrentAdmin]
+라우터 파라미터에 `Annotated[Admin, Depends(get_current_admin)]` 대신
+`CurrentAdmin` 타입 별칭을 사용하면 코드가 간결해진다.
+"""
 
 from __future__ import annotations
 
@@ -37,6 +52,7 @@ bearer_scheme = HTTPBearer(auto_error=False)
 async def get_admin_repo(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> AdminRepository:
+    """DB 세션으로 AdminRepository 인스턴스를 생성한다."""
     return AdminRepository(db)
 
 
@@ -51,6 +67,10 @@ async def get_admin_service(
     diagnosis_service: Annotated[DiagnosisService, Depends(get_diagnosis_service)],
     sync_service: Annotated[BizinfoSyncService, Depends(get_sync_service)],
 ) -> AdminService:
+    """AdminService 에 필요한 모든 하위 서비스를 조립하여 반환한다.
+
+    AdminService 는 여러 도메인 서비스에 의존하므로 DI에서 한꺼번에 조립한다.
+    """
     return AdminService(
         session=db,
         repo=repo,

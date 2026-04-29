@@ -1,3 +1,18 @@
+# src/app/domains/diagnosis/service.py
+"""정밀진단(Diagnosis) 도메인 비즈니스 로직 및 트랜잭션 경계.
+
+담당 유스케이스:
+  - 진단 준비(prepare): 사업장 재무 스냅샷 존재 여부 확인 및 부족 항목 안내
+  - 진단 실행(execute): AI/규칙 엔진으로 사업 건강도 진단 → 결과 저장
+  - 시뮬레이션 실행: '만약 매출이 이렇다면?' 가상 조건 시뮬레이션
+  - 진단/시뮬레이션 이력 조회·삭제
+
+설계 원칙:
+  - IDiagnosisEngine 인터페이스로 진단 엔진을 주입받아 교체 가능하게 설계.
+  - 진단 결과 저장과 사업장 데이터 동기화는 반드시 같은 트랜잭션에서 처리.
+  - 모든 DB 커밋은 이 Service에서만 발생한다 (Repository는 flush만 수행).
+"""
+
 from __future__ import annotations
 
 import uuid
@@ -26,10 +41,20 @@ from src.app.domains.policy.service import PolicyService
 
 
 class DiagnosisException(Exception):
+    """진단 도메인 전용 예외 기반 클래스."""
     pass
 
 
 class DiagnosisService:
+    """정밀진단 도메인 유스케이스.
+
+    외부 의존성:
+      - DiagnosisRepository : 진단·시뮬레이션 로그 DB 접근
+      - PolicyService       : 시뮬레이션 시 정책 정보 조회
+      - BusinessService     : 진단 입력값 사업장·재무에 동기화
+      - IDiagnosisEngine    : 실제 진단 계산 엔진 (규칙 기반/AI 교체 가능)
+    """
+
     def __init__(
         self,
         session: AsyncSession,
@@ -47,6 +72,13 @@ class DiagnosisService:
     async def prepare_diagnosis(
         self, business: Business
     ) -> PrepareDiagnosisResponseData:
+        """진단 실행 전 사업장 데이터 준비 상태를 점검한다.
+
+        [로직]
+        1. 가장 최근 재무 스냅샷 조회
+        2. 연매출·직원 수 등 필수 항목 중 빠진 것을 missing_fields 에 담아 반환
+        3. 국세청 미인증 사업장이면 재검증 안내 플래그 포함
+        """
         snap = await self._business_service.get_latest_financial_snapshot_internal(
             business.id
         )
@@ -138,6 +170,12 @@ class DiagnosisService:
         business: Business,
         diagnosis_id: uuid.UUID,
     ) -> DiagnosisDetailResponseData:
+        """특정 진단 결과의 상세 내용을 조회한다.
+
+        [로직]
+        1. 해당 진단 로그 조회 (없거나 DIAGNOSIS 타입이 아니면 404)
+        2. output_data JSONB에서 각 항목을 꺼내 응답 DTO로 조립
+        """
         log = await self._repo.get_simulation_log(diagnosis_id, business.id)
         if not log or log.sim_type != "DIAGNOSIS":
             raise NotFoundException("진단 기록을 찾을 수 없습니다.")
@@ -159,6 +197,7 @@ class DiagnosisService:
     async def get_diagnosis_history(
         self, business: Business
     ) -> list[DiagnosisHistoryItem]:
+        """사업장의 과거 진단 이력 목록을 최신순으로 반환한다."""
         logs = await self._repo.get_simulation_logs(business.id, "DIAGNOSIS")
         return [
             DiagnosisHistoryItem(
@@ -172,6 +211,10 @@ class DiagnosisService:
     async def delete_diagnosis(
         self, business: Business, diagnosis_id: uuid.UUID
     ) -> None:
+        """진단 결과를 삭제한다 (물리 삭제).
+
+        [보안] business_id 불일치 시 403 반환하여 타인 데이터 삭제 방지.
+        """
         log = await self._repo.get_simulation_log(diagnosis_id, business.id)
         if not log:
             raise NotFoundException("진단 기록을 찾을 수 없습니다.")
@@ -186,6 +229,15 @@ class DiagnosisService:
         business: Business,
         req: ExecuteSimulationRequest,
     ) -> ExecuteSimulationResponseData:
+        """가상 조건 시뮬레이션을 실행한다.
+
+        [로직]
+        1. 현재 재무 스냅샷을 base_inputs 으로 사용
+        2. virtual_conditions 를 base_inputs 에 덮어쓴 뒤 진단 엔진 실행
+        3. 기존 점수(base_rate) vs 가상 점수(simulated_rate) 비교
+        4. 특정 정책 ID 가 있으면 해당 정책 대비 매칭 점수도 시뮬레이션
+        5. 결과를 simulation_logs 에 저장하고 매칭 로그도 함께 기록
+        """
         snap = await self._business_service.get_latest_financial_snapshot_internal(
             business.id
         )
@@ -258,6 +310,7 @@ class DiagnosisService:
     async def get_simulation_history(
         self, business: Business
     ) -> list[SimulationHistoryItem]:
+        """사업장의 시뮬레이션 이력 목록을 반환한다."""
         logs = await self._repo.get_simulation_logs(business.id, "SIMULATION")
         return [
             SimulationHistoryItem(
@@ -269,7 +322,9 @@ class DiagnosisService:
         ]
 
     async def get_all_logs_for_admin(self, sim_type: str | None = None) -> list:
+        """[Admin] 시스템 전체 진단/시뮬레이션 로그를 조회한다."""
         return await self._repo.get_all_simulation_logs_for_admin(sim_type)
 
     async def get_log_detail_for_admin(self, diagnosis_id: uuid.UUID) -> Any:
+        """[Admin] 특정 진단 로그 상세를 사업장 권한 체크 없이 조회한다 (CS 대응용)."""
         return await self._repo.get_simulation_log_for_admin(diagnosis_id)

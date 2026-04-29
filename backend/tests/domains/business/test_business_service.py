@@ -1,3 +1,14 @@
+# backend/tests/domains/business/test_business_service.py
+"""BusinessService 유닛 테스트.
+
+테스트 범위:
+  - get_financial_history: 재무 이력 조회 응답 필드 검증
+
+[설계 의도]
+  - DB I/O 는 _FakeBusinessRepo(Mock) 로 대체하여 서비스 로직만 격리 테스트한다.
+  - 각 테스트는 독립적으로 실행되며 외부 의존성이 없다.
+"""
+
 from __future__ import annotations
 
 import uuid

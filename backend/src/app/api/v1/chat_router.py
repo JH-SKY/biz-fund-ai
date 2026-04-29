@@ -1,4 +1,26 @@
-"""Chat API routes for BizMong."""
+# src/app/api/v1/chat_router.py
+"""비즈몽 채팅 API 라우터.
+
+[제공 엔드포인트]
+  POST   /chats/sessions                              — 채팅 세션 생성
+  GET    /chats/sessions                              — 채팅 세션 목록 조회
+  POST   /chats/sessions/{session_id}/messages        — 일반 메시지 전송 (동기)
+  GET    /chats/sessions/{session_id}/messages        — 메시지 목록 조회
+  PATCH  /chats/sessions/{session_id}/summary         — 세션 자동 요약
+  DELETE /chats/sessions/{session_id}                 — 세션 삭제
+  POST   /chats/sessions/{session_id}/agent-message   — 에이전트 응답 요청 (동기)
+  POST   /chats/sessions/{session_id}/stream          — 에이전트 응답 스트리밍 (SSE)
+  POST   /chats/sessions/{session_id}/cta-events      — CTA 버튼 클릭 이벤트 기록
+
+[에이전트 메시지 흐름 (stream)]
+1. router_node 로 의도 분류
+2. 의도에 따라 chitchat / RAG / stats 노드 실행
+3. Server-Sent Events (SSE) 로 토큰/상태/완료 이벤트를 스트리밍
+4. 완료 후 AgentRunLog / AgentNodeLog 에 실행 기록 저장
+
+[권한]
+모든 엔드포인트는 ActiveBusiness(온보딩 완료) 가드가 적용된다.
+"""
 
 from __future__ import annotations
 
@@ -34,6 +56,8 @@ router = APIRouter(prefix="/chats", tags=["chats"])
 
 
 class AgentMessageResponse(BaseModel):
+    """에이전트 메시지 응답 스키마 (동기 agent-message 엔드포인트용)."""
+
     session_id: str
     message_id: str
     role: str
@@ -41,17 +65,19 @@ class AgentMessageResponse(BaseModel):
     agent_type: str
     diagnosis_report: Optional[dict] = None
     simulation_report: Optional[dict] = None
-    stats_insight: Optional[dict] = None
-    rag_results: Optional[list] = None
+    stats_insight: Optional[dict] = None   # stats 노드 결과
+    rag_results: Optional[list] = None     # RAG 검색 결과
     created_at: datetime
 
 
 class AgentCtaEventRequest(BaseModel):
-    assistant_message_id: uuid.UUID
-    cta_type: str
-    target_path: str
-    ref_policy_id: Optional[uuid.UUID] = None
-    metadata: Optional[dict[str, Any]] = None
+    """CTA(Call To Action) 버튼 클릭 이벤트 요청 스키마."""
+
+    assistant_message_id: uuid.UUID  # 클릭한 버튼이 속한 에이전트 메시지 ID
+    cta_type: str                    # 버튼 유형 (예: "POLICY_DETAIL", "DIAGNOSIS")
+    target_path: str                 # 이동할 프론트엔드 경로
+    ref_policy_id: Optional[uuid.UUID] = None  # 연관 정책 ID (있는 경우)
+    metadata: Optional[dict[str, Any]] = None  # 추가 메타데이터
 
 
 @router.post("/sessions")
@@ -121,6 +147,15 @@ async def send_agent_message(
     agent: BizMongAgentDep,
     biz: ActiveBusiness,
 ):
+    """비즈몽 에이전트로 메시지를 전송하고 동기 응답을 받는다.
+
+    [흐름]
+    1. 세션 소유권 확인
+    2. 사용자 메시지 DB 저장
+    3. 에이전트 실행 (router → 해당 노드)
+    4. 에이전트 응답 DB 저장
+    5. AgentRunLog / AgentNodeLog 저장 (모니터링)
+    """
     room = await _verify_room_access(svc, biz, session_id)
     run_started_at = datetime.utcnow()
 
@@ -185,6 +220,11 @@ async def send_agent_message(
 
 
 def _sse(event_type: str, payload: dict[str, Any]) -> str:
+    """Server-Sent Events 형식의 문자열을 생성한다.
+
+    SSE 포맷: `data: <JSON>\n\n`
+    프론트엔드는 EventSource 또는 fetch + ReadableStream 으로 수신한다.
+    """
     return f"data: {json.dumps({'type': event_type, **payload}, ensure_ascii=False)}\n\n"
 
 
@@ -197,6 +237,16 @@ async def stream_agent_message(
     agent: BizMongAgentDep,
     biz: ActiveBusiness,
 ):
+    """비즈몽 에이전트 응답을 SSE(Server-Sent Events) 스트리밍으로 전송한다.
+
+    [이벤트 타입]
+    - status: 처리 중 상태 메시지 (예: "정책 정보를 찾아보고 있어요...")
+    - token : GPT 응답 토큰 단위 청크 (general_qa/greeting 에서만 발생)
+    - done  : 최종 완료 이벤트 (응답 전체, agent_type, rag_results 등 포함)
+
+    [오류 처리]
+    예외 발생 시 AgentRunLog 에 ERROR 상태로 기록하고 예외를 재전파한다.
+    """
     room = await _verify_room_access(svc, biz, session_id)
     user_log = await svc._repo.create_chat_log(
         user_id=biz.user_id,
@@ -424,6 +474,12 @@ async def track_agent_cta_event(
 
 
 def _build_response_content(agent_type: str, state: dict[str, Any]) -> str:
+    """에이전트 타입에 따라 최종 응답 텍스트를 추출한다.
+
+    - greeting/general_qa/rag: 메시지 목록의 마지막 assistant 메시지 반환
+    - stats: stats_insight 의 trend + comparison 텍스트 조합
+    - 그 외: 기본 안내 문자열 반환
+    """
     if agent_type in ("greeting", "general_qa", "rag"):
         messages = state.get("messages") or []
         for msg in reversed(messages):
@@ -449,6 +505,10 @@ async def _verify_room_access(
     biz: ActiveBusiness,
     session_id: uuid.UUID,
 ):
+    """채팅 세션이 해당 사업장 소유인지 확인하고, 방 객체를 반환한다.
+
+    소유권이 없으면 403 Forbidden 을 반환한다.
+    """
     room = await svc._repo.get_chat_room_by_id(session_id)
     if not room or room.business_id != biz.id:
         raise HTTPException(status_code=403, detail="세션 접근 권한이 없습니다.")
@@ -461,6 +521,11 @@ async def _build_stream_state(
     biz: ActiveBusiness,
     room_id: uuid.UUID,
 ) -> dict[str, Any]:
+    """스트리밍 응답에서 사용할 초기 에이전트 상태를 구성한다.
+
+    DB에서 기존 대화 히스토리를 읽어 messages 에 주입하고,
+    사업장 기본 정보를 biz_info 에 채운다.
+    """
     state = make_initial_state(
         user_id=str(biz.user_id),
         business_id=str(biz.id),
@@ -468,6 +533,7 @@ async def _build_stream_state(
         first_message="",
     )
     logs = await svc._repo.get_chat_logs_by_room(room_id)
+    # user/assistant 메시지만 히스토리로 사용 (system 관측 로그 제외)
     state["messages"] = [
         {"role": log.role, "content": log.content}
         for log in logs
@@ -482,6 +548,10 @@ async def _build_stream_state(
 
 
 def _normalize_node_logs(raw: Any) -> list[dict[str, Any]]:
+    """노드 로그 원시 값에서 dict 항목만 필터링하여 반환한다.
+
+    LangGraph 상태에서 node_logs 가 list 가 아닌 경우에도 안전하게 처리한다.
+    """
     if not isinstance(raw, list):
         return []
     logs: list[dict[str, Any]] = []
@@ -513,6 +583,14 @@ async def _persist_agent_run(
     error_code: str | None = None,
     error_message: str | None = None,
 ) -> None:
+    """에이전트 실행 결과를 AgentRunLog + AgentNodeLog 테이블에 저장한다.
+
+    [저장 항목]
+    - AgentRunLog  : 1회 에이전트 실행 요약 (의도, 모델, 토큰, 비용, 지연 시간, 오류)
+    - AgentNodeLog : 실행된 각 노드의 세부 지표 (최대 3~4개)
+
+    모니터링 대시보드에서 비용 분석, 오류율, RAG 히트율 등을 추적하는 데 사용된다.
+    """
     total_tokens_in = sum((log.get("tokens_in") or 0) for log in node_logs) or None
     total_tokens_out = sum((log.get("tokens_out") or 0) for log in node_logs) or None
     total_cost: Decimal | None = None

@@ -1,4 +1,11 @@
-"""Diagnosis and simulation engine interfaces."""
+# src/app/domains/diagnosis/interfaces.py
+"""정밀진단 엔진 인터페이스(ABC) 및 목(Mock) 구현체.
+
+아키텍처 원칙:
+  - IDiagnosisEngine 을 통해 DiagnosisService 는 엔진 구현을 모른다.
+  - 현재 운영 엔진: RuleBasedDiagnosisEngine (rule_engine.py)
+  - 테스트·개발 환경에서는 MockDiagnosisEngine 을 사용할 수 있다.
+"""
 
 from abc import ABC, abstractmethod
 from typing import Any
@@ -9,7 +16,18 @@ from src.app.domains.policy.model import Policy
 
 
 class DiagnosisResult:
-    """Result DTO returned by the diagnosis engine."""
+    """진단 엔진이 반환하는 결과 DTO.
+
+    [필드 설명]
+    - total_score  : 총점 (0~100)
+    - grade        : 등급 (EXCELLENT / GOOD / NORMAL / RISK)
+    - scores       : 4개 축별 점수 딕셔너리
+    - summary      : 사람이 읽을 수 있는 진단 요약 문장
+    - strengths    : 강점 목록 (최대 4개)
+    - risk_signals : 리스크 신호 목록 (최대 4개)
+    - action_items : 개선 행동 목록 (최대 4개)
+    - traffic_light: 신호등 (RED / YELLOW / GREEN)
+    """
 
     def __init__(
         self,
@@ -34,7 +52,13 @@ class DiagnosisResult:
 
 
 class SimulationResult:
-    """Result DTO returned by the simulation engine."""
+    """시뮬레이션 엔진이 반환하는 결과 DTO.
+
+    [필드 설명]
+    - base_rate      : 현재 조건 기준 점수
+    - simulated_rate : 가상 조건 적용 후 점수
+    - gain_factors   : 점수 변화 원인 설명 문장 목록
+    """
 
     def __init__(
         self,
@@ -48,7 +72,11 @@ class SimulationResult:
 
 
 class IDiagnosisEngine(ABC):
-    """Business diagnosis and simulation engine interface."""
+    """사업 진단 및 시뮬레이션 엔진 인터페이스.
+
+    이 인터페이스를 구현하면 규칙 기반, AI 기반 등 다양한 엔진을
+    Service 코드 변경 없이 교체할 수 있다.
+    """
 
     @abstractmethod
     async def execute_diagnosis(
@@ -58,7 +86,7 @@ class IDiagnosisEngine(ABC):
         inputs: DiagnosisFinalInputs,
         use_ai: bool = True,
     ) -> DiagnosisResult:
-        """Run the business diagnosis."""
+        """사업 건강도 진단을 실행하고 결과를 반환한다."""
 
     @abstractmethod
     async def execute_simulation(
@@ -67,11 +95,15 @@ class IDiagnosisEngine(ABC):
         policy: Policy | None,
         conditions: dict[str, Any],
     ) -> SimulationResult:
-        """Run the diagnosis simulation."""
+        """가상 조건 시뮬레이션을 실행하고 결과를 반환한다."""
 
 
 class MockDiagnosisEngine(IDiagnosisEngine):
-    """Legacy mock engine kept only for compatibility."""
+    """하위 호환성 유지를 위해 남겨둔 레거시 목(Mock) 엔진.
+
+    실제 서비스에서는 RuleBasedDiagnosisEngine 을 사용하며,
+    이 클래스는 의존성 주입 테스트나 CI 환경에서만 활용한다.
+    """
 
     async def execute_diagnosis(
         self,

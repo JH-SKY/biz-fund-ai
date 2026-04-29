@@ -1,4 +1,18 @@
-"""알림 API 라우터."""
+# src/app/api/v1/notification_router.py
+"""알림(Notification) API 라우터.
+
+[제공 엔드포인트]
+  GET    /notifications              — 내 알림 목록 조회 (페이지네이션)
+  PATCH  /notifications/{id}/read    — 단건 알림 읽음 처리
+  POST   /notifications/read-all     — 전체 알림 읽음 처리
+  DELETE /notifications/{id}         — 단건 알림 삭제
+  GET    /notifications/settings     — 알림 수신 설정 조회
+  PATCH  /notifications/settings     — 알림 수신 설정 변경
+
+[권한]
+CurrentUser(로그인 필수) + OptionalBusiness(사업장 없어도 접근 가능).
+알림은 사업장 등록 전에도 수신할 수 있어야 하므로 OptionalBusiness 를 사용한다.
+"""
 
 import uuid
 

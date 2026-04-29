@@ -1,4 +1,17 @@
-"""Rule-based business health diagnosis engine."""
+# src/app/domains/diagnosis/rule_engine.py
+"""규칙 기반 사업 건강도 진단 엔진.
+
+[설계 원칙]
+- IDiagnosisEngine 인터페이스를 구현하며, AI 없이 순수 수식·임계값으로 진단한다.
+- 진단 결과는 4개 축 점수의 가중 합산으로 계산된다:
+    재무건전성(40%) + 성장잠재력(20%) + 운영안정성(25%) + 리스크관리(15%)
+- 체납 또는 과도한 부채 상태이면 총점에 상한선(ceiling)을 적용한다.
+
+[부채비율 임계값]
+  _DEBT_WARN     (100%): 주의 구간
+  _DEBT_HIGH     (200%): 위험 구간
+  _DEBT_CRITICAL (300%): 심각 구간 — 이 이상이면 총점 42점 이하로 제한
+"""
 
 from __future__ import annotations
 
@@ -10,13 +23,16 @@ from src.app.domains.diagnosis.interfaces import DiagnosisResult, IDiagnosisEngi
 from src.app.domains.diagnosis.schema import DiagnosisFinalInputs
 from src.app.domains.policy.model import Policy
 
-_DEBT_CRITICAL = 300.0
-_DEBT_HIGH = 200.0
-_DEBT_WARN = 100.0
+# 부채비율 임계값 (단위: %)
+_DEBT_CRITICAL = 300.0  # 심각: 총점 상한 42점 적용
+_DEBT_HIGH = 200.0      # 위험: 각 축 점수 대폭 감점
+_DEBT_WARN = 100.0      # 주의: 각 축 점수 소폭 감점
 
 
 @dataclass(slots=True)
 class DiagnosisEvaluation:
+    """진단 계산 중간 결과를 담는 내부 데이터 클래스."""
+
     total_score: float
     grade: str
     traffic_light: str
@@ -28,7 +44,11 @@ class DiagnosisEvaluation:
 
 
 class RuleBasedDiagnosisEngine(IDiagnosisEngine):
-    """Diagnose the health of the business itself, not policy fitness."""
+    """규칙 기반 사업 건강도 진단 엔진.
+
+    정책 적합성이 아닌 사업 자체의 재무·운영 건강도를 진단한다.
+    AI 없이 수식과 임계값만으로 동작하므로 비용이 들지 않고 결과가 일정하다.
+    """
 
     async def execute_diagnosis(
         self,
@@ -37,6 +57,7 @@ class RuleBasedDiagnosisEngine(IDiagnosisEngine):
         inputs: DiagnosisFinalInputs,
         use_ai: bool = True,
     ) -> DiagnosisResult:
+        """진단을 실행하고 DiagnosisResult DTO를 반환한다."""
         _ = year, use_ai
         evaluation = _evaluate_business_health(business, inputs)
         return DiagnosisResult(
@@ -56,12 +77,20 @@ class RuleBasedDiagnosisEngine(IDiagnosisEngine):
         policy: Policy | None,
         conditions: dict,
     ):
+        """가상 조건 시뮬레이션을 실행한다.
+
+        [로직]
+        1. base_inputs(현재 상태)로 기준 점수 계산
+        2. base_inputs + virtual_conditions 를 합산하여 가상 점수 계산
+        3. 두 점수 차이와 변화 요인(gain_factors)을 반환
+        """
         from src.app.domains.diagnosis.interfaces import SimulationResult
 
-        _ = policy
+        _ = policy  # 현재 규칙 엔진에서는 개별 정책 조건을 별도로 적용하지 않음
         base_inputs = conditions.get("base_inputs", {})
         base_eval = _evaluate_from_mapping(base_inputs, business)
 
+        # 가상 조건을 현재 입력값에 덮어써서 시뮬레이션 평가 수행
         virtual_inputs = {**base_inputs, **conditions.get("virtual_conditions", {})}
         simulated_eval = _evaluate_from_mapping(virtual_inputs, business)
 
@@ -73,6 +102,10 @@ class RuleBasedDiagnosisEngine(IDiagnosisEngine):
 
 
 def _evaluate_from_mapping(raw: dict, business: Business) -> DiagnosisEvaluation:
+    """딕셔너리 형태의 입력값을 DiagnosisFinalInputs 로 변환 후 진단을 수행한다.
+
+    시뮬레이션에서 base_inputs / virtual_inputs 모두 이 함수를 통해 평가한다.
+    """
     inputs = DiagnosisFinalInputs(
         has_tax_arrears=bool(raw.get("has_tax_arrears")),
         annual_revenue=raw.get("annual_revenue"),
@@ -90,6 +123,19 @@ def _evaluate_business_health(
     business: Business,
     inputs: DiagnosisFinalInputs,
 ) -> DiagnosisEvaluation:
+    """사업 건강도를 4개 축으로 평가하고 총점·등급·신호등을 계산한다.
+
+    [평가 구조]
+    재무건전성 × 0.40
+    + 성장잠재력 × 0.20
+    + 운영안정성 × 0.25
+    + 리스크관리 × 0.15
+    = 총점 (0~100)
+
+    [총점 상한선 규칙]
+    - 체납 이력: 최대 34점
+    - 부채비율 ≥ 300%: 최대 42점
+    """
     debt_ratio = _resolve_debt_ratio(inputs)
     business_age_years = _business_age_years(business)
 
@@ -187,6 +233,12 @@ def _evaluate_business_health(
 
 
 def _resolve_debt_ratio(inputs: DiagnosisFinalInputs) -> float | None:
+    """부채비율을 결정한다.
+
+    직접 입력된 debt_ratio 가 있으면 그대로 사용,
+    없으면 (총부채 / 연매출 × 100) 으로 계산한다.
+    필요한 값이 모두 없으면 None 을 반환한다.
+    """
     if inputs.debt_ratio is not None:
         return inputs.debt_ratio
     if inputs.annual_revenue and inputs.annual_revenue > 0 and inputs.total_debt is not None:
@@ -199,6 +251,17 @@ def _financial_health_score(
     debt_ratio: float | None,
     has_tax_arrears: bool,
 ) -> float:
+    """재무건전성 점수를 계산한다 (0~100점, 가중치 40%).
+
+    [감점 조건]
+    - 매출 미입력: -18점 / 5천만 미만: -26점 / 1억 미만: -12점
+    - 부채비율 ≥ 300%: -44점 / ≥ 200%: -28점 / ≥ 100%: -14점
+    - 체납 이력: -35점 (패널티)
+
+    [가점 조건]
+    - 매출 ≥ 5억: +8점 / ≥ 3억: +4점
+    - 부채비율 ≤ 50%: +6점
+    """
     score = 72.0
 
     if annual_revenue is None:
@@ -238,6 +301,15 @@ def _growth_potential_score(
     is_ventured: bool,
     is_female_ent: bool,
 ) -> float:
+    """성장잠재력 점수를 계산한다 (0~100점, 가중치 20%).
+
+    [주요 가점 항목]
+    - 특허 보유: +10점
+    - 벤처 기업: +12점
+    - 여성 기업: +5점
+    - 직원 10명 이상: +10점
+    - 업력 3~7년(성장기): +8점
+    """
     score = 48.0
 
     if annual_revenue is None:
@@ -286,6 +358,13 @@ def _operational_stability_score(
     business_age_years: int | None,
     has_tax_arrears: bool,
 ) -> float:
+    """운영안정성 점수를 계산한다 (0~100점, 가중치 25%).
+
+    [핵심 감점 항목]
+    - 직원 1명 이하(대표자 혼자): -18점 (단일 인물 의존 리스크)
+    - 업력 1년 미만: -14점 (초기 불안정)
+    - 체납: -20점 (운영 연속성 위협)
+    """
     score = 52.0
 
     if employee_count <= 1:
@@ -331,6 +410,11 @@ def _risk_management_score(
     annual_revenue: int | None,
     total_debt: int | None,
 ) -> float:
+    """리스크관리 점수를 계산한다 (0~100점, 가중치 15%).
+
+    체납 이력이 있으면 즉시 5점으로 고정 (리스크 관리 실패).
+    이외에는 부채비율·재무 정보 유무에 따라 감점한다.
+    """
     if has_tax_arrears:
         return 5.0
 
@@ -482,6 +566,16 @@ def _build_gain_factors(
     base_inputs: dict,
     virtual_inputs: dict,
 ) -> list[str]:
+    """시뮬레이션에서 점수 변화 원인을 사람이 읽을 수 있는 문장으로 정리한다.
+
+    [분석 항목]
+    - 4개 축(재무건전성·성장성·운영안정성·리스크관리)의 점수 변화 (±3점 이상만 표기)
+    - 체납 발생/해소 여부
+    - 매출·부채·인력 변화 감지
+    - 총점 변화 요약
+
+    최대 6개 항목만 반환 (UI 공간 제한).
+    """
     factors: list[str] = []
     diff = round(simulated_eval.total_score - base_eval.total_score, 1)
 
@@ -538,6 +632,10 @@ def _build_gain_factors(
 
 
 def _grade_for_score(score: float) -> str:
+    """총점을 등급 문자열로 변환한다.
+
+    EXCELLENT (≥85) / GOOD (≥70) / NORMAL (≥55) / RISK (<55)
+    """
     if score >= 85:
         return "EXCELLENT"
     if score >= 70:
@@ -553,6 +651,12 @@ def _traffic_for_state(
     has_tax_arrears: bool,
     debt_ratio: float | None,
 ) -> str:
+    """신호등 색상을 결정한다.
+
+    RED    : 체납 이력 있거나 부채비율 ≥ 300% (즉각 위험 신호)
+    YELLOW : 총점 60 미만이거나 부채비율 ≥ 100% (주의 필요)
+    GREEN  : 그 외 안정 상태
+    """
     if has_tax_arrears or (debt_ratio is not None and debt_ratio >= _DEBT_CRITICAL):
         return "RED"
     if total_score < 60 or (debt_ratio is not None and debt_ratio >= _DEBT_WARN):
@@ -561,6 +665,11 @@ def _traffic_for_state(
 
 
 def _business_age_years(business: Business) -> int | None:
+    """개업일로부터 오늘까지의 업력(연)을 계산한다.
+
+    establishment_date 가 없으면 None 을 반환한다.
+    생일 기념일 방식(생월·일이 지나야 +1년)으로 계산한다.
+    """
     if not business.establishment_date:
         return None
     today = date.today()
@@ -572,4 +681,5 @@ def _business_age_years(business: Business) -> int | None:
 
 
 def _clamp(value: float, minimum: float = 0.0, maximum: float = 100.0) -> float:
+    """점수를 [minimum, maximum] 범위로 제한하고 소수 첫째 자리로 반올림한다."""
     return round(max(minimum, min(maximum, value)), 1)

@@ -1,4 +1,15 @@
-"""채팅 도메인 의존성 주입(Depends)."""
+# src/app/api/deps/chat_deps.py
+"""채팅 도메인 FastAPI 의존성(Depends) 모음.
+
+[역할]
+- ChatServiceDep  : ChatService 인스턴스를 요청마다 생성하여 라우터에 주입
+- BizMongAgentDep : 비즈몽 LangGraph 에이전트를 요청마다 생성하여 라우터에 주입
+
+[BizMongAgent 지연 임포트 이유]
+BizMongAgent 는 초기화 시 DATABASE_URL 을 읽으므로, 앱 초기화 순서 문제로
+임포트가 먼저 일어나면 오류가 발생할 수 있다.
+함수 호출 시점에 임포트하여 이 문제를 방지한다.
+"""
 
 from typing import Annotated
 
@@ -17,6 +28,7 @@ from src.app.domains.policy.service import PolicyService
 async def get_chat_repo(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ChatRepository:
+    """DB 세션으로 ChatRepository 인스턴스를 생성한다."""
     return ChatRepository(db)
 
 
@@ -25,6 +37,7 @@ async def get_chat_service(
     repo: Annotated[ChatRepository, Depends(get_chat_repo)],
     policy_service: Annotated[PolicyService, Depends(get_policy_service)],
 ) -> ChatService:
+    """OpenAI LLM 엔진과 함께 ChatService 를 조립하여 반환한다."""
     llm_engine = OpenAILLMEngine(api_key=OPENAI_API_KEY)
     return ChatService(
         session=db,

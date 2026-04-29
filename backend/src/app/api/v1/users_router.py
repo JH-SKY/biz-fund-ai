@@ -1,5 +1,14 @@
 # src/app/api/v1/users_router.py
-"""사용자 관련 API (auth.md #4~#6)."""
+"""사용자(User) 관련 API 라우터.
+
+[제공 엔드포인트]
+  DELETE /users/withdraw     — 회원 탈퇴 (소프트 딜리트)
+  GET    /users/me           — 내 프로필 조회
+  PATCH  /users/me           — 내 프로필 수정
+
+[권한]
+모든 엔드포인트는 CurrentUser(로그인 필수) 가드가 적용된다.
+"""
 
 from __future__ import annotations
 
