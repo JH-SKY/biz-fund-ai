@@ -49,11 +49,12 @@ import type {
   AdminLoginResponse,
   AdminPolicyCreateRequest,
   AdminPolicyUpdateRequest,
+  AgentMonitoringFilters,
   AdminUserItem,
   AgentMonitoringOverview,
   AgentNodeMetricsResponse,
   AgentRunDetailResponse,
-  AgentRunItem,
+  AgentRunListResponse,
   AdminUsersParams,
   AiCardNewsGenerateRequest,
   AiCardNewsGenerateResponse,
@@ -300,20 +301,22 @@ export const adminMonitoringService = {
       params: date ? { date } : undefined,
     });
   },
-  agentOverview(range: MonitoringRange = "24h") {
+  agentOverview(range: MonitoringRange = "24h", filters: AgentMonitoringFilters = {}) {
     return adminApiClient.get<AgentMonitoringOverview>(
       "/admin/monitoring/agent-overview",
-      { params: { range } }
+      { params: { range, ...filters } }
     );
   },
-  agentNodes(range: MonitoringRange = "24h") {
+  agentNodes(range: MonitoringRange = "24h", filters: AgentMonitoringFilters = {}) {
     return adminApiClient.get<AgentNodeMetricsResponse>(
       "/admin/monitoring/agent-nodes",
-      { params: { range } }
+      { params: { range, ...filters } }
     );
   },
-  agentRuns(params: { range?: MonitoringRange; page?: number; size?: number } = {}) {
-    return adminApiClient.get<Paginated<AgentRunItem>>(
+  agentRuns(
+    params: { range?: MonitoringRange; page?: number; size?: number } & AgentMonitoringFilters = {}
+  ) {
+    return adminApiClient.get<AgentRunListResponse>(
       "/admin/monitoring/agent-runs",
       { params }
     );

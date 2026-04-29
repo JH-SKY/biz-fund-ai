@@ -37,7 +37,7 @@ from src.app.domains.admin.schema import (
 from src.app.domains.auth.model import User
 from src.app.domains.auth.service import AuthService
 from src.app.domains.biz_pick.service import BizPickService
-from src.app.domains.chat.model import AgentNodeLog, AgentRunLog, ChatLog
+from src.app.domains.chat.model import AgentCtaLog, AgentNodeLog, AgentRunLog, ChatLog
 from src.app.domains.chat.service import ChatService
 from src.app.domains.diagnosis.service import DiagnosisService
 from src.app.domains.policy.model import PolicyStatus
@@ -101,6 +101,35 @@ class AdminService:
         if range_value == "7d":
             return now - timedelta(days=7)
         return now - timedelta(days=30)
+
+    @staticmethod
+    def _normalize_status(status: str | None) -> str | None:
+        if not status:
+            return None
+        return status.upper()
+
+    def _build_run_filters(
+        self,
+        *,
+        since: datetime,
+        intent: str | None = None,
+        model: str | None = None,
+        fallback_only: bool | None = None,
+        status: str | None = None,
+    ) -> list[Any]:
+        filters: list[Any] = [AgentRunLog.created_at >= since]
+        if intent:
+            filters.append(AgentRunLog.route_intent == intent)
+        if model:
+            filters.append(AgentRunLog.model_name == model)
+        if fallback_only is True:
+            filters.append(AgentRunLog.fallback_mode.isnot(None))
+        elif fallback_only is False:
+            filters.append(AgentRunLog.fallback_mode.is_(None))
+        normalized_status = self._normalize_status(status)
+        if normalized_status:
+            filters.append(AgentRunLog.status == normalized_status)
+        return filters
 
     async def login(self, body: AdminLoginRequest) -> dict:
         admin = await self._repo.get_admin_by_login_id(body.login_id)
@@ -969,10 +998,11 @@ class AdminService:
 
         points = [
             {
-                "ts": row.ts.isoformat() if row.ts else None,
-                "p50": int(row.p50) if row.p50 is not None else None,
-                "p95": int(row.p95) if row.p95 is not None else None,
+                "timestamp": row.ts.isoformat() if row.ts else None,
+                "p50_ms": int(row.p50) if row.p50 is not None else None,
+                "p95_ms": int(row.p95) if row.p95 is not None else None,
                 "count": row.cnt,
+                "error_rate_pct": 0.0,
             }
             for row in rows
         ]
@@ -1049,8 +1079,23 @@ class AdminService:
             "by_model": by_model,
         }
 
-    async def monitoring_agent_overview(self, *, range_value: str) -> dict[str, Any]:
+    async def monitoring_agent_overview(
+        self,
+        *,
+        range_value: str,
+        intent: str | None = None,
+        model: str | None = None,
+        fallback_only: bool | None = None,
+        status: str | None = None,
+    ) -> dict[str, Any]:
         since = self._range_to_since(range_value)
+        run_filters = self._build_run_filters(
+            since=since,
+            intent=intent,
+            model=model,
+            fallback_only=fallback_only,
+            status=status,
+        )
 
         overview_stmt = select(
             func.count(AgentRunLog.id).label("runs"),
@@ -1066,7 +1111,7 @@ class AdminService:
             func.coalesce(func.sum(AgentRunLog.tokens_out), 0).label("tokens_out"),
             func.coalesce(func.sum(AgentRunLog.total_cost_usd), 0).label("total_cost_usd"),
             func.count().filter(AgentRunLog.fallback_mode.isnot(None)).label("fallback_runs"),
-        ).where(AgentRunLog.created_at >= since)
+        ).where(*run_filters)
         overview = (await self._session.execute(overview_stmt)).one()
 
         intent_stmt = (
@@ -1077,7 +1122,7 @@ class AdminService:
                 func.coalesce(func.sum(AgentRunLog.total_cost_usd), 0).label("cost_usd"),
                 func.count().filter(AgentRunLog.status != "SUCCESS").label("error_runs"),
             )
-            .where(AgentRunLog.created_at >= since)
+            .where(*run_filters)
             .group_by(AgentRunLog.route_intent)
             .order_by(func.count(AgentRunLog.id).desc())
         )
@@ -1091,16 +1136,67 @@ class AdminService:
                 func.coalesce(func.sum(AgentRunLog.tokens_out), 0).label("tokens_out"),
                 func.coalesce(func.sum(AgentRunLog.total_cost_usd), 0).label("cost_usd"),
             )
-            .where(AgentRunLog.created_at >= since, AgentRunLog.model_name.isnot(None))
+            .where(*run_filters, AgentRunLog.model_name.isnot(None))
             .group_by(AgentRunLog.model_name)
             .order_by(func.count(AgentRunLog.id).desc())
         )
         model_rows = (await self._session.execute(model_stmt)).all()
 
+        cta_stmt = select(
+            func.count(AgentCtaLog.id).label("cta_clicks"),
+        ).join(
+            AgentRunLog,
+            AgentRunLog.id == AgentCtaLog.run_id,
+            isouter=True,
+        ).where(*run_filters)
+        cta_clicks = int((await self._session.execute(cta_stmt)).scalar() or 0)
+
+        dislike_stmt = select(func.count(ChatLog.id)).join(
+            AgentRunLog,
+            AgentRunLog.assistant_message_log_id == ChatLog.id,
+        ).where(*run_filters, ChatLog.is_disliked.is_(True))
+        dislike_feedback_count = int((await self._session.execute(dislike_stmt)).scalar() or 0)
+
+        version_axes = [
+            ("prompt_version", AgentRunLog.prompt_version),
+            ("graph_version", AgentRunLog.graph_version),
+            ("rag_strategy_version", AgentRunLog.rag_strategy_version),
+        ]
+        version_breakdowns: dict[str, list[dict[str, Any]]] = {}
+        for key, column in version_axes:
+            stmt = (
+                select(
+                    column.label("version"),
+                    func.count(AgentRunLog.id).label("runs"),
+                    func.avg(AgentRunLog.total_latency_ms).label("avg_latency"),
+                    func.coalesce(func.sum(AgentRunLog.total_cost_usd), 0).label("cost_usd"),
+                )
+                .where(*run_filters)
+                .group_by(column)
+                .order_by(func.count(AgentRunLog.id).desc())
+            )
+            rows = (await self._session.execute(stmt)).all()
+            version_breakdowns[key] = [
+                {
+                    "version": version or "unknown",
+                    "runs": int(runs or 0),
+                    "avg_latency_ms": int(avg_latency or 0),
+                    "cost_usd": round(float(cost_usd or 0), 6),
+                }
+                for version, runs, avg_latency, cost_usd in rows
+            ]
+
         total_runs = int(overview.runs or 0)
         success_runs = int(overview.success_runs or 0)
+        fallback_runs = int(overview.fallback_runs or 0)
         return {
             "range": range_value,
+            "filters": {
+                "intent": intent,
+                "model": model,
+                "fallback_only": fallback_only,
+                "status": self._normalize_status(status),
+            },
             "total_runs": total_runs,
             "success_rate_pct": round((success_runs / total_runs) * 100, 2) if total_runs else 0.0,
             "avg_latency_ms": int(overview.avg_latency or 0),
@@ -1110,31 +1206,57 @@ class AdminService:
             "total_tokens_out": int(overview.tokens_out or 0),
             "total_cost_usd": round(float(overview.total_cost_usd or 0), 6),
             "total_cost_krw": round(float(overview.total_cost_usd or 0) * 1350, 2),
-            "fallback_runs": int(overview.fallback_runs or 0),
+            "fallback_runs": fallback_runs,
+            "cta_clicks": cta_clicks,
+            "dislike_feedback_count": dislike_feedback_count,
+            "quality_metrics": {
+                "fallback_rate_pct": round((fallback_runs / total_runs) * 100, 2) if total_runs else 0.0,
+                "dislike_feedback_rate_pct": round((dislike_feedback_count / total_runs) * 100, 2)
+                if total_runs
+                else 0.0,
+            },
             "by_intent": [
                 {
-                    "intent": intent or "unknown",
+                    "intent": route_intent or "unknown",
                     "runs": int(runs or 0),
                     "avg_latency_ms": int(avg_latency or 0),
                     "cost_usd": round(float(cost_usd or 0), 6),
                     "error_rate_pct": round((int(error_runs or 0) / int(runs or 1)) * 100, 2),
                 }
-                for intent, runs, avg_latency, cost_usd, error_runs in intent_rows
+                for route_intent, runs, avg_latency, cost_usd, error_runs in intent_rows
             ],
             "by_model": [
                 {
-                    "model": model or "unknown",
+                    "model": model_name or "unknown",
                     "runs": int(runs or 0),
                     "tokens_in": int(tokens_in or 0),
                     "tokens_out": int(tokens_out or 0),
                     "cost_usd": round(float(cost_usd or 0), 6),
                 }
-                for model, runs, tokens_in, tokens_out, cost_usd in model_rows
+                for model_name, runs, tokens_in, tokens_out, cost_usd in model_rows
             ],
+            "by_prompt_version": version_breakdowns["prompt_version"],
+            "by_graph_version": version_breakdowns["graph_version"],
+            "by_rag_strategy_version": version_breakdowns["rag_strategy_version"],
         }
 
-    async def monitoring_agent_nodes(self, *, range_value: str) -> dict[str, Any]:
+    async def monitoring_agent_nodes(
+        self,
+        *,
+        range_value: str,
+        intent: str | None = None,
+        model: str | None = None,
+        fallback_only: bool | None = None,
+        status: str | None = None,
+    ) -> dict[str, Any]:
         since = self._range_to_since(range_value)
+        run_filters = self._build_run_filters(
+            since=since,
+            intent=intent,
+            model=model,
+            fallback_only=fallback_only,
+            status=status,
+        )
         stmt = (
             select(
                 AgentNodeLog.node_name,
@@ -1148,13 +1270,20 @@ class AdminService:
                 func.coalesce(func.sum(AgentNodeLog.cost_usd), 0).label("cost_usd"),
                 func.count().filter(AgentNodeLog.status != "SUCCESS").label("error_count"),
             )
-            .where(AgentNodeLog.created_at >= since)
+            .join(AgentRunLog, AgentRunLog.id == AgentNodeLog.run_id)
+            .where(*run_filters)
             .group_by(AgentNodeLog.node_name)
             .order_by(func.count(AgentNodeLog.id).desc())
         )
         rows = (await self._session.execute(stmt)).all()
         return {
             "range": range_value,
+            "filters": {
+                "intent": intent,
+                "model": model,
+                "fallback_only": fallback_only,
+                "status": self._normalize_status(status),
+            },
             "items": [
                 {
                     "node_name": node_name,
@@ -1165,6 +1294,7 @@ class AdminService:
                     "tokens_out": int(tokens_out or 0),
                     "cost_usd": round(float(cost_usd or 0), 6),
                     "error_count": int(error_count or 0),
+                    "error_rate_pct": round((int(error_count or 0) / int(executions or 1)) * 100, 2),
                 }
                 for (
                     node_name,
@@ -1185,21 +1315,38 @@ class AdminService:
         range_value: str,
         page: int,
         size: int,
+        intent: str | None = None,
+        model: str | None = None,
+        fallback_only: bool | None = None,
+        status: str | None = None,
     ) -> dict[str, Any]:
         since = self._range_to_since(range_value)
-        total_stmt = select(func.count(AgentRunLog.id)).where(AgentRunLog.created_at >= since)
+        run_filters = self._build_run_filters(
+            since=since,
+            intent=intent,
+            model=model,
+            fallback_only=fallback_only,
+            status=status,
+        )
+        total_stmt = select(func.count(AgentRunLog.id)).where(*run_filters)
         total = int((await self._session.execute(total_stmt)).scalar() or 0)
         total_pages = (total + size - 1) // size if size > 0 else 0
 
         stmt = (
             select(AgentRunLog)
-            .where(AgentRunLog.created_at >= since)
+            .where(*run_filters)
             .order_by(AgentRunLog.created_at.desc())
             .offset((page - 1) * size)
             .limit(size)
         )
         rows = (await self._session.execute(stmt)).scalars().all()
         return {
+            "filters": {
+                "intent": intent,
+                "model": model,
+                "fallback_only": fallback_only,
+                "status": self._normalize_status(status),
+            },
             "items": [
                 {
                     "run_id": str(row.id),
@@ -1237,6 +1384,12 @@ class AdminService:
             .order_by(AgentNodeLog.sequence.asc(), AgentNodeLog.created_at.asc())
         )
         nodes = (await self._session.execute(node_stmt)).scalars().all()
+        cta_stmt = (
+            select(AgentCtaLog)
+            .where(AgentCtaLog.run_id == run_id)
+            .order_by(AgentCtaLog.created_at.asc())
+        )
+        cta_events = (await self._session.execute(cta_stmt)).scalars().all()
 
         return {
             "run": {
@@ -1277,6 +1430,16 @@ class AdminService:
                     "metadata": node.metadata or {},
                 }
                 for node in nodes
+            ],
+            "cta_events": [
+                {
+                    "cta_type": cta.cta_type,
+                    "target_path": cta.target_path,
+                    "ref_policy_id": str(cta.ref_policy_id) if cta.ref_policy_id else None,
+                    "metadata": cta.metadata or {},
+                    "created_at": self._to_iso(cta.created_at),
+                }
+                for cta in cta_events
             ],
         }
 
@@ -1340,23 +1503,23 @@ class AdminService:
         )
         consultation_bookings = (await self._session.execute(booking_stmt)).scalar() or 0
 
-        clicks_expr = func.count(LeadRequest.id).label("clicks")
+        clicks_expr = func.count(AgentCtaLog.id).label("clicks")
         grouped_stmt = (
-            select(LeadRequest.lead_type, clicks_expr)
-            .where(LeadRequest.created_at >= start_dt, LeadRequest.created_at < end_dt)
-            .group_by(LeadRequest.lead_type)
+            select(AgentCtaLog.cta_type, clicks_expr)
+            .where(AgentCtaLog.created_at >= start_dt, AgentCtaLog.created_at < end_dt)
+            .group_by(AgentCtaLog.cta_type)
             .order_by(desc(clicks_expr))
         )
         grouped = (await self._session.execute(grouped_stmt)).all()
         solution_clicks = [
             {
-                "solution_key": lead_type or "UNKNOWN",
-                "solution_label": lead_type or "UNKNOWN",
+                "solution_key": cta_type or "UNKNOWN",
+                "solution_label": cta_type or "UNKNOWN",
                 "clicks": int(clicks),
                 "conversions": int(clicks),
                 "conversion_rate_pct": 100.0 if int(clicks) > 0 else 0.0,
             }
-            for lead_type, clicks in grouped
+            for cta_type, clicks in grouped
         ]
 
         return {

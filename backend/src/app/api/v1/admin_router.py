@@ -267,8 +267,18 @@ async def admin_monitoring_agent_overview(
     _: CurrentAdmin,
     svc: Annotated[AdminService, Depends(get_admin_service)],
     range: str = Query("24h"),
+    intent: str | None = Query(None),
+    model: str | None = Query(None),
+    fallback: bool | None = Query(None),
+    status: str | None = Query(None),
 ):
-    data = await svc.monitoring_agent_overview(range_value=range)
+    data = await svc.monitoring_agent_overview(
+        range_value=range,
+        intent=intent,
+        model=model,
+        fallback_only=fallback,
+        status=status,
+    )
     return api_json(http_status=200, data=data, message="success")
 
 
@@ -277,8 +287,18 @@ async def admin_monitoring_agent_nodes(
     _: CurrentAdmin,
     svc: Annotated[AdminService, Depends(get_admin_service)],
     range: str = Query("24h"),
+    intent: str | None = Query(None),
+    model: str | None = Query(None),
+    fallback: bool | None = Query(None),
+    status: str | None = Query(None),
 ):
-    data = await svc.monitoring_agent_nodes(range_value=range)
+    data = await svc.monitoring_agent_nodes(
+        range_value=range,
+        intent=intent,
+        model=model,
+        fallback_only=fallback,
+        status=status,
+    )
     return api_json(http_status=200, data=data, message="success")
 
 
@@ -289,8 +309,20 @@ async def admin_monitoring_agent_runs(
     range: str = Query("24h"),
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=200),
+    intent: str | None = Query(None),
+    model: str | None = Query(None),
+    fallback: bool | None = Query(None),
+    status: str | None = Query(None),
 ):
-    data = await svc.monitoring_agent_runs(range_value=range, page=page, size=size)
+    data = await svc.monitoring_agent_runs(
+        range_value=range,
+        page=page,
+        size=size,
+        intent=intent,
+        model=model,
+        fallback_only=fallback,
+        status=status,
+    )
     return api_json(http_status=200, data=data, message="success")
 
 

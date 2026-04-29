@@ -27,6 +27,7 @@ import type {
   BizPickContentUpdateRequest,
   CorrectionNoteRequest,
   FeedbackListParams,
+  AgentMonitoringFilters,
   MonitoringRange,
   PolicySyncRunParams,
 } from "@/types";
@@ -56,11 +57,13 @@ export const ADMIN_KEYS = {
   latency: (range: MonitoringRange) =>
     ["admin", "monitoring", "latency", range] as const,
   cost: (date?: string) => ["admin", "monitoring", "cost", date ?? "today"] as const,
-  agentOverview: (range: MonitoringRange) =>
-    ["admin", "monitoring", "agent-overview", range] as const,
-  agentNodes: (range: MonitoringRange) =>
-    ["admin", "monitoring", "agent-nodes", range] as const,
-  agentRuns: (params: { range?: MonitoringRange; page?: number; size?: number }) =>
+  agentOverview: (range: MonitoringRange, filters: AgentMonitoringFilters) =>
+    ["admin", "monitoring", "agent-overview", range, filters] as const,
+  agentNodes: (range: MonitoringRange, filters: AgentMonitoringFilters) =>
+    ["admin", "monitoring", "agent-nodes", range, filters] as const,
+  agentRuns: (
+    params: { range?: MonitoringRange; page?: number; size?: number } & AgentMonitoringFilters
+  ) =>
     ["admin", "monitoring", "agent-runs", params] as const,
   agentRunDetail: (runId: string) =>
     ["admin", "monitoring", "agent-run-detail", runId] as const,
@@ -366,23 +369,31 @@ export function useTokenCost(date?: string) {
   });
 }
 
-export function useAgentOverview(range: MonitoringRange = "24h") {
+export function useAgentOverview(
+  range: MonitoringRange = "24h",
+  filters: AgentMonitoringFilters = {}
+) {
   return useQuery({
-    queryKey: ADMIN_KEYS.agentOverview(range),
-    queryFn: () => adminService.monitoring.agentOverview(range),
+    queryKey: ADMIN_KEYS.agentOverview(range, filters),
+    queryFn: () => adminService.monitoring.agentOverview(range, filters),
     refetchInterval: 60_000,
   });
 }
 
-export function useAgentNodes(range: MonitoringRange = "24h") {
+export function useAgentNodes(
+  range: MonitoringRange = "24h",
+  filters: AgentMonitoringFilters = {}
+) {
   return useQuery({
-    queryKey: ADMIN_KEYS.agentNodes(range),
-    queryFn: () => adminService.monitoring.agentNodes(range),
+    queryKey: ADMIN_KEYS.agentNodes(range, filters),
+    queryFn: () => adminService.monitoring.agentNodes(range, filters),
     refetchInterval: 60_000,
   });
 }
 
-export function useAgentRuns(params: { range?: MonitoringRange; page?: number; size?: number }) {
+export function useAgentRuns(
+  params: { range?: MonitoringRange; page?: number; size?: number } & AgentMonitoringFilters
+) {
   return useQuery({
     queryKey: ADMIN_KEYS.agentRuns(params),
     queryFn: () => adminService.monitoring.agentRuns(params),
