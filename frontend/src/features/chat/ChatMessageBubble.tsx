@@ -64,8 +64,6 @@ export function ChatMessageBubble({ message, isStreaming = false }: Props) {
         {!isStreaming && message.agent_type && (
           <AgentResultCard
             agentType={message.agent_type}
-            diagnosisReport={message.diagnosis_report}
-            simulationReport={message.simulation_report}
             statsInsight={message.stats_insight}
             ragResults={message.rag_results}
           />

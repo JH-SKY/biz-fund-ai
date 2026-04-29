@@ -52,6 +52,7 @@ import type {
   AdminUserItem,
   AgentMonitoringOverview,
   AgentNodeMetricsResponse,
+  AgentRunDetailResponse,
   AgentRunItem,
   AdminUsersParams,
   AiCardNewsGenerateRequest,
@@ -315,6 +316,11 @@ export const adminMonitoringService = {
     return adminApiClient.get<Paginated<AgentRunItem>>(
       "/admin/monitoring/agent-runs",
       { params }
+    );
+  },
+  agentRunDetail(runId: string) {
+    return adminApiClient.get<AgentRunDetailResponse>(
+      `/admin/monitoring/agent-runs/${runId}`
     );
   },
 };

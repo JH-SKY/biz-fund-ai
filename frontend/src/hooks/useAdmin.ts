@@ -62,6 +62,8 @@ export const ADMIN_KEYS = {
     ["admin", "monitoring", "agent-nodes", range] as const,
   agentRuns: (params: { range?: MonitoringRange; page?: number; size?: number }) =>
     ["admin", "monitoring", "agent-runs", params] as const,
+  agentRunDetail: (runId: string) =>
+    ["admin", "monitoring", "agent-run-detail", runId] as const,
   unmetDemand: (page: number, size: number) =>
     ["admin", "insights", "unmet-demand", page, size] as const,
   conversion: (from?: string, to?: string) =>
@@ -385,6 +387,15 @@ export function useAgentRuns(params: { range?: MonitoringRange; page?: number; s
     queryKey: ADMIN_KEYS.agentRuns(params),
     queryFn: () => adminService.monitoring.agentRuns(params),
     placeholderData: keepPreviousData,
+    refetchInterval: 60_000,
+  });
+}
+
+export function useAgentRunDetail(runId: string | null) {
+  return useQuery({
+    queryKey: ADMIN_KEYS.agentRunDetail(runId ?? ""),
+    queryFn: () => adminService.monitoring.agentRunDetail(runId!),
+    enabled: !!runId,
     refetchInterval: 60_000,
   });
 }

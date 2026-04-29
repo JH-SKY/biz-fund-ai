@@ -1225,6 +1225,61 @@ class AdminService:
             "total_pages": total_pages,
         }
 
+    async def monitoring_agent_run_detail(self, *, run_id: uuid.UUID) -> dict[str, Any]:
+        run_stmt = select(AgentRunLog).where(AgentRunLog.id == run_id)
+        run = (await self._session.execute(run_stmt)).scalar_one_or_none()
+        if run is None:
+            raise HTTPException(status_code=404, detail="에이전트 실행 로그를 찾을 수 없습니다.")
+
+        node_stmt = (
+            select(AgentNodeLog)
+            .where(AgentNodeLog.run_id == run_id)
+            .order_by(AgentNodeLog.sequence.asc(), AgentNodeLog.created_at.asc())
+        )
+        nodes = (await self._session.execute(node_stmt)).scalars().all()
+
+        return {
+            "run": {
+                "run_id": str(run.id),
+                "session_id": str(run.room_id),
+                "route_intent": run.route_intent,
+                "final_agent": run.final_agent,
+                "status": run.status,
+                "question_preview": run.question_preview,
+                "total_latency_ms": run.total_latency_ms,
+                "first_token_latency_ms": run.first_token_latency_ms,
+                "tokens_in": run.tokens_in,
+                "tokens_out": run.tokens_out,
+                "total_cost_usd": round(float(run.total_cost_usd or 0), 6),
+                "fallback_mode": run.fallback_mode,
+                "fallback_reason": run.fallback_reason,
+                "rag_hit_count": run.rag_hit_count,
+                "prompt_version": run.prompt_version,
+                "graph_version": run.graph_version,
+                "rag_strategy_version": run.rag_strategy_version,
+                "model_name": run.model_name,
+                "error_code": run.error_code,
+                "error_message": run.error_message,
+                "created_at": self._to_iso(run.created_at),
+            },
+            "nodes": [
+                {
+                    "node_name": node.node_name,
+                    "sequence": node.sequence,
+                    "status": node.status,
+                    "model_name": node.model_name,
+                    "latency_ms": node.latency_ms,
+                    "tokens_in": node.tokens_in,
+                    "tokens_out": node.tokens_out,
+                    "cost_usd": round(float(node.cost_usd or 0), 6),
+                    "error_code": node.error_code,
+                    "error_message": node.error_message,
+                    "metadata": node.metadata or {},
+                }
+                for node in nodes
+            ],
+        }
+
     async def list_unmet_demand(self, *, page: int, size: int) -> dict[str, Any]:
         keyword_expr = func.substr(func.replace(ChatLog.content, "\n", " "), 1, 60)
         grouped = (

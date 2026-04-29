@@ -294,6 +294,16 @@ async def admin_monitoring_agent_runs(
     return api_json(http_status=200, data=data, message="success")
 
 
+@router.get("/monitoring/agent-runs/{run_id}")
+async def admin_monitoring_agent_run_detail(
+    run_id: uuid.UUID,
+    _: CurrentAdmin,
+    svc: Annotated[AdminService, Depends(get_admin_service)],
+):
+    data = await svc.monitoring_agent_run_detail(run_id=run_id)
+    return api_json(http_status=200, data=data, message="success")
+
+
 @router.get("/insights/unmet-demand")
 async def admin_unmet_demand(
     _: CurrentAdmin,

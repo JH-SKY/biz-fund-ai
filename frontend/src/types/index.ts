@@ -1116,6 +1116,31 @@ export interface AgentRunItem {
   created_at: string | null;
 }
 
+export interface AgentRunDetailNode {
+  node_name: string;
+  sequence: number;
+  status: string;
+  model_name: string | null;
+  latency_ms: number | null;
+  tokens_in: number | null;
+  tokens_out: number | null;
+  cost_usd: number;
+  error_code: string | null;
+  error_message: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface AgentRunDetailResponse {
+  run: AgentRunItem & {
+    fallback_reason: string | null;
+    graph_version: string | null;
+    rag_strategy_version: string | null;
+    error_code: string | null;
+    error_message: string | null;
+  };
+  nodes: AgentRunDetailNode[];
+}
+
 // ── 9-10. 비즈니스 인사이트 ──────────────────────────────────────
 
 export interface UnmetDemandKeyword {

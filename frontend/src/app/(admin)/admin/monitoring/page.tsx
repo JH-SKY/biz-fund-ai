@@ -37,11 +37,13 @@ import {
   StatCard,
   SystemStatusBadge,
 } from "@/features/admin";
+import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs } from "@/components/ui/tabs";
 import {
   useAgentNodes,
   useAgentOverview,
+  useAgentRunDetail,
   useAgentRuns,
   useLatencyTimeSeries,
   useSystemHealth,
@@ -61,18 +63,27 @@ export default function AdminMonitoringPage() {
 
 function MonitoringContent() {
   const [range, setRange] = React.useState<MonitoringRange>("24h");
+  const [selectedRunId, setSelectedRunId] = React.useState<string | null>(null);
   const health = useSystemHealth();
   const latency = useLatencyTimeSeries(range);
   const cost = useTokenCost();
   const agentOverview = useAgentOverview(range);
   const agentNodes = useAgentNodes(range);
   const agentRuns = useAgentRuns({ range, page: 1, size: 10 });
+  const agentRunDetail = useAgentRunDetail(selectedRunId);
 
   const healthData = health.data;
   const costData = cost.data;
   const agentOverviewData = agentOverview.data;
   const agentNodeData = agentNodes.data;
   const agentRunData = agentRuns.data;
+  const agentRunDetailData = agentRunDetail.data;
+
+  React.useEffect(() => {
+    if (!selectedRunId && agentRunData?.items?.length) {
+      setSelectedRunId(agentRunData.items[0].run_id);
+    }
+  }, [agentRunData?.items, selectedRunId]);
 
   const latencyChart =
     latency.data?.points.map((p) => ({
@@ -554,7 +565,14 @@ function MonitoringContent() {
                 </thead>
                 <tbody className="divide-y divide-surface-border">
                   {agentRunData.items.map((row) => (
-                    <tr key={row.run_id}>
+                      <tr
+                        key={row.run_id}
+                        className={cn(
+                          "cursor-pointer",
+                          selectedRunId === row.run_id && "bg-primary-50"
+                        )}
+                        onClick={() => setSelectedRunId(row.run_id)}
+                      >
                       <td className="px-4 py-2.5 text-xs text-ink-secondary">
                         {row.created_at ? new Date(row.created_at).toLocaleString("ko-KR") : "-"}
                       </td>
@@ -573,6 +591,89 @@ function MonitoringContent() {
                 </tbody>
               </table>
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">선택 실행 상세</CardTitle>
+          <CardDescription>
+            질문 1건이 어떤 노드를 거쳤고 어디에서 비용과 지연이 발생했는지 확인합니다.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!selectedRunId || !agentRunDetailData ? (
+            <AdminEmptyState
+              icon={MessageSquareText}
+              title="실행 로그를 선택해 주세요"
+              description="최근 실행 로그에서 한 행을 클릭하면 상세 노드 타임라인이 표시됩니다."
+            />
+          ) : (
+            <>
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-lg border border-surface-border px-3 py-3">
+                  <p className="text-xs uppercase text-ink-tertiary">Route</p>
+                  <p className="mt-1 font-semibold text-ink">
+                    {agentRunDetailData.run.route_intent ?? "-"}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-surface-border px-3 py-3">
+                  <p className="text-xs uppercase text-ink-tertiary">Latency</p>
+                  <p className="mt-1 font-semibold text-ink">
+                    {agentRunDetailData.run.total_latency_ms ?? 0}ms
+                  </p>
+                </div>
+                <div className="rounded-lg border border-surface-border px-3 py-3">
+                  <p className="text-xs uppercase text-ink-tertiary">Tokens</p>
+                  <p className="mt-1 font-semibold text-ink">
+                    {((agentRunDetailData.run.tokens_in ?? 0) + (agentRunDetailData.run.tokens_out ?? 0)).toLocaleString()}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-surface-border px-3 py-3">
+                  <p className="text-xs uppercase text-ink-tertiary">Cost</p>
+                  <p className="mt-1 font-semibold text-ink">
+                    ${agentRunDetailData.run.total_cost_usd.toFixed(4)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-surface-border bg-surface px-4 py-3">
+                <p className="text-xs uppercase text-ink-tertiary">Question</p>
+                <p className="mt-1 whitespace-pre-wrap text-sm text-ink">
+                  {agentRunDetailData.run.question_preview ?? "-"}
+                </p>
+              </div>
+
+              <div className="overflow-hidden rounded-lg border border-surface-border">
+                <table className="w-full text-sm">
+                  <thead className="bg-surface-muted text-xs uppercase text-ink-secondary">
+                    <tr>
+                      <th className="px-4 py-2 text-left">Seq</th>
+                      <th className="px-4 py-2 text-left">Node</th>
+                      <th className="px-4 py-2 text-left">Model</th>
+                      <th className="px-4 py-2 text-right">Latency</th>
+                      <th className="px-4 py-2 text-right">Tokens</th>
+                      <th className="px-4 py-2 text-right">Cost</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-surface-border">
+                    {agentRunDetailData.nodes.map((node) => (
+                      <tr key={`${node.node_name}-${node.sequence}`}>
+                        <td className="px-4 py-2.5 text-ink-secondary">{node.sequence}</td>
+                        <td className="px-4 py-2.5 font-medium text-ink">{node.node_name}</td>
+                        <td className="px-4 py-2.5 text-ink-secondary">{node.model_name ?? "-"}</td>
+                        <td className="px-4 py-2.5 text-right numeric">{node.latency_ms ?? 0}ms</td>
+                        <td className="px-4 py-2.5 text-right numeric">
+                          {((node.tokens_in ?? 0) + (node.tokens_out ?? 0)).toLocaleString()}
+                        </td>
+                        <td className="px-4 py-2.5 text-right numeric">${node.cost_usd.toFixed(4)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>

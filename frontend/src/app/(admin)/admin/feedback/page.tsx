@@ -507,9 +507,7 @@ function FeedbackDetail({ feedbackId }: { feedbackId: string }) {
                 }
                 options={[
                   { value: "ALL", label: "전체 에이전트" },
-                  { value: "diagnosis", label: "진단(Diagnosis)" },
                   { value: "rag", label: "정책 검색(RAG)" },
-                  { value: "simulator", label: "시뮬레이터" },
                   { value: "stats", label: "통계" },
                 ]}
               />
