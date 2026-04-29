@@ -428,6 +428,7 @@ export default function ChatPage() {
                 key={message.id}
                 message={message}
                 isStreaming={message.kind === "agent" && message.id === streamingMsgId}
+                sessionId={activeSessionId}
               />
             )
           )}

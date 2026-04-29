@@ -16,6 +16,7 @@ import apiClient from "@/lib/api-client";
 import { tokenStorage } from "@/lib/api-client";
 import { getActiveBizIdNonReactive } from "@/stores/business-store";
 import type {
+  AgentCtaEventRequest,
   AgentMessageResponse,
   ChatSession,
   CreateSessionRequest,
@@ -51,6 +52,12 @@ export const chatService = {
 
   deleteSession: (sessionId: string) =>
     apiClient.delete<void>(`/chats/sessions/${sessionId}`),
+
+  trackCtaEvent: (sessionId: string, body: AgentCtaEventRequest) =>
+    apiClient.post<{ success: boolean }>(
+      `/chats/sessions/${sessionId}/cta-events`,
+      body
+    ),
 
   /**
    * SSE 기반 스트리밍 메시지 전송.

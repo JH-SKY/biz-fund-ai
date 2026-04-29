@@ -1,9 +1,13 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { Bot } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { chatService } from "@/lib/services";
 import { cn } from "@/lib/utils";
-import { AgentResultCard } from "./agent-cards/AgentResultCard";
 import type { ChatDisplayMessage } from "@/types";
+import { AgentResultCard } from "./agent-cards/AgentResultCard";
 
 function BizmongAvatar() {
   return (
@@ -15,11 +19,12 @@ function BizmongAvatar() {
 
 interface Props {
   message: Exclude<ChatDisplayMessage, { kind: "loading" }>;
-  /** 현재 스트리밍 중인지 여부 — true 이면 커서 깜박임 */
   isStreaming?: boolean;
+  sessionId?: string | null;
 }
 
-export function ChatMessageBubble({ message, isStreaming = false }: Props) {
+export function ChatMessageBubble({ message, isStreaming = false, sessionId }: Props) {
+  const router = useRouter();
   const isUser = message.kind === "user";
 
   if (isUser) {
@@ -38,12 +43,33 @@ export function ChatMessageBubble({ message, isStreaming = false }: Props) {
     );
   }
 
-  // Agent message
+  const handleTrackedMove = async (ctaType: string, targetPath: string) => {
+    if (!sessionId) {
+      router.push(targetPath as never);
+      return;
+    }
+
+    try {
+      await chatService.trackCtaEvent(sessionId, {
+        assistant_message_id: message.id,
+        cta_type: ctaType,
+        target_path: targetPath,
+        metadata: {
+          agent_type: message.agent_type ?? null,
+          source: "chat_message_bubble",
+        },
+      });
+    } catch (error) {
+      console.error("[BizMong CTA]", error);
+    } finally {
+      router.push(targetPath as never);
+    }
+  };
+
   return (
     <div className="flex items-start gap-3">
       <BizmongAvatar />
       <div className="flex min-w-0 flex-1 flex-col gap-2">
-        {/* 텍스트 요약 버블 */}
         {(message.content || isStreaming) && (
           <div
             className={cn(
@@ -53,21 +79,43 @@ export function ChatMessageBubble({ message, isStreaming = false }: Props) {
           >
             <p className="whitespace-pre-wrap">
               {message.content}
-              {/* 스트리밍 커서 */}
               {isStreaming && (
-                <span className="inline-block w-0.5 h-4 ml-0.5 bg-primary-600 align-middle animate-pulse" />
+                <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-primary-600 align-middle" />
               )}
             </p>
           </div>
         )}
-        {/* 에이전트 결과 카드 — 스트리밍 완료 후에만 표시 */}
+
         {!isStreaming && message.agent_type && (
           <AgentResultCard
             agentType={message.agent_type}
             statsInsight={message.stats_insight}
             ragResults={message.rag_results}
+            sessionId={sessionId}
+            assistantMessageId={message.id}
           />
         )}
+
+        {!isStreaming && sessionId ? (
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void handleTrackedMove("DIAGNOSIS_PAGE", "/diagnosis")}
+            >
+              정밀진단으로 이동
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void handleTrackedMove("MATCHING_PAGE", "/policies/matching")}
+            >
+              맞춤정책추천 보기
+            </Button>
+          </div>
+        ) : null}
       </div>
     </div>
   );

@@ -9,6 +9,8 @@ interface Props {
   statsInsight?: AgentStatsInsight | null;
   ragResults?: AgentRagResult[] | null;
   ragAnswer?: string;
+  sessionId?: string | null;
+  assistantMessageId?: string;
 }
 
 export function AgentResultCard({
@@ -16,9 +18,18 @@ export function AgentResultCard({
   statsInsight,
   ragResults,
   ragAnswer,
+  sessionId,
+  assistantMessageId,
 }: Props) {
   if (agentType === "rag" && ragResults) {
-    return <RagCard results={ragResults} answer={ragAnswer} />;
+    return (
+      <RagCard
+        results={ragResults}
+        answer={ragAnswer}
+        sessionId={sessionId}
+        assistantMessageId={assistantMessageId}
+      />
+    );
   }
   if (agentType === "stats" && statsInsight) {
     return <StatsCard insight={statsInsight} />;

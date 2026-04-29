@@ -498,6 +498,14 @@ export interface SendMessageRequest {
   message: string;
 }
 
+export interface AgentCtaEventRequest {
+  assistant_message_id: string;
+  cta_type: string;
+  target_path: string;
+  ref_policy_id?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
 // ── 에이전트 결과 카드 페이로드 (/chat 화면 렌더용) ──
 // .cursorrules P07 UI 스펙 기반 — chat_logs.referenced_chunks 또는 별도 result payload 로 수신
 
@@ -1026,10 +1034,18 @@ export interface SystemHealthStatus {
 
 export type MonitoringRange = "1h" | "24h" | "7d" | "30d";
 
+export interface AgentMonitoringFilters {
+  intent?: string;
+  model?: string;
+  fallback?: boolean;
+  status?: string;
+}
+
 export interface LatencyTimeSeriesPoint {
   timestamp: string;
   p50_ms: number;
   p95_ms: number;
+  count: number;
   error_rate_pct: number;
 }
 
@@ -1055,6 +1071,7 @@ export interface TokenCostSummary {
 
 export interface AgentMonitoringOverview {
   range: MonitoringRange;
+  filters?: AgentMonitoringFilters;
   total_runs: number;
   success_rate_pct: number;
   avg_latency_ms: number;
@@ -1065,6 +1082,12 @@ export interface AgentMonitoringOverview {
   total_cost_usd: number;
   total_cost_krw: number;
   fallback_runs: number;
+  cta_clicks: number;
+  dislike_feedback_count: number;
+  quality_metrics?: {
+    fallback_rate_pct: number;
+    dislike_feedback_rate_pct: number;
+  };
   by_intent: Array<{
     intent: string;
     runs: number;
@@ -1079,6 +1102,24 @@ export interface AgentMonitoringOverview {
     tokens_out: number;
     cost_usd: number;
   }>;
+  by_prompt_version: Array<{
+    version: string;
+    runs: number;
+    avg_latency_ms: number;
+    cost_usd: number;
+  }>;
+  by_graph_version: Array<{
+    version: string;
+    runs: number;
+    avg_latency_ms: number;
+    cost_usd: number;
+  }>;
+  by_rag_strategy_version: Array<{
+    version: string;
+    runs: number;
+    avg_latency_ms: number;
+    cost_usd: number;
+  }>;
 }
 
 export interface AgentNodeMetricItem {
@@ -1090,10 +1131,12 @@ export interface AgentNodeMetricItem {
   tokens_out: number;
   cost_usd: number;
   error_count: number;
+  error_rate_pct: number;
 }
 
 export interface AgentNodeMetricsResponse {
   range: MonitoringRange;
+  filters?: AgentMonitoringFilters;
   items: AgentNodeMetricItem[];
 }
 
@@ -1116,6 +1159,10 @@ export interface AgentRunItem {
   created_at: string | null;
 }
 
+export interface AgentRunListResponse extends Paginated<AgentRunItem> {
+  filters?: AgentMonitoringFilters;
+}
+
 export interface AgentRunDetailNode {
   node_name: string;
   sequence: number;
@@ -1130,6 +1177,14 @@ export interface AgentRunDetailNode {
   metadata: Record<string, unknown>;
 }
 
+export interface AgentCtaEventItem {
+  cta_type: string;
+  target_path: string;
+  ref_policy_id: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string | null;
+}
+
 export interface AgentRunDetailResponse {
   run: AgentRunItem & {
     fallback_reason: string | null;
@@ -1139,6 +1194,7 @@ export interface AgentRunDetailResponse {
     error_message: string | null;
   };
   nodes: AgentRunDetailNode[];
+  cta_events: AgentCtaEventItem[];
 }
 
 // ── 9-10. 비즈니스 인사이트 ──────────────────────────────────────
