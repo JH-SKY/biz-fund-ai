@@ -23,6 +23,7 @@ class SnapshotData(BaseModel):
     """진단 준비 단계에서 현재 재무 스냅샷 현황을 담는 DTO."""
 
     revenue: int | None = None          # 연매출액 (원)
+    total_debt: int | None = None       # 총부채액 (원)
     employee_count: int | None = None   # 상시 근로자 수
     biz_sector: str | None = None       # 업종 코드
 

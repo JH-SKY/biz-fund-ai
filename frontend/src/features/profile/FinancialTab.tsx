@@ -28,6 +28,10 @@ const PERIOD_OPTIONS = [
   { value: "4Q", label: "4분기" },
 ];
 
+const PERIOD_LABEL_MAP = Object.fromEntries(
+  PERIOD_OPTIONS.map((option) => [option.value, option.label])
+) as Record<string, string>;
+
 function formatKRW(value: number | null | undefined): string {
   if (typeof value !== "number" || Number.isNaN(value)) return "-";
   if (value >= 1_0000_0000) return `${(value / 1_0000_0000).toFixed(1)}억`;
@@ -143,7 +147,7 @@ export function FinancialTab() {
                     {f.snapshot_year}
                   </td>
                   <td className="px-4 py-3 text-ink-secondary">
-                    {f.snapshot_period}
+                    {PERIOD_LABEL_MAP[f.snapshot_period] ?? f.snapshot_period}
                   </td>
                   <td className="px-4 py-3 text-right numeric">
                     {formatKRW(f.annual_revenue)}

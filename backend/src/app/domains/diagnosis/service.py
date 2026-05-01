@@ -86,6 +86,7 @@ class DiagnosisService:
         if snap:
             snap_data = SnapshotData(
                 revenue=snap.annual_revenue,
+                total_debt=snap.total_debt,
                 employee_count=snap.employee_count,
                 biz_sector=business.sector_code,
             )

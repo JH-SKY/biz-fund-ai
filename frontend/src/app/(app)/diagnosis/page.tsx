@@ -103,6 +103,10 @@ export default function DiagnosisPage() {
         snapshot.revenue != null
           ? Number(snapshot.revenue).toLocaleString("ko-KR")
           : prev.annual_revenue,
+      total_debt:
+        snapshot.total_debt != null
+          ? Number(snapshot.total_debt).toLocaleString("ko-KR")
+          : prev.total_debt,
       employee_count:
         snapshot.employee_count != null
           ? String(snapshot.employee_count)

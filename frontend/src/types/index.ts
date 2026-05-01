@@ -357,6 +357,7 @@ export interface BookmarkToggleResponse {
 
 export interface SnapshotData {
   revenue: number | null;
+  total_debt: number | null;
   employee_count: number | null;
   biz_sector: string | null;
 }
