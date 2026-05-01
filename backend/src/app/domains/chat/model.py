@@ -284,7 +284,11 @@ class AgentNodeLog(Base):
     cost_usd: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 8), nullable=True)
     error_code: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    metadata: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
+    node_metadata: Mapped[Optional[Any]] = mapped_column(
+        "metadata",
+        JSONB,
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP,
         server_default=text("CURRENT_TIMESTAMP"),
@@ -334,7 +338,11 @@ class AgentCtaLog(Base):
         ForeignKey("policies.id", ondelete="SET NULL"),
         nullable=True,
     )
-    metadata: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
+    cta_metadata: Mapped[Optional[Any]] = mapped_column(
+        "metadata",
+        JSONB,
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP,
         server_default=text("CURRENT_TIMESTAMP"),

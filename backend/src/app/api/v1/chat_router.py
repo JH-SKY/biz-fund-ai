@@ -466,7 +466,7 @@ async def track_agent_cta_event(
             cta_type=body.cta_type.upper(),
             target_path=body.target_path,
             ref_policy_id=body.ref_policy_id,
-            metadata=body.metadata or {},
+            cta_metadata=body.metadata or {},
         )
     )
     await svc._session.commit()
@@ -645,7 +645,7 @@ async def _persist_agent_run(
                 cost_usd=node.get("cost_usd"),
                 error_code=node.get("error_code"),
                 error_message=node.get("error_message"),
-                metadata=node.get("metadata"),
+                node_metadata=node.get("metadata"),
             )
         )
 

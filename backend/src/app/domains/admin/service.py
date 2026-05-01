@@ -1427,7 +1427,7 @@ class AdminService:
                     "cost_usd": round(float(node.cost_usd or 0), 6),
                     "error_code": node.error_code,
                     "error_message": node.error_message,
-                    "metadata": node.metadata or {},
+                    "metadata": node.node_metadata or {},
                 }
                 for node in nodes
             ],
@@ -1436,7 +1436,7 @@ class AdminService:
                     "cta_type": cta.cta_type,
                     "target_path": cta.target_path,
                     "ref_policy_id": str(cta.ref_policy_id) if cta.ref_policy_id else None,
-                    "metadata": cta.metadata or {},
+                    "metadata": cta.cta_metadata or {},
                     "created_at": self._to_iso(cta.created_at),
                 }
                 for cta in cta_events
