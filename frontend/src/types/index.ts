@@ -84,6 +84,18 @@ export interface SocialLoginResponseData {
   is_new_user: boolean;
 }
 
+export interface DevLoginRequest {
+  scenario_key: string;
+}
+
+export interface DevTestAccountItem {
+  scenario_key: string;
+  display_name: string;
+  email: string;
+  business_name: string;
+  summary: string;
+}
+
 export interface RefreshTokenResponseData {
   access_token: string;
 }

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Optional
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.core.config import (
+    APP_ENV,
     KAKAO_CLIENT_ID,
     KAKAO_CLIENT_SECRET,
     KAKAO_PROFILE_URL,
@@ -24,6 +25,7 @@ from src.app.core.security import (
     generate_refresh_token,
     refresh_token_expires_at,
 )
+from src.app.dev.test_seed import get_dev_account_options, seed_test_scenarios
 from src.app.domains.auth.exception import (
     auth_unauthorized,
     invalid_social_token,
@@ -33,6 +35,8 @@ from src.app.domains.auth.exception import (
 from src.app.domains.auth.model import SocialProvider, User
 from src.app.domains.auth.repository import AuthRepository
 from src.app.domains.auth.schema import (
+    DevLoginRequest,
+    DevTestAccountItem,
     KakaoCallbackRequest,
     MyProfileData,
     NaverCallbackRequest,
@@ -141,6 +145,35 @@ class AuthService:
         raise unsupported_provider(body.provider.value)
 
     # ── 카카오 로그인 ──────────────────────────────────────
+
+    async def list_dev_test_accounts(self) -> list[DevTestAccountItem]:
+        if APP_ENV == "production":
+            return []
+        return [DevTestAccountItem(**item) for item in get_dev_account_options()]
+
+    async def dev_login(self, body: DevLoginRequest) -> SocialLoginResponseData:
+        if APP_ENV == "production":
+            raise auth_unauthorized("개발용 로그인은 운영 환경에서 사용할 수 없습니다.")
+
+        options = {item["scenario_key"]: item for item in get_dev_account_options()}
+        selected = options.get(body.scenario_key)
+        if selected is None:
+            raise auth_unauthorized("존재하지 않는 테스트 계정입니다.")
+
+        await seed_test_scenarios(self._session)
+
+        user = await self._repo.get_by_email(selected["email"])
+        if user is None:
+            raise auth_unauthorized("테스트 계정 시드가 아직 생성되지 않았습니다.")
+
+        return await self._social_login(
+            social_id=user.social_id,
+            provider=user.social_provider,
+            email=user.email,
+            name=user.name,
+            profile_image_url=user.profile_image_url,
+            force_is_new_user=False,
+        )
 
     async def kakao_login(self, body: SocialLoginRequest) -> SocialLoginResponseData:
         """카카오 Access Token → 유저 프로필 조회 → 로그인/가입."""

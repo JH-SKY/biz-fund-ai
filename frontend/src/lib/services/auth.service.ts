@@ -1,5 +1,7 @@
 import apiClient from "@/lib/api-client";
 import type {
+  DevLoginRequest,
+  DevTestAccountItem,
   KakaoCallbackRequest,
   NaverCallbackRequest,
   SocialAuthRequest,
@@ -13,4 +15,8 @@ export const authService = {
     apiClient.post<SocialLoginResponseData>("/auth/kakao/callback", body),
   naverCallback: (body: NaverCallbackRequest) =>
     apiClient.post<SocialLoginResponseData>("/auth/naver/callback", body),
+  getDevTestAccounts: () =>
+    apiClient.get<DevTestAccountItem[]>("/auth/dev-test-accounts"),
+  devLogin: (body: DevLoginRequest) =>
+    apiClient.post<SocialLoginResponseData>("/auth/dev-login", body),
 };

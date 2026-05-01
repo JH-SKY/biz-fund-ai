@@ -17,11 +17,13 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, HTTPException
 
+from src.app.core.config import APP_ENV
 from src.app.api.deps.user_auth import CurrentUser, get_auth_service
 from src.app.core.response import api_json
 from src.app.domains.auth.schema import (
+    DevLoginRequest,
     KakaoCallbackRequest,
     NaverCallbackRequest,
     RefreshTokenRequest,
@@ -30,6 +32,11 @@ from src.app.domains.auth.schema import (
 from src.app.domains.auth.service import AuthService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def _ensure_dev_auth_enabled() -> None:
+    if APP_ENV == "production":
+        raise HTTPException(status_code=404, detail="Not found")
 
 
 @router.post("/kakao/callback")
@@ -59,6 +66,25 @@ async def social_login(
 ):
     """카카오/네이버 소셜 로그인을 처리한다."""
     data = await svc.social_login(body)
+    return api_json(http_status=200, data=data.model_dump())
+
+
+@router.get("/dev-test-accounts")
+async def list_dev_test_accounts(
+    svc: Annotated[AuthService, Depends(get_auth_service)],
+):
+    _ensure_dev_auth_enabled()
+    data = await svc.list_dev_test_accounts()
+    return api_json(http_status=200, data=[item.model_dump() for item in data])
+
+
+@router.post("/dev-login")
+async def dev_login(
+    body: DevLoginRequest,
+    svc: Annotated[AuthService, Depends(get_auth_service)],
+):
+    _ensure_dev_auth_enabled()
+    data = await svc.dev_login(body)
     return api_json(http_status=200, data=data.model_dump())
 
 

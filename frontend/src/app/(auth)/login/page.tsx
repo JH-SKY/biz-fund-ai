@@ -4,7 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AlertCircle, ShieldCheck } from "lucide-react";
 import type { Route } from "next";
+import type { DevTestAccountItem } from "@/types";
 
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -17,12 +19,15 @@ import { authService } from "@/lib/services";
 import { useAuthStore } from "@/stores/auth-store";
 
 export default function LoginPage() {
+  const isDevMode = process.env.NODE_ENV !== "production";
   const router = useRouter();
   const searchParams = useSearchParams();
   const login = useAuthStore((state) => state.login);
 
   const [error, setError] = useState<string | null>(null);
   const [naverLoading, setNaverLoading] = useState(false);
+  const [devAccounts, setDevAccounts] = useState<DevTestAccountItem[]>([]);
+  const [devLoadingKey, setDevLoadingKey] = useState<string | null>(null);
   const processedRef = useRef(false);
 
   const redirectTo = useMemo(() => {
@@ -97,6 +102,48 @@ export default function LoginPage() {
       });
   }, [searchParams, login, router, redirectTo]);
 
+  useEffect(() => {
+    if (!isDevMode) return;
+
+    authService
+      .getDevTestAccounts()
+      .then((accounts) => setDevAccounts(accounts))
+      .catch(() => {
+        setDevAccounts([]);
+      });
+  }, [isDevMode]);
+
+  const handleDevLogin = (scenarioKey: string) => {
+    setError(null);
+    setDevLoadingKey(scenarioKey);
+
+    authService
+      .devLogin({ scenario_key: scenarioKey })
+      .then((data) => {
+        login(
+          { access: data.access_token, refresh: data.refresh_token },
+          {
+            userId: data.user_id,
+            name: data.name,
+            provider: "naver",
+            isOnboarded: !data.is_new_user,
+          }
+        );
+
+        router.replace((data.is_new_user ? "/onboarding" : redirectTo) as Route);
+      })
+      .catch((err: unknown) => {
+        const message =
+          err instanceof Error
+            ? err.message
+            : "테스트 계정 로그인 중 오류가 발생했습니다. 다시 시도해 주세요.";
+        setError(message);
+      })
+      .finally(() => {
+        setDevLoadingKey(null);
+      });
+  };
+
   // 네이버 콜백 처리 중 로딩 화면
   if (naverLoading) {
     return (
@@ -126,6 +173,45 @@ export default function LoginPage() {
 
   return (
     <div className="w-full max-w-md space-y-4">
+      {isDevMode && devAccounts.length > 0 && (
+        <Card className="border-dashed border-amber-300 bg-amber-50/60">
+          <CardHeader>
+            <CardTitle className="text-lg">개발용 테스트 계정</CardTitle>
+            <CardDescription>
+              정책 매칭 시나리오를 바로 검증할 수 있도록 준비한 계정입니다.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {devAccounts.map((account) => (
+              <div
+                key={account.scenario_key}
+                className="rounded-lg border border-amber-200 bg-white p-3"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-ink-primary">
+                      {account.display_name}
+                    </p>
+                    <p className="text-xs text-ink-secondary">
+                      {account.business_name} · {account.email}
+                    </p>
+                    <p className="text-xs text-ink-secondary">{account.summary}</p>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => handleDevLogin(account.scenario_key)}
+                    disabled={devLoadingKey !== null}
+                  >
+                    {devLoadingKey === account.scenario_key ? "로그인 중..." : "바로 로그인"}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">사장님, 어서오세요</CardTitle>
