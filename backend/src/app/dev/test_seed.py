@@ -435,6 +435,121 @@ TEST_POLICIES: tuple[TestPolicy, ...] = (
     ),
 )
 
+TEST_POLICY_IDS: tuple[str, ...] = tuple(policy.origin_id for policy in TEST_POLICIES)
+
+
+def build_test_policy_content(policy_seed: TestPolicy) -> str:
+    sections = _policy_sections_for(policy_seed)
+    lines = [
+        f"정책명\n{policy_seed.title}",
+        f"정책 개요\n{policy_seed.ai_summary}",
+        f"지원 대상\n{sections['target']}",
+        f"지원 지역\n{sections['region']}",
+        f"업종 조건\n{sections['sector']}",
+        f"업력 조건\n{sections['age']}",
+        f"매출 / 고용 조건\n{sections['revenue_employee']}",
+        f"우대 조건\n{sections['preferred']}",
+        f"제외 조건\n{sections['excluded']}",
+        "제출 서류\n" + "\n".join(f"- {doc}" for doc in policy_seed.required_documents),
+        f"신청 절차\n{sections['procedure']}",
+        f"문의처\n{sections['contact']}",
+    ]
+    return "\n\n".join(lines)
+
+
+def _policy_sections_for(policy_seed: TestPolicy) -> dict[str, str]:
+    sections: dict[str, dict[str, str]] = {
+        "POL-01": {
+            "target": "전국 소상공인 및 영세 사업장으로 운영자금 수요가 있는 사업장",
+            "region": "전국",
+            "sector": "업종 제한 없음. 단, 소상공인 기본 조건을 충족하는 사업장",
+            "age": "업력 제한 없음",
+            "revenue_employee": "연매출 10억원 이하, 상시근로자 20명 이하 사업장",
+            "preferred": "초기 운영 안정화가 필요한 소상공인 우대",
+            "excluded": "국세 또는 지방세 체납 사업장 제외",
+            "procedure": "BizMong 테스트 페이지에서 공고 확인 후 신청 링크 이동 → 운영자금 상담 신청 → 서류 제출",
+            "contact": "중소벤처기업부 정책자금 상담센터 / 1357",
+        },
+        "POL-02": {
+            "target": "서울 소재 초기 창업 소상공인",
+            "region": "서울",
+            "sector": "업종 제한 없음. 서울에서 영업 중인 소상공인",
+            "age": "창업 초기 또는 업력 3년 이하 사업장 우대",
+            "revenue_employee": "연매출 5억원 이하, 상시근로자 10명 이하 사업장",
+            "preferred": "창업 초기 단계, 사업 안정화 자금이 필요한 사업장 우대",
+            "excluded": "국세 체납 사업장, 서울 외 지역 사업장 제외",
+            "procedure": "서울신용보증재단 신청 페이지 접속 → 신청서 작성 → 사업계획서 제출 → 심사",
+            "contact": "서울신용보증재단 고객센터 / 1577-6119",
+        },
+        "POL-03": {
+            "target": "경기 지역 제조업 사업장",
+            "region": "경기",
+            "sector": "제조업, 금속가공, 기계 관련 업종",
+            "age": "업력 3년 이상 사업장",
+            "revenue_employee": "매출 제한 없음. 설비 투자 계획이 있는 사업장",
+            "preferred": "생산설비 개선, 자동화 투자 계획이 있는 제조업 우대",
+            "excluded": "체납 사업장, 경기 외 지역 사업장, 제조업이 아닌 사업장 제외",
+            "procedure": "경기도경제과학진흥원 공고 확인 → 설비계획서 제출 → 적격 심사 → 자금 배정",
+            "contact": "경기도경제과학진흥원 기업성장팀 / 031-259-6000",
+        },
+        "POL-04": {
+            "target": "부산 지역 여성기업 확인서를 보유한 사업장",
+            "region": "부산",
+            "sector": "서비스업 또는 제조업",
+            "age": "업력 제한 없음",
+            "revenue_employee": "연매출 3억원 이하 사업장",
+            "preferred": "여성기업 확인서 보유 사업장 우대",
+            "excluded": "체납 사업장, 부산 외 지역 사업장 제외",
+            "procedure": "부산경제진흥원 공고 확인 → 여성기업 확인서와 재무자료 제출 → 성장자금 심사",
+            "contact": "부산경제진흥원 기업지원센터 / 1833-3665",
+        },
+        "POL-05": {
+            "target": "대구 지역 기술창업 및 벤처 인증 사업장",
+            "region": "대구",
+            "sector": "IT, 기술 서비스, 소프트웨어 관련 업종",
+            "age": "업력 7년 이하 기술창업 기업 중심",
+            "revenue_employee": "매출 제한 없음. 기술개발 또는 사업화 계획 필요",
+            "preferred": "벤처기업 인증, 특허·지식재산권 보유 기업 우대",
+            "excluded": "체납 사업장, 벤처 인증이 없는 일반 사업장 제외",
+            "procedure": "기술사업화 계획서 제출 → 지식재산 및 기술성 검토 → 대구디지털혁신진흥원 심사",
+            "contact": "대구디지털혁신진흥원 기술창업지원실 / 053-655-5600",
+        },
+        "POL-06": {
+            "target": "강원 지역 관광·숙박 소상공인",
+            "region": "강원",
+            "sector": "관광업, 숙박업, 호텔업",
+            "age": "업력 제한 없음",
+            "revenue_employee": "연매출 2억원 이하 사업장",
+            "preferred": "관광 회복과 운영 정상화가 필요한 사업장 우대",
+            "excluded": "체납 사업장, 강원 외 지역 사업장 제외",
+            "procedure": "강원관광재단 공고 확인 → 매출 감소 자료 제출 → 운영 회복 필요성 심사",
+            "contact": "강원관광재단 소상공인지원 담당 / 033-249-3300",
+        },
+        "POL-07": {
+            "target": "전국 사업장 중 고용 규모가 일정 수준 이상인 기업",
+            "region": "전국",
+            "sector": "업종 제한 없음",
+            "age": "업력 제한 없음",
+            "revenue_employee": "상시근로자 5명 이상 50명 이하 사업장",
+            "preferred": "고용 확대 계획이 있거나 고용 유지 성과가 있는 사업장 우대",
+            "excluded": "체납 사업장, 상시근로자 5명 미만 사업장 제외",
+            "procedure": "공단 공고 확인 → 4대보험 명부 제출 → 고용 유지 및 확대 계획 심사",
+            "contact": "소상공인시장진흥공단 정책자금센터 / 1357",
+        },
+        "POL-08": {
+            "target": "재무건전성이 양호한 전국 소상공인",
+            "region": "전국",
+            "sector": "업종 제한 없음",
+            "age": "업력 제한 없음",
+            "revenue_employee": "연매출 5억원 이하, 재무자료 제출 가능 사업장",
+            "preferred": "부채비율이 낮고 재무 안정성이 높은 사업장 우대",
+            "excluded": "체납 사업장, 부채비율 150% 초과 사업장 제외",
+            "procedure": "재무자료와 납세증명서 제출 → 재무건전성 확인 → 운영자금 심사",
+            "contact": "중소기업진흥공단 정책자금 상담창구 / 1811-3655",
+        },
+    }
+    return sections[policy_seed.origin_id]
+
 
 def get_dev_account_options() -> list[dict[str, str]]:
     return [
@@ -570,12 +685,13 @@ async def seed_test_scenarios(session: AsyncSession) -> dict[str, int]:
             counters["snapshots_updated"] += 1
 
     for policy_seed in TEST_POLICIES:
+        content_raw = build_test_policy_content(policy_seed)
         policy = await policy_repo.get_policy_by_origin_id(policy_seed.origin_id)
         if policy is None:
             policy = await policy_repo.create_policy(
                 origin_id=policy_seed.origin_id,
                 title=policy_seed.title,
-                content_raw=policy_seed.content_raw,
+                content_raw=content_raw,
                 category=policy_seed.category,
                 agency_name=policy_seed.agency_name,
                 apply_url=policy_seed.apply_url,
@@ -604,7 +720,7 @@ async def seed_test_scenarios(session: AsyncSession) -> dict[str, int]:
             status=PolicyStatus.RECRUITING,
             closed_at=policy_seed.closed_at,
             is_active=True,
-            content_raw=policy_seed.content_raw,
+            content_raw=content_raw,
             required_documents=policy_seed.required_documents,
             target_logic=policy_seed.target_logic,
             bonus_logic=policy_seed.bonus_logic,
