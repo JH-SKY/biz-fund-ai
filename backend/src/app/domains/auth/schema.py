@@ -45,6 +45,18 @@ class SocialLoginResponseData(BaseModel):
     is_new_user: bool
 
 
+class DevLoginRequest(BaseModel):
+    scenario_key: str = Field(..., description="개발용 테스트 시나리오 키")
+
+
+class DevTestAccountItem(BaseModel):
+    scenario_key: str
+    display_name: str
+    email: str
+    business_name: str
+    summary: str
+
+
 class RefreshTokenRequest(BaseModel):
     refresh_token: str = Field(..., description="갱신에 사용할 Refresh Token")
 
