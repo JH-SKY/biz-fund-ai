@@ -713,8 +713,6 @@ function DebugFileViewerDialog({
     if (originId) setActiveTab("1_api_raw.json");
   }, [originId]);
 
-  const activeContent = data?.[activeTab as keyof typeof data] ?? null;
-
   const formatContent = (content: string | null, lang: string): string => {
     if (!content) return "";
     if (lang === "json") {
@@ -807,8 +805,8 @@ function DebugFileViewerDialog({
           </div>
 
           {(() => {
-            const tab = DEBUG_TABS.find((t) => t.key === activeTab)!;
-            const content = formatContent(activeContent as string | null, tab.lang);
+            const tab = DEBUG_TABS.find((t) => t.key === activeTab) ?? DEBUG_TABS[0];
+            const content = formatContent((data?.[tab.key] as string | null) ?? null, tab.lang);
             if (!content) {
               return (
                 <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-surface-border py-12 text-ink-tertiary">
