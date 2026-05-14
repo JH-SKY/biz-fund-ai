@@ -154,7 +154,7 @@ async def chitchat_node(
         logger.info("[bizmong-chitchat] answer generated (%d chars)", len(answer))
     except Exception as exc:
         logger.warning("[bizmong-chitchat] generation failed: %s", exc)
-        answer = "일시적인 오류가 있었어요. 같은 질문을 한 번만 다시 보내주시면 바로 이어서 도와드릴게요."
+        answer = _build_general_qa_fallback(last_msg)
         if stream_callback:
             await stream_callback(answer)
         status = "ERROR"
@@ -212,3 +212,22 @@ def _get_last_user_message(messages: list) -> str:
         if hasattr(msg, "content") and getattr(msg, "type", "") == "human":
             return msg.content
     return ""
+
+
+def _build_general_qa_fallback(question: str) -> str:
+    lowered = question.lower()
+
+    if "운전자금" in question and "시설자금" in question:
+        return (
+            "운전자금은 월세, 재료비, 인건비처럼 당장 가게를 돌리는 데 들어가는 비용에 가까운 자금입니다. "
+            "시설자금은 인테리어, 설비 교체, 기계 구입처럼 한 번 크게 들어가는 투자성 비용에 더 가깝습니다. "
+            "지금 상황을 알려주시면 어떤 쪽 정책이 더 맞는지도 같이 정리해드릴게요."
+        )
+
+    if any(keyword in lowered for keyword in ("체납", "세금")):
+        return (
+            "세금 체납은 많은 정책자금 심사에서 불리하게 작용합니다. "
+            "특히 자금성 공고는 국세·지방세 완납 여부를 보는 경우가 많아서, 먼저 체납 해소 가능 여부를 확인하는 게 안전합니다."
+        )
+
+    return "일시적인 오류가 있었어요. 같은 질문을 한 번만 다시 보내주시면 바로 이어서 도와드릴게요."

@@ -207,6 +207,20 @@ def _classify_by_keyword(message: str) -> str:
         "맞는 정책",
         "내 사업에 맞는 정책",
         "해당되는 정책",
+        "지원",
+        "보태",
+        "대출",
+        "보증금",
+        "월급",
+        "인건비",
+        "가스비",
+        "전기세",
+        "고용지원금",
+        "설비",
+        "시설자금",
+        "관광",
+        "운영자금",
+        "재무 상태",
     ]
 
     if any(keyword in msg for keyword in greeting_kws):

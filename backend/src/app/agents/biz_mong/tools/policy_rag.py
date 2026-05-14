@@ -219,11 +219,34 @@ def _extract_keywords(text: str) -> list[str]:
 
     한국어 공백 분리 후 2글자 이상, 불용어 제거.
     """
-    stopwords = {"이", "가", "은", "는", "을", "를", "에", "서", "의", "와", "과",
-                 "그", "이것", "저것", "무엇", "어디", "어떻게", "왜", "언제",
-                 "있나요", "있어요", "주세요", "알려", "해줘", "해주세요"}
-    tokens = re.split(r"[\s,?.!]+", text)
-    return [t for t in tokens if len(t) >= 2 and t not in stopwords]
+    stopwords = {
+        "이", "가", "은", "는", "을", "를", "에", "서", "의", "와", "과",
+        "그", "이것", "저것", "무엇", "어디", "어떻게", "왜", "언제",
+        "있나요", "있어요", "주세요", "알려", "해줘", "해주세요",
+        "너무", "요즘", "하나씩만", "각각", "좀", "이라도",
+    }
+    tokens = [t for t in re.split(r"[\s,?.!]+", text) if len(t) >= 2 and t not in stopwords]
+
+    expanded: list[str] = []
+    lowered = text.lower()
+    if any(keyword in lowered for keyword in ("가스비", "전기세", "월세", "임대료", "고정비", "운영비")):
+        expanded.extend(["운영자금", "소상공인", "지원금"])
+    if any(keyword in lowered for keyword in ("직원", "월급", "인건비", "고용")):
+        expanded.extend(["고용", "고용지원", "지원금"])
+    if any(keyword in lowered for keyword in ("보증금", "대출", "융자")):
+        expanded.extend(["대출", "운전자금", "정책자금"])
+    if any(keyword in lowered for keyword in ("창업", "업력", "몇 년", "연차")):
+        expanded.extend(["창업", "업력"])
+    if any(keyword in lowered for keyword in ("여성기업", "여성")):
+        expanded.append("여성기업")
+
+    ordered: list[str] = []
+    for keyword in expanded + tokens:
+        normalized = keyword.strip()
+        if not normalized or normalized in ordered:
+            continue
+        ordered.append(normalized)
+    return ordered
 
 
 async def _get_policy(session: AsyncSession, policy_id: str) -> Policy | None:

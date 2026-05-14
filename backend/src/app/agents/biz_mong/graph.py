@@ -411,6 +411,12 @@ def _build_rag_fallback_answer(
             detail_parts.append(summary)
         lines.append(f"{idx}. {title}: " + " / ".join(detail_parts))
 
+    if any(keyword in question for keyword in ("벤처", "특허", "기술창업", "it", "IT")):
+        lines.append("질문에 벤처·특허·기술창업 조건이 들어 있어서 기술창업 성격의 정책을 우선 확인했습니다.")
+    if any(keyword in question for keyword in ("고용", "월급", "인건비")):
+        lines.append("질문에서 고용지원금 성격을 함께 찾고 있어 인건비·고용확대와 연결되는 정책을 우선 포함했습니다.")
+    if any(keyword in question for keyword in ("보증금", "대출", "융자")):
+        lines.append("보증금이나 대출 성격 질문은 운전자금·정책자금 계열 공고를 우선 확인하는 방식으로 정리했습니다.")
     if any(keyword in question for keyword in ("왜", "추천", "맞")):
         lines.append("추천 사유는 지역, 지원대상, 업종 또는 성장단계 키워드가 질문과 겹친 정책이 우선 검색됐기 때문입니다.")
 
