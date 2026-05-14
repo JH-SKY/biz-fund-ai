@@ -319,6 +319,8 @@ async def _run_rag(
     generation_started_at = datetime.now(timezone.utc)
     generation_started = time.monotonic()
     answer, usage = await _generate_rag_answer(client, last_msg, context)
+    if not usage:
+        answer = _build_rag_fallback_answer(last_msg, rag_results)
     generation_elapsed_ms = int((time.monotonic() - generation_started) * 1000)
     node_logs.append(
         build_node_log(
@@ -381,7 +383,39 @@ async def _generate_rag_answer(
         return (response.choices[0].message.content or "").strip(), response.usage
     except Exception as exc:
         logger.warning("[rag] answer generation failed: %s", exc)
-        return "답변을 정리하는 중 오류가 생겼습니다. 같은 질문을 한 번 더 보내주시면 다시 확인해볼게요.", None
+        return "", None
+
+
+def _build_rag_fallback_answer(
+    question: str,
+    rag_results: list[dict[str, Any]],
+) -> str:
+    """OpenAI 생성이 실패해도 검색 결과 기반 요약 답변을 만든다."""
+    top_results = rag_results[:3]
+    if not top_results:
+        return (
+            "관련 정책 정보를 바로 찾지 못했습니다. 정책명이나 기관명, 지역, 분야를 조금 더 "
+            "구체적으로 알려주시면 다시 찾아볼게요."
+        )
+
+    lines = ["지금 확인되는 관련 정책은 아래와 같습니다."]
+    for idx, result in enumerate(top_results, start=1):
+        title = result.get("title") or "정책명 미상"
+        region = result.get("region") or "전국"
+        support_amount = result.get("support_amount_desc") or "지원 내용은 공고문 확인이 필요합니다."
+        summary = result.get("ai_summary") or ""
+        end_date = result.get("end_date") or "상시/공고문 확인"
+
+        detail_parts = [region, support_amount, f"마감 {end_date}"]
+        if summary:
+            detail_parts.append(summary)
+        lines.append(f"{idx}. {title}: " + " / ".join(detail_parts))
+
+    if any(keyword in question for keyword in ("왜", "추천", "맞")):
+        lines.append("추천 사유는 지역, 지원대상, 업종 또는 성장단계 키워드가 질문과 겹친 정책이 우선 검색됐기 때문입니다.")
+
+    lines.append("세부 자격과 제외 조건은 실제 공고문 본문에서 마지막으로 한 번 더 확인하는 것이 안전합니다.")
+    return "\n".join(lines)
 
 
 def _get_last_user_message(messages: list) -> str:

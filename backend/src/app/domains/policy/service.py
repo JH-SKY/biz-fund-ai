@@ -39,6 +39,30 @@ from src.app.domains.policy.schema import (
 RECOMMENDATION_CANDIDATE_LIMIT = 200
 
 
+def _recommendation_specificity(policy: Policy, business: Business) -> int:
+    target_logic = policy.target_logic if isinstance(policy.target_logic, dict) else {}
+    score = 0
+
+    if target_logic.get("region_restricted") and target_logic.get("allowed_regions"):
+        score += 3
+    if target_logic.get("sectors"):
+        score += 3
+    if target_logic.get("require_patent") or target_logic.get("require_ventured"):
+        score += 2
+
+    haystack = " ".join(
+        filter(None, [policy.title, policy.category, policy.support_type, policy.ai_summary, policy.content_raw])
+    ).lower()
+    if business.is_female_ent and "여성" in haystack:
+        score += 2
+    if business.is_ventured and "벤처" in haystack:
+        score += 2
+    if business.has_patent and "특허" in haystack:
+        score += 2
+
+    return score
+
+
 def _to_list_item(policy: Policy, is_bookmarked: bool) -> PolicyListItem:
     """Policy 모델 → 목록 아이템 DTO 변환 헬퍼."""
     return PolicyListItem(
@@ -264,7 +288,7 @@ class PolicyService:
             policy_ids=[policy.id for policy in policies],
         )
 
-        items: list[PolicyRecommendItem] = []
+        ranked_items: list[tuple[PolicyRecommendItem, int]] = []
         for policy in policies:
             result = await self._match_engine.compute_match(
                 policy=policy,
@@ -274,20 +298,30 @@ class PolicyService:
             if result.match_level == MatchLevel.RED:
                 continue
 
-            items.append(
-                PolicyRecommendItem(
-                    policy_id=policy.id,
-                    title=policy.title,
-                    match_level=result.match_level,
-                    match_score=result.match_score,
-                    reason=result.reason,
-                    estimated_probability=result.estimated_probability,
-                    is_bookmarked=policy.id in bookmarked_ids,
+            ranked_items.append(
+                (
+                    PolicyRecommendItem(
+                        policy_id=policy.id,
+                        title=policy.title,
+                        match_level=result.match_level,
+                        match_score=result.match_score,
+                        reason=result.reason,
+                        estimated_probability=result.estimated_probability,
+                        is_bookmarked=policy.id in bookmarked_ids,
+                    ),
+                    _recommendation_specificity(policy, business),
                 )
             )
 
         level_order = {MatchLevel.GREEN: 0, MatchLevel.YELLOW: 1, MatchLevel.RED: 2}
-        items.sort(key=lambda item: (level_order[item.match_level], -item.match_score))
+        ranked_items.sort(
+            key=lambda row: (
+                level_order[row[0].match_level],
+                -row[0].match_score,
+                -row[1],
+            )
+        )
+        items = [item for item, _ in ranked_items]
         start = max(0, (page - 1) * size)
         paged_items = items[start : start + size]
 

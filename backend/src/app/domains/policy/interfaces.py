@@ -276,6 +276,7 @@ class RuleBasedMatchEngine(IMatchEngine):
             annual_revenue=annual_revenue,
             debt_ratio=debt_ratio,
             business_age_months=business_age_months,
+            tax_arrears=tax_arrears,
         )
         if hard_fail_reason:
             return MatchResult(
@@ -342,7 +343,11 @@ def _evaluate_hard_failures(
     annual_revenue: int | None,
     debt_ratio: float | None,
     business_age_months: int | None,
+    tax_arrears: bool,
 ) -> str | None:
+    if tax_arrears and _policy_requires_clean_tax_status(policy):
+        return "세금 체납 이력이 있으면 이 정책은 실제 심사에서 제외될 가능성이 높습니다."
+
     if logic is not None:
         if logic.sectors and not _sector_matches(business, logic.sectors):
             return "정책 대상 업종과 현재 업종 정보가 맞지 않습니다."
@@ -421,6 +426,8 @@ def _score_l1(
     else:
         score -= 5.0
 
+    score -= _generic_policy_penalty(policy, logic)
+
     return round(max(25.0, min(78.0, score)), 1), reasons
 
 
@@ -492,6 +499,8 @@ def _score_l2(
     if business.is_biz_no_verified:
         score += 2.0
 
+    score -= _generic_policy_penalty(policy, logic)
+
     return round(max(20.0, min(95.0, score)), 1), reasons
 
 
@@ -518,8 +527,54 @@ def _region_matches(business: Business, allowed_regions: list[str]) -> bool:
 
 
 def _sector_matches(business: Business, sectors: list[str]) -> bool:
-    haystack = " ".join(filter(None, [business.ksic_code, business.ksic_name, business.sector_code])).lower()
-    return any(sector.lower() in haystack for sector in sectors)
+    raw_tokens = [business.ksic_code, business.ksic_name, business.sector_code]
+    haystack = " ".join(filter(None, raw_tokens)).lower()
+    normalized_haystack = set(_normalize_sector_token(token) for token in raw_tokens if token)
+
+    for sector in sectors:
+        lowered = sector.lower()
+        if lowered in haystack:
+            return True
+
+        normalized_sector = _normalize_sector_token(sector)
+        if normalized_sector in normalized_haystack:
+            return True
+
+    return False
+
+
+def _normalize_sector_token(value: str) -> str:
+    text = value.strip().lower()
+
+    alias_map = {
+        "service": "service",
+        "서비스": "service",
+        "컨설팅": "service",
+        "제조": "manufacturing",
+        "manufacturing": "manufacturing",
+        "금속": "manufacturing",
+        "기계": "manufacturing",
+        "it": "it",
+        "기술": "it",
+        "프로그래밍": "it",
+        "소프트웨어": "it",
+        "관광": "tourism",
+        "숙박": "tourism",
+        "호텔": "tourism",
+        "retail": "retail",
+        "도매": "retail",
+        "소매": "retail",
+        "유통": "retail",
+        "food": "food",
+        "음식": "food",
+        "카페": "food",
+        "요식": "food",
+    }
+
+    for keyword, normalized in alias_map.items():
+        if keyword in text:
+            return normalized
+    return text
 
 
 def _funding_purpose_matches(policy: Policy, business: Business) -> bool:
@@ -545,6 +600,49 @@ def _special_flag_matches(policy: Policy, business: Business) -> bool:
         or (business.is_ventured and "벤처" in haystack)
         or (business.is_female_ent and "여성" in haystack)
     )
+
+
+def _policy_requires_clean_tax_status(policy: Policy) -> bool:
+    haystack = " ".join(
+        filter(
+            None,
+            [
+                policy.title,
+                policy.category,
+                policy.support_type,
+                policy.content_raw,
+                policy.ai_summary,
+            ],
+        )
+    ).lower()
+    financing_keywords = (
+        "자금",
+        "대출",
+        "운영",
+        "운전자금",
+        "시설",
+        "설비",
+        "회복",
+        "성장 지원",
+    )
+    return any(keyword in haystack for keyword in financing_keywords)
+
+
+def _generic_policy_penalty(policy: Policy, logic) -> float:
+    if logic is None:
+        return 0.0
+
+    has_specific_region = bool(logic.region_restricted and logic.allowed_regions)
+    has_specific_sector = bool(logic.sectors)
+    has_special_gate = bool(logic.require_patent or logic.require_ventured)
+    has_special_match_keyword = any(
+        keyword in " ".join(filter(None, [policy.title, policy.content_raw, policy.ai_summary])).lower()
+        for keyword in ("여성", "벤처", "특허", "청년", "관광", "제조", "기술창업")
+    )
+
+    if has_specific_region or has_specific_sector or has_special_gate or has_special_match_keyword:
+        return 0.0
+    return 6.0
 
 
 class IVectorSearcher(ABC):

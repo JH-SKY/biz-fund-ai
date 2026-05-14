@@ -24,8 +24,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 import json
+import logging
 import uuid
 import time
 from typing import Any, AsyncGenerator, Optional
@@ -36,6 +37,7 @@ from fastapi.responses import StreamingResponse
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.app.agents.biz_mong.nodes.chitchat_node import (
     PROMPT_VERSION_GENERAL,
@@ -53,6 +55,7 @@ from src.app.domains.chat.model import AgentCtaLog, AgentNodeLog, AgentRunLog
 from src.app.domains.chat.schema import CreateSessionRequest, SendMessageRequest
 
 router = APIRouter(prefix="/chats", tags=["chats"])
+logger = logging.getLogger(__name__)
 
 
 class AgentMessageResponse(BaseModel):
@@ -167,15 +170,25 @@ async def send_agent_message(
     )
     await svc._session.commit()
 
-    final_state = await agent.run(
-        user_id=str(biz.user_id),
-        business_id=str(biz.id),
-        room_id=str(room.id),
-        message=req.message,
+    openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+    init_state = await _build_stream_state(
+        svc=svc,
+        biz=biz,
+        room_id=room.id,
+    )
+    router_result = await router_node(init_state, client=openai_client)
+    intent: str = router_result.get("current_agent", "general_qa")
+    merged_state = {**init_state, **router_result}
+    final_state = await agent.run_from_route(
+        state=merged_state,
+        route_intent=intent,
     )
 
-    agent_type = final_state.get("current_agent") or "general_qa"
+    agent_type = final_state.get("current_agent") or intent
     content = _build_response_content(agent_type, final_state)
+    node_logs = _normalize_node_logs(router_result.get("node_logs"))
+    node_logs.extend(_normalize_node_logs(final_state.get("node_logs")))
+    prompt_version = final_state.get("prompt_version") or PROMPT_VERSION_GENERAL
 
     ai_log = await svc._repo.create_chat_log(
         user_id=biz.user_id,
@@ -184,6 +197,8 @@ async def send_agent_message(
         content=content,
     )
     await svc._session.commit()
+    ai_message_id = str(ai_log.id)
+    ai_created_at = ai_log.created_at
 
     await _persist_agent_run(
         svc=svc,
@@ -192,21 +207,21 @@ async def send_agent_message(
         user_log_id=user_log.id,
         assistant_log_id=ai_log.id,
         question=req.message,
-        route_intent=final_state.get("current_agent") or "general_qa",
+        route_intent=intent,
         final_agent=agent_type,
-        node_logs=_normalize_node_logs(final_state.get("node_logs")),
+        node_logs=node_logs,
         started_at=run_started_at,
         completed_at=datetime.utcnow(),
         first_token_latency_ms=None,
-        prompt_version=final_state.get("prompt_version") or PROMPT_VERSION_GENERAL,
+        prompt_version=prompt_version,
         rag_hit_count=len(final_state.get("rag_results") or []),
-        fallback_mode=final_state.get("fallback_mode"),
-        fallback_reason=final_state.get("fallback_reason"),
+        fallback_mode=router_result.get("fallback_mode"),
+        fallback_reason=router_result.get("fallback_reason"),
     )
 
     response_data = AgentMessageResponse(
         session_id=str(session_id),
-        message_id=str(ai_log.id),
+        message_id=ai_message_id,
         role="assistant",
         content=content,
         agent_type=agent_type,
@@ -214,7 +229,7 @@ async def send_agent_message(
         simulation_report=None,
         stats_insight=final_state.get("stats_insight") or None,
         rag_results=final_state.get("rag_results") or None,
-        created_at=ai_log.created_at,
+        created_at=ai_created_at,
     )
     return api_json(http_status=status.HTTP_200_OK, data=response_data.model_dump(), message="success")
 
@@ -366,6 +381,7 @@ async def stream_agent_message(
                 content=full_content,
             )
             await svc._session.commit()
+            ai_message_id = str(ai_log.id)
 
             await _persist_agent_run(
                 svc=svc,
@@ -390,7 +406,7 @@ async def stream_agent_message(
                 "done",
                 {
                     "agent_type": agent_type,
-                    "message_id": str(ai_log.id),
+                    "message_id": ai_message_id,
                     "content": full_content,
                     "diagnosis_report": None,
                     "simulation_report": None,
@@ -561,6 +577,15 @@ def _normalize_node_logs(raw: Any) -> list[dict[str, Any]]:
     return logs
 
 
+def _normalize_db_datetime(value: datetime | None) -> datetime | None:
+    """DB 적재 전 timezone-aware datetime 을 naive UTC 로 맞춘다."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 async def _persist_agent_run(
     *,
     svc: ChatServiceDep,
@@ -599,54 +624,61 @@ async def _persist_agent_run(
         total_cost = Decimal(str(raw_cost))
     model_name = next((log.get("model_name") for log in reversed(node_logs) if log.get("model_name")), None)
 
-    run = AgentRunLog(
-        room_id=room_id,
-        user_id=biz.user_id,
-        business_id=biz.id,
-        user_message_log_id=user_log_id,
-        assistant_message_log_id=assistant_log_id,
-        route_intent=route_intent,
-        final_agent=final_agent,
-        prompt_version=prompt_version,
-        graph_version="bizmong-graph-v1",
-        rag_strategy_version="policy-rag-v1",
-        model_name=model_name,
-        status=status,
-        fallback_mode=fallback_mode,
-        fallback_reason=fallback_reason,
-        question_preview=question[:300],
-        started_at=started_at,
-        completed_at=completed_at,
-        total_latency_ms=max(0, int((completed_at - started_at).total_seconds() * 1000)),
-        first_token_latency_ms=first_token_latency_ms,
-        tokens_in=total_tokens_in,
-        tokens_out=total_tokens_out,
-        total_cost_usd=total_cost,
-        rag_hit_count=rag_hit_count,
-        error_code=error_code,
-        error_message=error_message,
-    )
-    svc._session.add(run)
-    await svc._session.flush()
-
-    for idx, node in enumerate(node_logs, start=1):
-        svc._session.add(
-            AgentNodeLog(
-                run_id=run.id,
-                node_name=node.get("node_name") or f"node_{idx}",
-                sequence=int(node.get("sequence") or idx),
-                status=node.get("status") or "SUCCESS",
-                model_name=node.get("model_name"),
-                started_at=node.get("started_at"),
-                completed_at=node.get("completed_at"),
-                latency_ms=node.get("latency_ms"),
-                tokens_in=node.get("tokens_in"),
-                tokens_out=node.get("tokens_out"),
-                cost_usd=node.get("cost_usd"),
-                error_code=node.get("error_code"),
-                error_message=node.get("error_message"),
-                node_metadata=node.get("metadata"),
-            )
+    try:
+        run = AgentRunLog(
+            room_id=room_id,
+            user_id=biz.user_id,
+            business_id=biz.id,
+            user_message_log_id=user_log_id,
+            assistant_message_log_id=assistant_log_id,
+            route_intent=route_intent,
+            final_agent=final_agent,
+            prompt_version=prompt_version,
+            graph_version="bizmong-graph-v1",
+            rag_strategy_version="policy-rag-v1",
+            model_name=model_name,
+            status=status,
+            fallback_mode=fallback_mode,
+            fallback_reason=fallback_reason,
+            question_preview=question[:300],
+            started_at=_normalize_db_datetime(started_at),
+            completed_at=_normalize_db_datetime(completed_at),
+            total_latency_ms=max(0, int((completed_at - started_at).total_seconds() * 1000)),
+            first_token_latency_ms=first_token_latency_ms,
+            tokens_in=total_tokens_in,
+            tokens_out=total_tokens_out,
+            total_cost_usd=total_cost,
+            rag_hit_count=rag_hit_count,
+            error_code=error_code,
+            error_message=error_message,
         )
+        svc._session.add(run)
+        await svc._session.flush()
 
-    await svc._session.commit()
+        for idx, node in enumerate(node_logs, start=1):
+            svc._session.add(
+                AgentNodeLog(
+                    run_id=run.id,
+                    node_name=node.get("node_name") or f"node_{idx}",
+                    sequence=int(node.get("sequence") or idx),
+                    status=node.get("status") or "SUCCESS",
+                    model_name=node.get("model_name"),
+                    started_at=_normalize_db_datetime(node.get("started_at")),
+                    completed_at=_normalize_db_datetime(node.get("completed_at")),
+                    latency_ms=node.get("latency_ms"),
+                    tokens_in=node.get("tokens_in"),
+                    tokens_out=node.get("tokens_out"),
+                    cost_usd=node.get("cost_usd"),
+                    error_code=node.get("error_code"),
+                    error_message=node.get("error_message"),
+                    node_metadata=node.get("metadata"),
+                )
+            )
+
+        await svc._session.commit()
+    except SQLAlchemyError as exc:
+        await svc._session.rollback()
+        logger.warning(
+            "[agent-run] observability persistence skipped: %s",
+            exc,
+        )

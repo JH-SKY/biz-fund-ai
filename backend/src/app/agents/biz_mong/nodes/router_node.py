@@ -173,7 +173,20 @@ def _classify_by_keyword(message: str) -> str:
     msg = message.lower()
 
     greeting_kws = ["안녕", "반가", "고마", "감사", "처음", "hello", "hi"]
-    stats_kws = ["평균", "통계", "비교", "퍼센타일", "동종업계", "업계 평균"]
+    stats_kws = [
+        "평균",
+        "통계",
+        "비교",
+        "퍼센타일",
+        "동종업계",
+        "업계 평균",
+        "매출",
+        "매출액",
+        "매입",
+        "순위",
+        "상위",
+        "하위",
+    ]
     rag_kws = [
         "공고",
         "지원조건",
@@ -183,6 +196,17 @@ def _classify_by_keyword(message: str) -> str:
         "필요서류",
         "어떤 정책",
         "정책 설명",
+        "정책자금",
+        "지원금",
+        "추천",
+        "추천돼",
+        "추천돼?",
+        "왜 추천",
+        "받을 수 있는",
+        "신청 가능한",
+        "맞는 정책",
+        "내 사업에 맞는 정책",
+        "해당되는 정책",
     ]
 
     if any(keyword in msg for keyword in greeting_kws):

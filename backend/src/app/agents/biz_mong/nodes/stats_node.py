@@ -122,10 +122,6 @@ async def _aggregate_peer_stats(
     if year:
         year_conditions = [BusinessFinancialSnapshot.snapshot_year.in_([year, year - 1])]
 
-    join_conditions = [BusinessFinancialSnapshot.business_id == Business.id]
-    if ksic_code:
-        join_conditions.append(Business.ksic_code == ksic_code)
-
     stmt = (
         select(
             func.count(BusinessFinancialSnapshot.id).label("peer_count"),
@@ -137,10 +133,11 @@ async def _aggregate_peer_stats(
                 func.nullif(BusinessFinancialSnapshot.annual_revenue, 0)
             ).label("min_revenue"),
         )
-        .join(Business, *join_conditions)
+        .join(Business, BusinessFinancialSnapshot.business_id == Business.id)
         .where(
             BusinessFinancialSnapshot.is_active.is_(True),
             Business.is_active.is_(True),
+            *((Business.ksic_code == ksic_code,) if ksic_code else ()),
             *year_conditions,
         )
     )
