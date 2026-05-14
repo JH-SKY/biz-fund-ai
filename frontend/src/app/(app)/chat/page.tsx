@@ -69,6 +69,7 @@ export default function ChatPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
+  const preventEmptyHistoryOnceForSessionRef = useRef<string | null>(null);
 
   const scrollRef = useScrollToBottom(messages);
 
@@ -89,12 +90,26 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!activeSessionId) {
+      if (isStreaming) return;
       setMessages([]);
       return;
     }
     if (isStreaming) return;
     if (!historyQ.data) return;
-    setMessages(mapHistoryToDisplayMessages(historyQ.data));
+    setMessages((prev) => {
+      const next = mapHistoryToDisplayMessages(historyQ.data);
+      if (
+        next.length === 0 &&
+        prev.length > 0 &&
+        preventEmptyHistoryOnceForSessionRef.current === activeSessionId
+      ) {
+        return prev;
+      }
+      if (next.length > 0 && preventEmptyHistoryOnceForSessionRef.current === activeSessionId) {
+        preventEmptyHistoryOnceForSessionRef.current = null;
+      }
+      return next;
+    });
   }, [activeSessionId, historyQ.data, isStreaming]);
 
   const createNewSession = useCallback(
@@ -170,6 +185,7 @@ export default function ChatPage() {
 
       setIsStreaming(true);
       setStreamingMsgId(tempId);
+      preventEmptyHistoryOnceForSessionRef.current = sessionId;
 
       await chatService.streamAgentMessage(sessionId, text, {
         onStatus: (statusText) => {
