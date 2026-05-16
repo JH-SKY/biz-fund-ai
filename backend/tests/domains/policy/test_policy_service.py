@@ -33,6 +33,10 @@ class _FakePolicyRepo:
                 category="금융",
                 closed_at=date(9999, 12, 31),
                 is_active=True,
+                target_logic={},
+                support_type=None,
+                ai_summary=None,
+                content_raw=None,
             ),
             SimpleNamespace(
                 id=uuid.uuid4(),
@@ -40,6 +44,10 @@ class _FakePolicyRepo:
                 category="바우처",
                 closed_at=date(2026, 12, 31),
                 is_active=True,
+                target_logic={},
+                support_type=None,
+                ai_summary=None,
+                content_raw=None,
             ),
         ]
         self.toggled_with: tuple[uuid.UUID, uuid.UUID] | None = None
@@ -91,6 +99,9 @@ def _make_business() -> SimpleNamespace:
         is_biz_no_verified=True,
         employee_count=3,
         ksic_code="56111",
+        is_female_ent=False,
+        is_ventured=False,
+        has_patent=False,
     )
 
 
@@ -156,6 +167,9 @@ async def test_get_recommended_policies_unverified_notice_when_not_verified():
         is_biz_no_verified=False,
         employee_count=2,
         ksic_code="56111",
+        is_female_ent=False,
+        is_ventured=False,
+        has_patent=False,
     )
 
     data = await svc.get_recommended_policies(

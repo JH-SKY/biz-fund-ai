@@ -40,7 +40,8 @@ RECOMMENDATION_CANDIDATE_LIMIT = 200
 
 
 def _recommendation_specificity(policy: Policy, business: Business) -> int:
-    target_logic = policy.target_logic if isinstance(policy.target_logic, dict) else {}
+    raw_target_logic = getattr(policy, "target_logic", None)
+    target_logic = raw_target_logic if isinstance(raw_target_logic, dict) else {}
     score = 0
 
     if target_logic.get("region_restricted") and target_logic.get("allowed_regions"):
@@ -51,13 +52,22 @@ def _recommendation_specificity(policy: Policy, business: Business) -> int:
         score += 2
 
     haystack = " ".join(
-        filter(None, [policy.title, policy.category, policy.support_type, policy.ai_summary, policy.content_raw])
+        filter(
+            None,
+            [
+                getattr(policy, "title", None),
+                getattr(policy, "category", None),
+                getattr(policy, "support_type", None),
+                getattr(policy, "ai_summary", None),
+                getattr(policy, "content_raw", None),
+            ],
+        )
     ).lower()
-    if business.is_female_ent and "여성" in haystack:
+    if getattr(business, "is_female_ent", False) and "여성" in haystack:
         score += 2
-    if business.is_ventured and "벤처" in haystack:
+    if getattr(business, "is_ventured", False) and "벤처" in haystack:
         score += 2
-    if business.has_patent and "특허" in haystack:
+    if getattr(business, "has_patent", False) and "특허" in haystack:
         score += 2
 
     return score
