@@ -1,3 +1,5 @@
+"""비즈몽 품질 검증에 쓰는 질문셋과 기대 결과를 정의한다."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -5,6 +7,7 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class BizMongEvalCase:
+    """비즈몽 자동 평가 1건의 기준 데이터."""
     scenario_key: str
     question: str
     expected_route: str

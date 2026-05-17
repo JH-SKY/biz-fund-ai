@@ -1,3 +1,9 @@
+"""비즈몽 질문셋을 자동 실행해 라우팅/정책/답변 키워드를 검증한다.
+
+감으로 "잘 되는 것 같다"를 판단하지 않기 위해
+시나리오 계정으로 실제 API 흐름을 따라가며 pass/fail 을 집계한다.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -10,6 +16,7 @@ from src.app.main import app
 
 
 async def _run_case(client: httpx.AsyncClient, scenario_key: str, question: str) -> dict:
+    """평가 케이스 1건을 실제 로그인/세션 생성/API 호출 순서대로 실행한다."""
     login = await client.post("/api/v1/auth/dev-login", json={"scenario_key": scenario_key})
     token = login.json()["data"]["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
@@ -43,6 +50,7 @@ async def _run_case(client: httpx.AsyncClient, scenario_key: str, question: str)
 
 
 def _evaluate(result: dict, expected_route: str, expected_policies: tuple[str, ...], expected_keywords: tuple[str, ...]) -> dict:
+    """실행 결과가 기대 라우팅/정책/핵심 키워드를 만족하는지 판정한다."""
     route_ok = result["agent_type"] == expected_route
     policy_ok = True
     if expected_policies:
@@ -60,6 +68,7 @@ def _evaluate(result: dict, expected_route: str, expected_policies: tuple[str, .
 
 
 async def main() -> None:
+    """전체 질문셋을 돌며 JSON 라인 로그와 최종 통계를 출력한다."""
     transport = httpx.ASGITransport(app=app)
     summary: list[dict] = []
 

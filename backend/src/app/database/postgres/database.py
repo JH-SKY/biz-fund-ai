@@ -1,4 +1,10 @@
 # src/app/database/postgres/database.py
+"""비동기 SQLAlchemy 엔진과 세션 팩토리를 구성한다.
+
+FastAPI 요청마다 독립 세션을 열고 닫는 규칙을 한곳에 모아
+트랜잭션 경계와 커넥션 정리를 일관되게 유지한다.
+"""
+
 import os
 
 from dotenv import load_dotenv
@@ -47,6 +53,11 @@ SessionLocal = async_sessionmaker(
 #   끊기는 race condition이 남는다. close/rollback 실패는 이미 버려진
 #   커넥션에 대한 정리 실패이므로 suppress 처리한다.
 async def get_db():
+    """요청 단위 DB 세션을 열고, 끝나면 정리한다.
+
+    rollback / close 중 예외가 나더라도 원래 에러를 삼켜 버리지 않게
+    정리 단계는 방어적으로 처리한다.
+    """
     session = SessionLocal()
     try:
         yield session

@@ -1,3 +1,5 @@
+"""로컬 개발 DB 의 모든 정책을 다시 활성화하는 복구 스크립트."""
+
 from __future__ import annotations
 
 import asyncio
@@ -11,6 +13,7 @@ from src.app.domains.policy.model import Policy
 
 
 async def main() -> None:
+    """비활성화된 정책까지 모두 다시 보이게 되돌린다."""
     if APP_ENV == "production":
         raise RuntimeError("운영 환경에서는 전체 공고 복구 스크립트를 실행할 수 없습니다.")
 
