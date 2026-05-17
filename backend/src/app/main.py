@@ -41,6 +41,8 @@ async def lifespan(app: FastAPI):
     shutdown : 실행 중인 배치가 완료되기를 기다리지 않고 스케줄러를 즉시 종료한다.
               (wait=False — 서버 재시작 시 응답 지연 방지)
     """
+    # FastAPI 앱과 스케줄러의 수명을 맞춰 두면
+    # 개발 서버 재시작이나 배포 시 배치가 따로 떠서 꼬이는 상황을 줄일 수 있다.
     await start_scheduler()
     yield
     await shutdown_scheduler()
@@ -73,6 +75,7 @@ app.add_exception_handler(
 
 async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """500 에러에도 CORS 헤더를 포함시켜 프론트에서 오류를 확인할 수 있게 한다."""
+    _ = exc
     origin = request.headers.get("origin", "")
     headers = {}
     if origin in FRONTEND_ORIGINS:
@@ -93,6 +96,7 @@ db_session = Annotated[AsyncSession, Depends(get_db)]
 
 @app.get("/")
 async def read_root():
+    """가장 단순한 서버 헬스 체크 엔드포인트."""
     return {
         "status": "online",
         "message": "Biz-Fund-AI 서버가 정상 작동 중입니다!",
@@ -102,6 +106,11 @@ async def read_root():
 
 @app.get("/db-check")
 async def check_db_connection(db: db_session):
+    """DB 세션이 실제 쿼리까지 수행되는지 확인한다.
+
+    세션 객체만 만들어지는지 보는 것보다 `SELECT 1` 이 성공하는지를 확인해야
+    커넥션, 권한, 트랜잭션 시작 가능 여부를 함께 점검할 수 있다.
+    """
     result = await db.execute(text("SELECT 1"))
     if result:
         return {"status": "success", "message": "Database Connection Verified"}

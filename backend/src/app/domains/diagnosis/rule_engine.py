@@ -58,6 +58,8 @@ class RuleBasedDiagnosisEngine(IDiagnosisEngine):
         use_ai: bool = True,
     ) -> DiagnosisResult:
         """진단을 실행하고 DiagnosisResult DTO를 반환한다."""
+        # 현재 엔진은 규칙 기반이라 year, use_ai 를 직접 쓰지 않는다.
+        # 그래도 시그니처를 맞춰 두면 나중에 AI 진단 엔진으로 교체할 때 API 계약을 유지할 수 있다.
         _ = year, use_ai
         evaluation = _evaluate_business_health(business, inputs)
         return DiagnosisResult(
@@ -162,6 +164,9 @@ def _evaluate_business_health(
         total_debt=inputs.total_debt,
     )
 
+    # 축별 점수를 바로 더하지 않고 가중 평균으로 합산한다.
+    # 재무 건전성을 가장 크게 보는 이유는 정책 추천 이전에
+    # 사업장의 현재 체력이 버티는지부터 판단해야 하기 때문이다.
     total = round(
         financial * 0.40
         + growth * 0.20
@@ -170,6 +175,8 @@ def _evaluate_business_health(
         1,
     )
 
+    # 체납이나 초고부채는 다른 점수가 좋아도 전체 리스크를 뒤집어 버릴 수 있다.
+    # 그래서 최종 점수에 ceiling 을 씌워 "좋은 점수처럼 보이는 착시"를 막는다.
     if inputs.has_tax_arrears:
         total = min(total, 34.0)
     elif debt_ratio is not None and debt_ratio >= _DEBT_CRITICAL:
@@ -576,6 +583,8 @@ def _build_gain_factors(
 
     최대 6개 항목만 반환 (UI 공간 제한).
     """
+    # 사용자가 "무엇이 얼마나 좋아졌는지"를 바로 읽을 수 있어야 하므로
+    # 내부 숫자 차이를 사람 문장으로 다시 번역해 준다.
     factors: list[str] = []
     diff = round(simulated_eval.total_score - base_eval.total_score, 1)
 
@@ -636,6 +645,8 @@ def _grade_for_score(score: float) -> str:
 
     EXCELLENT (≥85) / GOOD (≥70) / NORMAL (≥55) / RISK (<55)
     """
+    # 등급 컷은 UI 색상보다 보수적으로 잡는다.
+    # 면접에서 설명할 때는 "좋아 보이는 점수"보다 "리스크를 먼저 드러내는 컷"이라고 이해하면 된다.
     if score >= 85:
         return "EXCELLENT"
     if score >= 70:
@@ -657,6 +668,8 @@ def _traffic_for_state(
     YELLOW : 총점 60 미만이거나 부채비율 ≥ 100% (주의 필요)
     GREEN  : 그 외 안정 상태
     """
+    # 신호등은 총점만 보지 않는다.
+    # 체납/초고부채처럼 즉시 위험 신호가 있는 경우는 총점과 무관하게 RED 를 우선한다.
     if has_tax_arrears or (debt_ratio is not None and debt_ratio >= _DEBT_CRITICAL):
         return "RED"
     if total_score < 60 or (debt_ratio is not None and debt_ratio >= _DEBT_WARN):

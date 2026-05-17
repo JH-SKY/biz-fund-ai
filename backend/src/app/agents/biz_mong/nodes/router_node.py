@@ -55,6 +55,7 @@ async def router_node(
     started_at = datetime.now(timezone.utc)
     started_mono = time.monotonic()
 
+    # router 는 실제 답변을 만들지 않고 "어느 전문 노드로 보낼지"만 결정한다.
     messages: list = state.get("messages") or []
     last_msg = _get_last_user_message(messages)
     if not last_msg:
@@ -74,6 +75,8 @@ async def router_node(
             ],
         }
 
+    # 1차는 LLM 으로 의도를 분류하고, 실패하거나 이상한 값이 오면
+    # 2차로 키워드 규칙을 태워 서비스가 완전히 멈추지 않게 한다.
     intent, telemetry = await _classify_intent_llm(_client, last_msg)
     fallback_reason: str | None = None
     if intent not in VALID_INTENTS:
@@ -170,6 +173,7 @@ def _classify_by_keyword(message: str) -> str:
     - 정책 공고/신청 키워드 → rag
     - 해당 없으면 → general_qa (기본값)
     """
+    # 키워드 폴백은 완벽한 분류기가 아니라 "최소한 엉뚱한 노드로 빠지지 않게 하는 안전망"이다.
     msg = message.lower()
 
     greeting_kws = ["안녕", "반가", "고마", "감사", "처음", "hello", "hi"]
