@@ -23,11 +23,11 @@
 
 사장님의 질문 의도를 실시간으로 분류하고, 전문 노드로 라우팅하는 **LangGraph StateGraph** 기반 AI 상담 에이전트입니다.
 
-| 라우팅 의도 | 트리거 예시 | 처리 노드 |
-|:---|:---|:---|
-| `greeting / general_qa` | "안녕하세요" / "운전자금이 뭐야?" | Chitchat Node — 인사 응답 또는 용어 설명 |
-| `rag` | "청년창업패키지 신청 조건이 뭔가요?" | RAG Node — Hybrid 정책 문서 검색 |
-| `stats` | "같은 업종 평균 매출은?" | Stats Node — DB 집계 → 백분위 비교 |
+| 라우팅 의도             | 트리거 예시                          | 처리 노드                                |
+| :---------------------- | :----------------------------------- | :--------------------------------------- |
+| `greeting / general_qa` | "안녕하세요" / "운전자금이 뭐야?"    | Chitchat Node — 인사 응답 또는 용어 설명 |
+| `rag`                   | "청년창업패키지 신청 조건이 뭔가요?" | RAG Node — Hybrid 정책 문서 검색         |
+| `stats`                 | "같은 업종 평균 매출은?"             | Stats Node — DB 집계 → 백분위 비교       |
 
 > **진단(Diagnosis)·시뮬레이션(Simulation)** 은 LangGraph 노드가 아닌 별도 REST API(`/diagnoses`, `/simulations`)로 구현되어 있습니다.
 
@@ -69,12 +69,12 @@
 
 "모든 노드에 같은 모델을 쓴다"는 초기 설계에서 벗어나, 각 노드가 실제로 필요로 하는 복잡도를 분석해 모델을 재배정했습니다.
 
-| 노드 / 작업 | 이전 | 이후 | 판단 근거 |
-|:---|:---|:---|:---|
-| Router 의도 분류 | gpt-4o | **gpt-4o-mini** | 4개 레이블 택1, 고성능 추론 불필요 |
-| Greeting 인사 응답 | gpt-4o | **정적 문자열** | 응답 패턴 고정, LLM 호출 자체가 낭비 |
-| RAG 답변 생성 | gpt-4o | **gpt-4o-mini** | 검색된 청크 정리, 창의적 추론 불필요 |
-| PolicySync 구조화 | gpt-4o | **gpt-4o 유지** | 비정형 공고문 → JSON 추출 정확도가 비용보다 우선 |
+| 노드 / 작업        | 이전   | 이후            | 판단 근거                                        |
+| :----------------- | :----- | :-------------- | :----------------------------------------------- |
+| Router 의도 분류   | gpt-4o | **gpt-4o-mini** | 4개 레이블 택1, 고성능 추론 불필요               |
+| Greeting 인사 응답 | gpt-4o | **정적 문자열** | 응답 패턴 고정, LLM 호출 자체가 낭비             |
+| RAG 답변 생성      | gpt-4o | **gpt-4o-mini** | 검색된 청크 정리, 창의적 추론 불필요             |
+| PolicySync 구조화  | gpt-4o | **gpt-4o 유지** | 비정형 공고문 → JSON 추출 정확도가 비용보다 우선 |
 
 품질 검증: 모델 변경 후 평가 하네스(12케이스) 재실행 → **83.3% 통과율 유지** 확인.
 
@@ -82,11 +82,11 @@
 
 벡터 검색(의미적 유사도)과 키워드 검색(FTS)을 **Reciprocal Rank Fusion(k=60)** 으로 결합합니다.
 
-| 방식 | 강점 | 약점 |
-|:---|:---|:---|
-| 벡터 검색 (pgvector) | 의미적 유사도, 유사 표현 포착 | 고유명사·기관명 매칭 약함 |
-| 키워드 검색 (FTS) | 정확한 단어 매칭 | 다른 표현·유의어 검색 안 됨 |
-| **Hybrid (RRF)** | **양쪽 장점 결합** | — |
+| 방식                 | 강점                          | 약점                        |
+| :------------------- | :---------------------------- | :-------------------------- |
+| 벡터 검색 (pgvector) | 의미적 유사도, 유사 표현 포착 | 고유명사·기관명 매칭 약함   |
+| 키워드 검색 (FTS)    | 정확한 단어 매칭              | 다른 표현·유의어 검색 안 됨 |
+| **Hybrid (RRF)**     | **양쪽 장점 결합**            | —                           |
 
 ```
 score(d) = 1/(k + rank_vector) + 1/(k + rank_fts),  k=60
@@ -158,36 +158,36 @@ flowchart TD
 
 ## 기술 스택 (Tech Stack)
 
-| 분류 | 기술 | 역할 |
-|:---|:---|:---|
-| **Backend** | Python 3.12 + FastAPI | 비동기 API 서버, OpenAPI 자동 문서화 |
-| | Pydantic v2 + SQLAlchemy 2.0 | 데이터 검증 + 비동기 ORM |
-| | Alembic + uv | DB 마이그레이션 / 고속 패키지 관리 |
-| **AI Orchestration** | LangGraph 0.3 | StateGraph 멀티 에이전트, PostgreSQL Checkpointer |
-| **LLM** | GPT-4o-mini | 의도 분류 · RAG 답변 · 용어 설명 |
-| | GPT-4o | 정책 공고 구조화 (PolicySyncAgent) |
-| **Embedding** | text-embedding-3-small | 정책 청크 임베딩 (1536-dim) |
-| **Database** | PostgreSQL 16 | 정형 데이터 + JSONB(target_logic) + Checkpointer |
-| | pgvector | 코사인 유사도 벡터 검색 |
-| **Frontend** | React 18 + TypeScript | 선언적 UI, 컴포넌트 기반 설계 |
-| | Tailwind CSS + React Query | 유틸리티 스타일링 / 서버 상태 관리 |
-| **Auth** | JWT Dual Token | Access 30분 + Refresh 7일 |
-| **External API** | 국세청 사업자 진위 확인 | 온보딩 자동화 |
+| 분류                 | 기술                         | 역할                                              |
+| :------------------- | :--------------------------- | :------------------------------------------------ |
+| **Backend**          | Python 3.12 + FastAPI        | 비동기 API 서버, OpenAPI 자동 문서화              |
+|                      | Pydantic v2 + SQLAlchemy 2.0 | 데이터 검증 + 비동기 ORM                          |
+|                      | Alembic + uv                 | DB 마이그레이션 / 고속 패키지 관리                |
+| **AI Orchestration** | LangGraph 0.3                | StateGraph 멀티 에이전트, PostgreSQL Checkpointer |
+| **LLM**              | GPT-4o-mini                  | 의도 분류 · RAG 답변 · 용어 설명                  |
+|                      | GPT-4o                       | 정책 공고 구조화 (PolicySyncAgent)                |
+| **Embedding**        | text-embedding-3-small       | 정책 청크 임베딩 (1536-dim)                       |
+| **Database**         | PostgreSQL 16                | 정형 데이터 + JSONB(target_logic) + Checkpointer  |
+|                      | pgvector                     | 코사인 유사도 벡터 검색                           |
+| **Frontend**         | React 18 + TypeScript        | 선언적 UI, 컴포넌트 기반 설계                     |
+|                      | Tailwind CSS + React Query   | 유틸리티 스타일링 / 서버 상태 관리                |
+| **Auth**             | JWT Dual Token               | Access 30분 + Refresh 7일                         |
+| **External API**     | 국세청 사업자 진위 확인      | 온보딩 자동화                                     |
 
 ---
 
 ## 문서 바로가기
 
-| 문서 | 대상 독자 | 핵심 내용 |
-|:---|:---|:---|
-| [01. 기획 및 요구사항](./docs/01_concept_and_requirements.md) | PM / PO | 5단계 사용자 여정, 비즈니스 페인포인트 |
-| [02. 시스템 아키텍처](./docs/02_system_architecture.md) | 백엔드 / LLM 엔지니어 | 전체 시스템 구조, 비즈몽 에이전트 상세 설계 |
-| [03. 데이터 설계 명세](./docs/03_data_design_spec.md) | 백엔드 / 프론트 엔지니어 | DB 스키마 전체, API 엔드포인트 목록 |
-| [04. 실험 및 검증](./docs/04_experiment_and_test.md) | 모든 개발자 | 품질 평가 하네스(83.3%), 비용 최적화 근거 |
-| [05. 트러블슈팅 로그](./docs/05_troubleshooting_log.md) | 모든 개발자 | 주요 이슈 해결 기록 |
-| [06. RAG 파이프라인 설계](./docs/06_rag_pipeline_design.md) | 백엔드 / LLM 엔지니어 | 청킹 전략, Contextual Embedding, Hybrid 검색 상세 |
-| [API 명세 (chat)](./docs/api_spec/chat.md) | 프론트엔드 개발자 | 비즈몽 에이전트 응답 JSON 스키마 |
-| [API 명세 (business)](./docs/api_spec/business.md) | 프론트엔드 개발자 | 사업장 / 재무 / 서류 CRUD |
+| 문서                                                          | 대상 독자                | 핵심 내용                                         |
+| :------------------------------------------------------------ | :----------------------- | :------------------------------------------------ |
+| [01. 기획 및 요구사항](./docs/01_concept_and_requirements.md) | PM / PO                  | 5단계 사용자 여정, 비즈니스 페인포인트            |
+| [02. 시스템 아키텍처](./docs/02_system_architecture.md)       | 백엔드 / LLM 엔지니어    | 전체 시스템 구조, 비즈몽 에이전트 상세 설계       |
+| [03. 데이터 설계 명세](./docs/03_data_design_spec.md)         | 백엔드 / 프론트 엔지니어 | DB 스키마 전체, API 엔드포인트 목록               |
+| [04. 실험 및 검증](./docs/04_experiment_and_test.md)          | 모든 개발자              | 품질 평가 하네스(83.3%), 비용 최적화 근거         |
+| [05. 트러블슈팅 로그](./docs/05_troubleshooting_log.md)       | 모든 개발자              | 주요 이슈 해결 기록                               |
+| [06. RAG 파이프라인 설계](./docs/06_rag_pipeline_design.md)   | 백엔드 / LLM 엔지니어    | 청킹 전략, Contextual Embedding, Hybrid 검색 상세 |
+| [API 명세 (chat)](./docs/api_spec/chat.md)                    | 프론트엔드 개발자        | 비즈몽 에이전트 응답 JSON 스키마                  |
+| [API 명세 (business)](./docs/api_spec/business.md)            | 프론트엔드 개발자        | 사업장 / 재무 / 서류 CRUD                         |
 
 ---
 
@@ -198,22 +198,3 @@ flowchart TD
 3. **심화 분석 리포트 (확장)**: AI 진단을 넘어선 정밀 경영 진단 및 심화 리포트 서비스
 
 ---
-
-## 개발 기록
-
-비전공자에서 AI 서비스 개발자로 성장하는 과정을 가감 없이 기록하고 있습니다.
-
-[![Velog Badge](https://img.shields.io/badge/Velog-11B48A?style=for-the-badge&logo=velog&logoColor=white)](https://velog.io/@jh-sky/posts)
-
----
-
-## Changelog
-
-| 버전 | 날짜 | 내용 |
-|:---|:---|:---|
-| v0.1 | 2026-03-10 | 프로젝트 초기 기획 및 README / 요구사항 정의서 작성 |
-| v0.5 | 2026-03-25 | FastAPI 백엔드 기반 구축, 사용자 인증 / 사업장 CRUD 구현 |
-| v0.8 | 2026-04-05 | 비즈몽 LangGraph 멀티 에이전트 설계 및 Hard Filter / rule_engine 구현 |
-| v0.9 | 2026-04-12 | Hybrid RAG (pgvector + FTS + RRF) 구현, Stats 노드 완성 |
-| v1.0 | 2026-04-19 | Write-through 패턴 적용, PolicySyncAgent Self-Correction 완성, 문서 전면 개편 |
-| v1.1 | 2026-05-17 | 작업 복잡도별 모델 분리 적용, 품질 평가 하네스(83.3%) 검증 |
