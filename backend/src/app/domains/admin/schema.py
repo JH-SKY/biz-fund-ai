@@ -1,5 +1,5 @@
 # src/app/domains/admin/schema.py
-"""Admin API Pydantic schemas."""
+"""관리자 API Pydantic 스키마."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class AdminLoginRequest(BaseModel):
-    """Admin login payload."""
+    """토큰 발급용 관리자 로그인 요청."""
 
     login_id: str = Field(..., min_length=1, description="관리자 로그인 ID")
     password: str = Field(..., min_length=1, description="평문 비밀번호")
