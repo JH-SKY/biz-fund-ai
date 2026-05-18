@@ -134,9 +134,11 @@ export const adminUsersService = {
     });
   },
   setActive(userId: string, isActive: boolean) {
-    return adminApiClient.patch<AdminUserItem>(`/admin/users/${userId}`, {
-      is_active: isActive,
-    });
+    return adminApiClient.patch<{ user_id: string; is_active: boolean }>(
+      `/admin/users/${userId}/active`,
+      undefined,
+      { params: { is_active: isActive } }
+    );
   },
 };
 

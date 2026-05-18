@@ -165,14 +165,16 @@ class ChatRepository:
 
     async def list_user_chat_logs_page(
         self, user_id: uuid.UUID | None, page: int, size: int
-    ) -> list[ChatLog]:
+    ) -> tuple[list[ChatLog], int]:
         """[Internal] 관리자 모니터링용: 사용자의 질문 메시지만 페이징 조회"""
         stmt = select(ChatLog).where(ChatLog.role == "user")
         if user_id:
             stmt = stmt.where(ChatLog.user_id == user_id)
+        total_stmt = select(func.count()).select_from(stmt.subquery())
+        total = int((await self._session.execute(total_stmt)).scalar() or 0)
         stmt = stmt.order_by(ChatLog.created_at.desc()).offset((page - 1) * size).limit(size)
         result = await self._session.execute(stmt)
-        return list(result.scalars().all())
+        return list(result.scalars().all()), total
 
     async def find_first_assistant_after(
         self, room_id: uuid.UUID, after: datetime

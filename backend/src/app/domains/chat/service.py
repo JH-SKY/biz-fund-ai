@@ -311,7 +311,7 @@ class ChatService:
         user_id: uuid.UUID | None,
         page: int,
         size: int,
-    ) -> list[ChatLog]:
+    ) -> tuple[list[ChatLog], int]:
         """[Admin] 사용자별 채팅 로그 페이징 조회 (관리자 모니터링 화면용)."""
         return await self._repo.list_user_chat_logs_page(user_id, page, size)
 

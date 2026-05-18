@@ -56,7 +56,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { usePolicySearch } from "@/hooks/usePolicies";
+import { usePolicyDetail, usePolicySearch } from "@/hooks/usePolicies";
 import {
   useBatchStatus,
   useCreatePolicy,
@@ -858,6 +858,7 @@ function PolicyFormDialog({
   const toast = useToast();
   const createMut = useCreatePolicy();
   const updateMut = useUpdatePolicy();
+  const { data: detailData } = usePolicyDetail(target?.policy_id);
 
   const [form, setForm] = React.useState<AdminPolicyCreateRequest>({
     title: "",
@@ -871,14 +872,15 @@ function PolicyFormDialog({
 
   React.useEffect(() => {
     if (open && target) {
+      const detail = detailData;
       setForm({
-        title: target.title,
-        content: "",
-        agency_name: "",
-        category: target.category ?? "",
-        apply_url: "",
-        closed_at: target.closed_at,
-        support_amount: "",
+        title: detail?.title ?? target.title,
+        content: detail?.content ?? "",
+        agency_name: detail?.agency_name ?? "",
+        category: detail?.category ?? target.category ?? "",
+        apply_url: detail?.apply_url ?? "",
+        closed_at: detail?.closed_at ?? target.closed_at,
+        support_amount: detail?.support_amount ?? "",
       });
     }
     if (open && !target) {
@@ -892,7 +894,7 @@ function PolicyFormDialog({
         support_amount: "",
       });
     }
-  }, [open, target]);
+  }, [detailData, open, target]);
 
   const isPending = createMut.isPending || updateMut.isPending;
 

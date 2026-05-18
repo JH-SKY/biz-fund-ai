@@ -53,6 +53,7 @@ yarn-error.log*
 .vscode/
 # PyCharm 등 JetBrains 설정
 .idea/
+.claude
 
 ### 6. RAG 소스 데이터 
 # 용량이 큰 원본 PDF나 데이터셋은 깃허브 대신 클라우드나 로컬에 보관

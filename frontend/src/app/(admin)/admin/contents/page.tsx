@@ -36,6 +36,7 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import {
   useAdminContents,
+  useAdminContentDetail,
   useCreateContent,
   useDeleteContent,
   useGenerateCardNews,
@@ -238,6 +239,7 @@ function ContentEditorDialog({
   const updateMut = useUpdateContent();
   const aiGenMut = useGenerateCardNews();
   const aiRelatedMut = useSuggestRelatedPolicies();
+  const { data: detailData } = useAdminContentDetail(target?.content_id ?? null);
 
   const [form, setForm] = React.useState<BizPickContentCreateRequest>({
     title: "",
@@ -265,17 +267,19 @@ function ContentEditorDialog({
   React.useEffect(() => {
     if (!open) return;
     if (target) {
+      const detail = detailData;
       setForm({
-        title: target.title,
-        body_html: "",
-        thumbnail_url: target.thumbnail_url ?? "",
-        category: target.category,
-        tags: [],
-        related_policy_ids: [],
-        is_published: target.is_published,
-        scheduled_at: target.scheduled_at ?? null,
+        title: detail?.title ?? target.title,
+        body_html: detail?.body_html ?? "",
+        thumbnail_url: detail?.thumbnail_url ?? target.thumbnail_url ?? "",
+        category: detail?.category ?? target.category,
+        tags: detail?.tags ?? [],
+        related_policy_ids:
+          detail?.related_policies?.map((policy) => policy.id) ?? [],
+        is_published: detail?.is_published ?? target.is_published,
+        scheduled_at: detail?.scheduled_at ?? target.scheduled_at ?? null,
       });
-      setTagsInput("");
+      setTagsInput((detail?.tags ?? []).join(", "));
     } else {
       setForm({
         title: "",
@@ -291,7 +295,7 @@ function ContentEditorDialog({
     }
     setAiInput("");
     setRelatedSuggestions([]);
-  }, [open, target]);
+  }, [detailData, open, target]);
 
   const handleAiGenerate = () => {
     if (!aiInput.trim()) {

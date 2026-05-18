@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import HTTPException
 from sqlalchemy import desc, func, select
@@ -18,6 +20,8 @@ from src.app.domains.admin.model import Admin
 from src.app.domains.admin.repository import AdminRepository, utc_start_of_today
 from src.app.domains.admin.schema import (
     AdminLoginRequest,
+    AiCardNewsGenerateRequest,
+    AiRelatedPoliciesRequest,
     AdminUserItem,
     AdminUserListData,
     AuditLogItem,
@@ -92,6 +96,66 @@ class AdminService:
         return mapping.get(key, "기타")
 
     @staticmethod
+    def _extract_keywords(text: str, limit: int = 5) -> list[str]:
+        tokens = re.findall(r"[0-9A-Za-z가-힣]{2,}", text.lower())
+        stop_words = {
+            "https",
+            "http",
+            "www",
+            "html",
+            "body",
+            "div",
+            "span",
+            "class",
+            "content",
+            "policy",
+            "admin",
+            "button",
+            "지원",
+            "정책",
+            "사업",
+            "내용",
+            "관련",
+            "대한",
+            "에서",
+            "으로",
+            "하는",
+            "있는",
+        }
+        seen: set[str] = set()
+        keywords: list[str] = []
+        for token in tokens:
+            if token in stop_words or token.isdigit():
+                continue
+            if token in seen:
+                continue
+            seen.add(token)
+            keywords.append(token)
+            if len(keywords) >= limit:
+                break
+        return keywords
+
+    @staticmethod
+    def _sentences_from_text(text: str, limit: int = 3) -> list[str]:
+        cleaned = re.sub(r"<[^>]+>", " ", text)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        if not cleaned:
+            return []
+        parts = re.split(r"(?<=[.!?])\s+|(?<=다\.)\s+", cleaned)
+        results = [part.strip() for part in parts if part.strip()]
+        if not results:
+            return [cleaned[:120]]
+        return [item[:120] for item in results[:limit]]
+
+    @staticmethod
+    def _title_from_url(policy_url: str) -> str:
+        parsed = urlparse(policy_url)
+        tail = parsed.path.rstrip("/").split("/")[-1]
+        tail = re.sub(r"[-_]+", " ", tail)
+        tail = re.sub(r"\s+", " ", tail).strip()
+        return tail[:60] if tail else "정책 카드뉴스 초안"
+
+    @staticmethod
     def _range_to_since(range_value: str) -> datetime:
         now = datetime.now(timezone.utc)
         if range_value == "1h":
@@ -160,15 +224,14 @@ class AdminService:
         admin: Admin,
         client_ip: str | None,
     ) -> PolicyCreateResponseData:
-        target_logic = {"target_region": body.target_region}
         row = await self._policy_service.create_policy_internal(
             title=body.title,
-            agency_name=ADMIN_POLICY_AGENCY_NAME,
-            support_type=body.category,
+            agency_name=body.agency_name or ADMIN_POLICY_AGENCY_NAME,
+            category=body.category,
             content_raw=body.content,
-            start_date=body.apply_start_date,
-            end_date=body.apply_end_date,
-            target_logic=target_logic,
+            apply_url=body.apply_url,
+            closed_at=body.closed_at,
+            support_amount_desc=body.support_amount,
             status=PolicyStatus.RECRUITING,
         )
         ts = row.created_at
@@ -199,8 +262,12 @@ class AdminService:
         await self._policy_service.patch_policy_internal(
             row,
             title=body.title,
-            apply_end_date=body.apply_end_date,
-            content=body.content,
+            category=body.category,
+            agency_name=body.agency_name,
+            support_amount_desc=body.support_amount,
+            apply_url=body.apply_url,
+            closed_at=body.closed_at,
+            content_raw=body.content,
         )
         await self._repo.add_audit_log(
             admin_id=admin.id,
@@ -220,7 +287,7 @@ class AdminService:
     ) -> ContentPublishResponseData:
         row = await self._biz_pick_service.create_biz_pick_internal(
             title=body.title,
-            category="GENERAL",
+            category=body.category,
             content_html=body.body_html,
             thumbnail_url=body.thumbnail_url,
             is_published=body.is_published,
@@ -250,6 +317,7 @@ class AdminService:
             row,
             title=body.title,
             body_html=body.body_html,
+            category=body.category,
             thumbnail_url=body.thumbnail_url,
             is_published=body.is_published,
         )
@@ -271,7 +339,7 @@ class AdminService:
         page: int,
         size: int,
     ) -> ChatMonitorResponseData:
-        logs = await self._chat_service.list_user_chat_logs_page(
+        logs, total_count = await self._chat_service.list_user_chat_logs_page(
             user_id=user_id,
             page=page,
             size=size,
@@ -298,15 +366,17 @@ class AdminService:
             items.append(
                 ChatMonitorItem(
                     session_id=str(ulog.room_id),
+                    user_id=str(ulog.user_id),
                     user_msg=ulog.content,
                     ai_res=assistant.content if assistant else "",
+                    agent_type=assistant.model_name if assistant else None,
                     timestamp=ts.isoformat().replace("+00:00", "Z"),
                 )
             )
         return ChatMonitorResponseData(
             items=items,
-            total_count=len(items),
-            total_pages=1,
+            total_count=total_count,
+            total_pages=(total_count + size - 1) // size if size > 0 else 0,
         )
 
     async def dashboard_stats(self) -> DashboardStatsData:
@@ -634,10 +704,18 @@ class AdminService:
         page: int,
         size: int,
     ) -> dict[str, Any]:
-        if is_resolved:
-            return {"items": [], "total_count": 0, "total_pages": 0}
+        from src.app.domains.admin.model import CorrectionNote
 
         filters = [ChatLog.role == "assistant", ChatLog.is_disliked.is_(True)]
+        resolved_feedback_ids = (
+            select(CorrectionNote.feedback_id)
+            .where(CorrectionNote.is_active.is_(True))
+            .distinct()
+        )
+        if is_resolved:
+            filters.append(ChatLog.id.in_(resolved_feedback_ids))
+        else:
+            filters.append(~ChatLog.id.in_(resolved_feedback_ids))
         if reason:
             filters.append(ChatLog.feedback_code == reason)
 
@@ -670,12 +748,14 @@ class AdminService:
                     "user_comment": log.feedback_text,
                     "ai_response_snippet": (log.content or "")[:200],
                     "created_at": self._to_iso(log.created_at),
-                    "is_resolved": False,
+                    "is_resolved": is_resolved,
                 }
             )
         return {"items": items, "total_count": total, "total_pages": total_pages}
 
     async def get_feedback_context(self, feedback_id: uuid.UUID) -> dict[str, Any]:
+        from src.app.domains.admin.model import CorrectionNote
+
         stmt = (
             select(ChatLog, User.name)
             .join(User, User.id == ChatLog.user_id)
@@ -719,6 +799,11 @@ class AdminService:
                 )
 
         reason_code = (feedback_log.feedback_code or "OTHER").upper()
+        resolved_stmt = select(func.count()).select_from(CorrectionNote).where(
+            CorrectionNote.feedback_id == feedback_id,
+            CorrectionNote.is_active.is_(True),
+        )
+        is_resolved = int((await self._session.execute(resolved_stmt)).scalar() or 0) > 0
         return {
             "feedback": {
                 "feedback_id": str(feedback_log.id),
@@ -731,7 +816,7 @@ class AdminService:
                 "user_comment": feedback_log.feedback_text,
                 "ai_response_snippet": (feedback_log.content or "")[:200],
                 "created_at": self._to_iso(feedback_log.created_at),
-                "is_resolved": False,
+                "is_resolved": is_resolved,
             },
             "conversation": conversation,
             "matching_logic_snapshot": {
@@ -787,6 +872,100 @@ class AdminService:
             "created_by": str(admin_id),
             "created_at": self._to_iso(note.created_at),
         }
+
+    async def generate_content_draft(
+        self,
+        body: AiCardNewsGenerateRequest,
+    ) -> dict[str, Any]:
+        source_title = "정책 카드뉴스 초안"
+        source_text = ""
+        source_link = body.policy_url
+        source_category = "정책가이드"
+
+        if body.policy_id:
+            try:
+                policy = await self._policy_service.get_policy_by_id_internal(
+                    uuid.UUID(body.policy_id)
+                )
+            except ValueError:
+                policy = None
+            if policy is not None:
+                source_title = policy.title
+                source_text = policy.ai_full_explanation or policy.content_raw or ""
+                source_category = policy.category or source_category
+                source_link = policy.apply_url or source_link
+        elif body.raw_text:
+            source_text = body.raw_text
+            source_title = self._sentences_from_text(body.raw_text, limit=1)[0][:60]
+        elif body.policy_url:
+            source_title = self._title_from_url(body.policy_url)
+            source_text = f"원문 링크: {body.policy_url}"
+
+        summary = self._sentences_from_text(source_text, limit=3)
+        while len(summary) < 3:
+            fallback = [
+                "지원 대상과 조건을 먼저 확인해 보세요.",
+                "신청 기간과 제출 서류를 함께 정리하면 좋습니다.",
+                "원문 링크에서 세부 공고를 꼭 다시 확인해 주세요.",
+            ][len(summary)]
+            summary.append(fallback)
+
+        keywords = self._extract_keywords(" ".join(summary + [source_title]), limit=4)
+        body_html = (
+            f"<h2>{source_title}</h2>"
+            f"<p>{summary[0]}</p>"
+            "<ul>"
+            + "".join(f"<li>{item}</li>" for item in summary[1:])
+            + "</ul>"
+            + (
+                f'<p><a href="{source_link}" target="_blank" rel="noreferrer">원문 바로가기</a></p>'
+                if source_link
+                else ""
+            )
+        )
+
+        return {
+            "suggested_title": source_title,
+            "three_line_summary": summary[:3],
+            "body_html": body_html,
+            "suggested_category": source_category,
+            "suggested_tags": keywords,
+            "suggested_thumbnail_url": None,
+        }
+
+    async def suggest_related_policies(
+        self,
+        body: AiRelatedPoliciesRequest,
+    ) -> dict[str, Any]:
+        keywords = self._extract_keywords(body.content_body, limit=5)
+        items: list[dict[str, Any]] = []
+        seen_policy_ids: set[str] = set()
+
+        for idx, keyword in enumerate(keywords):
+            result = await self._policy_service.search_policies(
+                keyword=keyword,
+                page=1,
+                size=5,
+            )
+            for policy in result.items:
+                policy_id = str(policy.policy_id)
+                if policy_id in seen_policy_ids:
+                    continue
+                seen_policy_ids.add(policy_id)
+                items.append(
+                    {
+                        "policy_id": policy_id,
+                        "title": policy.title,
+                        "reason": f"본문에 '{keyword}' 키워드가 포함되어 있습니다.",
+                        "score": max(50, 95 - (idx * 10) - (len(items) * 3)),
+                    }
+                )
+                if len(items) >= body.limit:
+                    break
+            if len(items) >= body.limit:
+                break
+
+        return {"items": items}
 
     async def list_contents(
         self,

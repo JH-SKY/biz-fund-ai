@@ -667,6 +667,10 @@ export interface BizPickDetail {
   is_liked: boolean;
   related_policies: Array<{ id: string; title: string }>;
   tags: string[];
+  thumbnail_url?: string | null;
+  category?: string;
+  is_published?: boolean;
+  scheduled_at?: string | null;
 }
 
 export interface BizPickLikeResponse {
@@ -805,7 +809,7 @@ export interface AdminUsersParams {
 
 export interface ChatMonitorItem {
   session_id: string;
-  user_id: string;
+  user_id?: string;
   user_name?: string;
   user_msg: string;
   ai_res: string;

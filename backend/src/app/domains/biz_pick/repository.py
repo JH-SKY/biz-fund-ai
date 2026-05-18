@@ -123,6 +123,7 @@ class BizPickRepository:
         *,
         title: str | None,
         body_html: str | None,
+        category: str | None,
         thumbnail_url: str | None,
         is_published: bool | None,
     ) -> None:
@@ -131,6 +132,8 @@ class BizPickRepository:
             row.title = title
         if body_html is not None:
             row.content_html = body_html
+        if category is not None:
+            row.category = category
         if thumbnail_url is not None:
             row.thumbnail_url = thumbnail_url
         if is_published is not None:

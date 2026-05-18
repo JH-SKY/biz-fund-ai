@@ -108,7 +108,7 @@ function ChatLogsContent() {
                 <CardContent className="space-y-3 p-4">
                   <div className="flex flex-wrap items-center gap-2 border-b border-surface-border pb-2">
                     <Badge variant="primary" size="sm">
-                      {log.user_name ?? log.user_id.slice(0, 8)}
+                      {log.user_name ?? log.user_id?.slice(0, 8) ?? log.session_id.slice(0, 8)}
                     </Badge>
                     {log.agent_type && (
                       <Badge variant="accent" size="sm">

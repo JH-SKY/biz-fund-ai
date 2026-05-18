@@ -15,6 +15,8 @@ from src.app.api.deps.policy_deps import EmbeddingServiceDep, PolicyServiceDep, 
 from src.app.core.response import api_json
 from src.app.domains.admin.schema import (
     AdminLoginRequest,
+    AiCardNewsGenerateRequest,
+    AiRelatedPoliciesRequest,
     CorrectionNoteRequest,
     ContentPatchRequest,
     ContentPublishRequest,
@@ -132,6 +134,26 @@ async def admin_patch_content(
         http_status=200,
         message="콘텐츠 상태가 업데이트되었습니다.",
     )
+
+
+@router.post("/contents/generate")
+async def admin_generate_content_draft(
+    body: AiCardNewsGenerateRequest,
+    _: CurrentAdmin,
+    svc: Annotated[AdminService, Depends(get_admin_service)],
+):
+    data = await svc.generate_content_draft(body)
+    return api_json(http_status=200, data=data, message="success")
+
+
+@router.post("/contents/suggest-related")
+async def admin_suggest_related_policies(
+    body: AiRelatedPoliciesRequest,
+    _: CurrentAdmin,
+    svc: Annotated[AdminService, Depends(get_admin_service)],
+):
+    data = await svc.suggest_related_policies(body)
+    return api_json(http_status=200, data=data, message="success")
 
 
 @router.delete("/contents/{content_id}")
