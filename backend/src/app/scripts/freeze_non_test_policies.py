@@ -1,3 +1,5 @@
+"""테스트 정책만 남기고 나머지 정책을 비활성화하는 로컬 전용 스크립트."""
+
 from __future__ import annotations
 
 import asyncio
@@ -12,6 +14,7 @@ from src.app.domains.policy.model import Policy
 
 
 async def main() -> None:
+    """평가용 정책셋만 남겨 매칭/RAG 결과가 흔들리지 않게 만든다."""
     if APP_ENV == "production":
         raise RuntimeError("운영 환경에서는 테스트용 비활성화 스크립트를 실행할 수 없습니다.")
 

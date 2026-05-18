@@ -1,3 +1,5 @@
+"""테스트 정책들만 다시 임베딩해 RAG 검색 실험을 준비하는 스크립트."""
+
 from __future__ import annotations
 
 import asyncio
@@ -12,6 +14,7 @@ from src.app.domains.policy.repository import PolicyRepository
 
 
 async def main() -> None:
+    """평가용 정책 청크를 강제로 재임베딩해 검색 인덱스를 최신 상태로 맞춘다."""
     if APP_ENV == "production":
         raise RuntimeError("운영 환경에서는 테스트 공고 임베딩 스크립트를 실행할 수 없습니다.")
 

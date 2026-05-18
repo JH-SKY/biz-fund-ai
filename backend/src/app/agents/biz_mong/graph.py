@@ -81,6 +81,8 @@ class BizMongAgent:
         config = {"configurable": {"thread_id": room_id}}
         existing = self._graph.get_state(config)
 
+        # 같은 room_id 로 이어지는 대화라면 이전 체크포인트를 이어받고,
+        # 처음 시작하는 방이면 사업장 컨텍스트를 포함한 초기 상태를 만든다.
         if existing and existing.values:
             # 기존 대화가 있으면 새 메시지만 추가
             initial: dict[str, Any] = {"messages": [{"role": "user", "content": message}]}
@@ -132,6 +134,7 @@ class BizMongAgent:
 
         체크포인터(PostgreSQL)를 통해 thread_id(=room_id) 기반으로 대화 상태를 영속한다.
         """
+        # 클로저로 session/client 를 잡아두면 각 노드가 같은 의존성을 재사용할 수 있다.
         session = self._session
         client = self._client
 
@@ -196,6 +199,8 @@ async def _write_through(
         node_name: 실행된 노드 이름 (rag | stats)
         result: 노드 반환 상태 딕셔너리
     """
+    # 이 로그는 최종 사용자 답변이 아니라 "에이전트 내부에서 무슨 일이 있었는지"를 남긴다.
+    # 장애 분석이나 품질 개선을 하려면 이런 내부 기록이 꼭 필요하다.
     room_id: str = state.get("room_id", "")
     user_id: str = state.get("user_id", "")
     if not room_id or not user_id:
@@ -273,6 +278,7 @@ async def _run_rag(
     4. GPT (gpt-4o-mini) 에 컨텍스트 + 질문을 넘겨 최종 답변 생성
     5. 각 단계의 지연 시간(latency_ms)을 node_logs 에 기록
     """
+    # RAG 노드는 "질문 -> 정책 검색 -> 검색 근거로 답변 생성" 전체를 맡는다.
     messages: list = state.get("messages") or []
     last_msg = _get_last_user_message(messages)
     biz_info: dict = state.get("biz_info") or {}
@@ -310,6 +316,8 @@ async def _run_rag(
         }
 
     # [3] 상위 3개 청크를 컨텍스트 문자열로 조합
+    # 상위 몇 개 근거만 문맥에 넣어 토큰 사용량을 줄이고,
+    # 너무 많은 문서를 넣어서 답변 초점이 흐려지는 것도 막는다.
     context = "\n\n".join(
         f"[{result['title']}]\n{result['relevant_chunk']}"
         for result in rag_results[:3]
@@ -371,6 +379,8 @@ async def _generate_rag_answer(
     )
     user_content = f"[정책 정보]\n{context}\n\n[질문]\n{question}"
 
+    # 생성이 실패해도 호출부에서 fallback 답변으로 복구할 수 있게
+    # 빈 문자열과 None usage 를 반환한다.
     try:
         response = await client.chat.completions.create(
             model="gpt-4o-mini",

@@ -64,6 +64,8 @@ def _compute_profile_score(biz: Business, has_real_finance: bool = False) -> int
     1차 기본정보만 입력 시 최대 60점.
     2차 재무정보(연매출 등)까지 입력 시 +40점 추가 → 최대 100점.
     """
+    # 이 점수는 사업의 우열이 아니라 "추천에 쓸 데이터가 얼마나 준비됐는지"를 뜻한다.
+    # 면접에서 설명할 때는 완성도 점수라고 이해하면 가장 자연스럽다.
     score = 0
     if biz.biz_no:
         score += 15
@@ -101,6 +103,7 @@ def _compute_debt_ratio(
     annual_revenue: Optional[int],
 ) -> Optional[float]:
     """부채 비율 자동 계산: (총부채 / 연매출) × 100."""
+    # 매출이 0이거나 비어 있으면 0%로 오해될 수 있으므로 None 으로 남긴다.
     if total_debt is None or annual_revenue is None or annual_revenue == 0:
         return None
     return round(total_debt / annual_revenue * 100, 2)
@@ -520,7 +523,14 @@ class BusinessService:
         is_female_ent: bool,
         is_ventured: bool,
     ) -> None:
-        """Persist diagnosis inputs so later recommendation can use the same source of truth."""
+        """정밀진단 입력값을 추천의 기준 데이터로 다시 저장한다.
+
+        진단 화면에서 사용자가 손본 재무값이 이후 추천과 다르면
+        "방금 넣은 값과 추천 결과가 왜 다르지?"라는 혼란이 생긴다.
+        그래서 이 메서드는 진단용 임시값을 그대로 버리지 않고,
+        사업장 기본 정보와 연도별 재무 스냅샷에 함께 반영해
+        이후 추천도 같은 기준값을 보도록 맞춘다.
+        """
         await self._repo.update_business(
             biz,
             employee_count=employee_count,
@@ -530,12 +540,16 @@ class BusinessService:
             is_ventured=is_ventured,
         )
 
+        # 프론트가 부채비율을 직접 보내지 않아도 서버가 다시 계산해 저장한다.
+        # 계산 책임을 서버에도 두면 화면마다 입력 형식이 달라도 기준값이 흔들리지 않는다.
         effective_debt_ratio = debt_ratio
         if effective_debt_ratio is None:
             effective_debt_ratio = _compute_debt_ratio(total_debt, annual_revenue)
 
         existing = await self._repo.get_financial_snapshot_by_year(biz.id, year)
         if existing is None:
+            # 같은 연도의 스냅샷이 없으면 새로 만들고,
+            # 있으면 같은 연도의 최신 기준값으로 덮어쓴다.
             await self._repo.create_financial_snapshot(
                 business_id=biz.id,
                 snapshot_year=year,
@@ -560,6 +574,8 @@ class BusinessService:
                 tax_arrears_yn=has_tax_arrears,
             )
 
+        # 연매출이 들어온 시점부터는 2차 재무 정보가 채워졌다고 보고
+        # 프로필 완성도 점수의 재무 보너스를 반영한다.
         has_real_finance = annual_revenue is not None
         new_score = _compute_profile_score(biz, has_real_finance=has_real_finance)
         await self._repo.update_business(biz, profile_score=new_score)

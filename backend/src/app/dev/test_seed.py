@@ -1,3 +1,9 @@
+"""개발/평가용 가상 사업장과 정책 데이터를 정의하고 DB 에 심는다.
+
+이 파일의 목적은 단순 더미 데이터가 아니라,
+매칭 엔진과 비즈몽 품질을 반복 검증할 수 있는 고정 시나리오를 유지하는 것이다.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -21,6 +27,7 @@ from src.app.domains.policy.repository import PolicyRepository
 
 @dataclass(frozen=True)
 class TestScenario:
+    """사업장 1개의 테스트 시나리오를 담는 구조체."""
     key: str
     name: str
     email: str
@@ -50,6 +57,7 @@ class TestScenario:
 
 @dataclass(frozen=True)
 class TestPolicy:
+    """정책 공고 1개의 테스트 기준 데이터를 담는 구조체."""
     origin_id: str
     title: str
     agency_name: str
@@ -439,6 +447,7 @@ TEST_POLICY_IDS: tuple[str, ...] = tuple(policy.origin_id for policy in TEST_POL
 
 
 def build_test_policy_content(policy_seed: TestPolicy) -> str:
+    """정책 평가용 본문을 RAG 친화적인 섹션 구조로 조립한다."""
     sections = _policy_sections_for(policy_seed)
     documents = "\n".join(
         f"- {doc}: {sections['document_guidance'].get(doc, '정확한 발급본 또는 최신 작성본을 제출해야 합니다.')}"
@@ -462,6 +471,11 @@ def build_test_policy_content(policy_seed: TestPolicy) -> str:
 
 
 def _policy_sections_for(policy_seed: TestPolicy) -> dict[str, str]:
+    """정책별 상세 설명 문단 묶음을 반환한다.
+
+    공통 스키마를 유지한 채 정책마다 다른 설명을 넣어 두어
+    RAG 검색 시 "지원 대상/제출 서류/제외 조건" 같은 질문이 흔들리지 않게 만든다.
+    """
     sections: dict[str, dict[str, str]] = {
         "POL-01": {
             "overview": (
@@ -848,6 +862,7 @@ def _policy_sections_for(policy_seed: TestPolicy) -> dict[str, str]:
 
 
 def get_dev_account_options() -> list[dict[str, str]]:
+    """개발용 간편 로그인 UI 에 노출할 계정 목록을 만든다."""
     return [
         {
             "scenario_key": item.key,
@@ -861,6 +876,11 @@ def get_dev_account_options() -> list[dict[str, str]]:
 
 
 async def seed_test_scenarios(session: AsyncSession) -> dict[str, int]:
+    """가상 사용자/사업장/재무 스냅샷/정책을 한 번에 upsert 한다.
+
+    이미 있는 데이터는 갱신하고, 없으면 새로 만들어
+    시나리오 기준이 매번 같은 상태로 복구되게 한다.
+    """
     auth_repo = AuthRepository(session)
     business_repo = BusinessRepository(session)
     policy_repo = PolicyRepository(session)

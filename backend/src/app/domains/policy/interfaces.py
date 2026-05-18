@@ -231,7 +231,12 @@ class MockMatchEngine(IMatchEngine):
 
 
 class RuleBasedMatchEngine(IMatchEngine):
-    """Policy-aware recommendation engine for L1 candidateing and L2 scoring."""
+    """정책 조건을 해석해 L1 후보 추림과 L2 정밀 점수를 계산한다.
+
+    이 엔진은 "LLM이 감으로 추천"하는 구조가 아니라,
+    정책의 구조화 조건과 사업장 정보를 비교해 왜 추천/비추천됐는지를
+    사람이 설명할 수 있게 만드는 핵심 규칙 엔진이다.
+    """
 
     async def compute_match(
         self,
@@ -240,6 +245,9 @@ class RuleBasedMatchEngine(IMatchEngine):
         business: Business,
         financial_snapshot: Optional[BusinessFinancialSnapshot] = None,
     ) -> MatchResult:
+        # 1. 업종 자체가 정책 대상에서 제외되면 바로 탈락시킨다.
+        # 2. target_logic 을 파싱해 정책의 지역/업종/업력/규모 조건을 읽는다.
+        # 3. 재무 스냅샷 유무에 따라 L1(프로필 기반) 또는 L2(재무 포함) 점수를 계산한다.
         if is_ksic_policy_excluded(business.ksic_code):
             return MatchResult(
                 policy_id=policy.id,
@@ -345,6 +353,11 @@ def _evaluate_hard_failures(
     business_age_months: int | None,
     tax_arrears: bool,
 ) -> str | None:
+    """점수 계산 전에 바로 탈락시켜야 하는 조건을 먼저 판정한다.
+
+    단순 감점만으로 처리하면 실제로는 신청이 어려운 사업장이
+    "낮은 점수지만 후보"처럼 남을 수 있어서, 명백한 탈락 조건은 먼저 걷어낸다.
+    """
     if tax_arrears and _policy_requires_clean_tax_status(policy):
         return "세금 체납 이력이 있으면 이 정책은 실제 심사에서 제외될 가능성이 높습니다."
 
@@ -385,6 +398,11 @@ def _score_l1(
     employee_count: int | None,
     business_age_months: int | None,
 ) -> tuple[float, list[str]]:
+    """재무 정보가 없을 때 쓰는 1차 후보 점수를 계산한다.
+
+    이 단계는 정확한 선정 확률을 말하는 단계가 아니라
+    사용자에게 먼저 보여줄 만한 정책 후보를 넓게 추리는 단계다.
+    """
     score = 32.0
     reasons: list[str] = []
 
@@ -442,6 +460,12 @@ def _score_l2(
     business_age_months: int | None,
     tax_arrears: bool,
 ) -> tuple[float, list[str]]:
+    """재무 정보까지 포함한 2차 정밀 점수를 계산한다.
+
+    L1 이 후보를 넓게 찾는 단계라면, L2 는 실제 신청 가능성을 더 현실적으로 본다.
+    매출, 부채비율, 체납 여부가 들어오면 업종/지역 적합성 외에
+    재무 건전성까지 함께 반영할 수 있어서 점수 해석력이 높아진다.
+    """
     score = 48.0
     reasons: list[str] = []
 
@@ -594,6 +618,7 @@ def _funding_purpose_matches(policy: Policy, business: Business) -> bool:
 
 
 def _special_flag_matches(policy: Policy, business: Business) -> bool:
+    """정책 본문 우대 키워드와 사업장 특성이 동시에 맞는지 확인한다."""
     haystack = " ".join(filter(None, [policy.title, policy.content_raw])).lower()
     return (
         (business.has_patent and "특허" in haystack)
@@ -629,6 +654,7 @@ def _policy_requires_clean_tax_status(policy: Policy) -> bool:
 
 
 def _generic_policy_penalty(policy: Policy, logic) -> float:
+    """범용 정책이 특화 정책보다 위로 튀는 현상을 줄이는 보정치."""
     if logic is None:
         return 0.0
 

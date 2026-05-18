@@ -65,6 +65,8 @@ async def policy_rag_search(
             "relevant_chunk": str,  # 검색에 매칭된 청크 텍스트
         }, ...]
     """
+    # 검색기는 "질문을 임베딩으로 찾는 방식"과 "키워드로 찾는 방식"을 함께 쓴다.
+    # 한쪽만 쓰면 의미 검색은 되는데 정책명을 놓치거나, 반대로 정확한 명칭만 찾고 문맥을 놓칠 수 있다.
     client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
     # ── Step 1: 쿼리 임베딩 ──────────────────────────────────────────────
@@ -88,6 +90,8 @@ async def policy_rag_search(
     fts_ids: list[str] = await _fts_search(session, keywords, region_filter, limit=_FTS_LIMIT)
 
     # ── Step 4: RRF 결합 ─────────────────────────────────────────────────
+    # RRF 는 두 검색 결과를 한 점수표로 합치는 단계다.
+    # 벡터 검색 상위권이면서 키워드 검색 상위권인 문서일수록 더 앞으로 오르게 된다.
     rrf_scores: dict[str, float] = {}
     for rank, pid in enumerate(vector_ids):
         rrf_scores[pid] = rrf_scores.get(pid, 0.0) + 1.0 / (_RRF_K + rank + 1)
@@ -219,6 +223,8 @@ def _extract_keywords(text: str) -> list[str]:
 
     한국어 공백 분리 후 2글자 이상, 불용어 제거.
     """
+    # 사용자가 "가게 보증금", "월급 지원"처럼 생활 언어로 묻더라도
+    # 검색기는 정책 문서에 가까운 단어(운전자금, 고용지원 등)로 확장해서 찾는다.
     stopwords = {
         "이", "가", "은", "는", "을", "를", "에", "서", "의", "와", "과",
         "그", "이것", "저것", "무엇", "어디", "어떻게", "왜", "언제",
@@ -261,6 +267,8 @@ async def _get_relevant_chunk(
     query_vector: list[float] | None,
 ) -> str:
     """정책에서 가장 관련 있는 청크 텍스트를 반환한다."""
+    # 임베딩이 있으면 질문과 가장 가까운 청크를 고르고,
+    # 없으면 최소한 첫 번째 청크라도 보여 주도록 안전하게 폴백한다.
     if query_vector:
         stmt = (
             select(PolicyChunk.chunk_text)

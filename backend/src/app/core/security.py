@@ -41,6 +41,8 @@ def hash_password(plain_password: str) -> str:
 
 def create_admin_access_token(*, admin_id: uuid.UUID) -> str:
     """ADMIN_TOKEN 페이로드: sub + is_admin."""
+    # 일반 사용자 토큰과 관리자 토큰을 분리해 두면
+    # 권한 검증에서 관리자 전용 클레임을 명확하게 구분할 수 있다.
     now = datetime.now(timezone.utc)
     payload = {
         "sub": str(admin_id),
@@ -60,6 +62,8 @@ def decode_admin_token(token: str) -> dict:
 
 def create_user_access_token(*, user_id: uuid.UUID) -> str:
     """사용자 Access Token (30분). 페이로드: sub=user_id."""
+    # access token 은 짧게, refresh token 은 길게 두어
+    # 탈취 피해 범위와 재로그인 불편 사이를 절충한다.
     now = datetime.now(timezone.utc)
     payload = {
         "sub": str(user_id),
@@ -79,6 +83,8 @@ def decode_user_access_token(token: str) -> dict:
 
 def generate_refresh_token() -> str:
     """64바이트 랜덤 opaque 토큰 생성 (URL-safe base64)."""
+    # refresh token 은 JWT 처럼 자체 해석 가능한 토큰이 아니라
+    # 서버 DB 와 대조해야 하는 불투명 문자열로 만들어 유출 시 노출 정보를 줄인다.
     return secrets.token_urlsafe(64)
 
 

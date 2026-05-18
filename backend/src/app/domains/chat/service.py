@@ -73,6 +73,7 @@ class ChatService:
         3. 이미 종료된 상담방에 메시지를 보내려 하면 403 반환
            - allow_closed=True 이면 종료 상담방 조회 허용 (이전 대화 내역 확인 등)
         """
+        # 이 검증을 한 곳에 모아두면 모든 채팅 기능이 같은 보안 규칙을 공유한다.
         room = await self._repo.get_chat_room_by_id(session_id)
         if not room:
             raise chat_room_not_found()
@@ -95,6 +96,9 @@ class ChatService:
         - total_cost 는 Decimal 타입으로 변환 (DB Numeric 타입 대응)
         """
         # 참조 정책 ID가 있으면 첫 번째 항목을 UUID로 변환
+        # 현재 응답 스키마는 여러 정책 ID 를 받을 수 있지만,
+        # chat_logs 테이블은 대표 정책 1개만 직접 참조한다.
+        # 그래서 첫 번째 정책 ID 를 "대표 근거 정책"으로 저장한다.
         ref_policy_id = (
             uuid.UUID(ai_resp.referenced_policy_ids[0])
             if ai_resp.referenced_policy_ids
@@ -200,6 +204,8 @@ class ChatService:
         await self._session.commit()
 
         # [3] AI 응답 생성 (사업장 이름·점수를 컨텍스트로 전달하여 맞춤 답변 유도)
+        # LLM 은 business_context 로 최소한의 사업장 맥락만 받고,
+        # 무거운 정책 조회는 응답 뒤 필요한 경우에만 다시 붙인다.
         ai_resp = await self._llm_engine.generate_reply(
             session_id=str(room.id),
             user_message=req.message,
@@ -214,6 +220,8 @@ class ChatService:
         await self._session.commit()
 
         # [5] 참조 정책 정보 조회 (답변에 연관 정책이 있을 경우 제목과 ID 포함)
+        # 응답 본문과 별개로 "어떤 정책을 근거로 삼았는지"를 구조화해 두면
+        # 프론트에서 출처 뱃지, 상세 이동, 추후 로그 분석까지 쉽게 이어진다.
         referenced_policies: list[ReferencedPolicy] = []
         if ai_log.ref_policy_id:
             policy = await self._policy_service.get_policy_by_id_internal(
