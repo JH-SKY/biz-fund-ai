@@ -9,7 +9,7 @@
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -301,14 +301,17 @@ class ChatService:
         await self._repo.delete_chat_room(room)
         await self._session.commit()
 
-    async def auto_close_inactive_sessions(self) -> int:
-        """비활성 세션 자동 종료 (향후 배치 연동 예정, 현재 미구현).
+    async def auto_close_inactive_sessions(self, inactive_hours: int = 24) -> int:
+        """비활성 세션을 자동으로 CLOSED 처리한다.
 
-        [설계 의도]
-        일정 시간 동안 메시지가 없는 세션을 자동으로 CLOSED 처리하는 배치용 메서드.
-        현재는 0을 반환하는 스텁(Stub) 상태이며, 스케줄러 연동 시 구현 예정.
+        일정 시간 동안 새 메시지가 없는 상담방을 닫아, 새 상담 생성 시 오래된 세션이
+        계속 진행 중으로 남는 문제를 예방한다.
         """
-        return 0
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=inactive_hours)
+        closed_count = await self._repo.close_inactive_chat_rooms(cutoff)
+        if closed_count > 0:
+            await self._session.commit()
+        return closed_count
 
     async def count_chat_logs_since(self, since: datetime) -> int:
         """[Admin] 특정 시점 이후 생성된 채팅 로그 수를 반환한다 (대시보드 통계용)."""

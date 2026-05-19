@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from src.app.domains.chat.model import ChatLog, ChatRoom
@@ -139,6 +139,41 @@ class ChatRepository:
         """
         room.status = status
         await self._session.flush()
+
+    async def close_inactive_chat_rooms(self, cutoff: datetime) -> int:
+        """마지막 메시지 또는 생성 시각이 cutoff 이전인 진행 중 상담을 종료합니다."""
+        if cutoff.tzinfo is not None:
+            cutoff = cutoff.replace(tzinfo=None)
+
+        last_message_subq = (
+            select(
+                ChatLog.room_id.label("room_id"),
+                func.max(ChatLog.created_at).label("last_message_at"),
+            )
+            .group_by(ChatLog.room_id)
+            .subquery()
+        )
+
+        stmt = (
+            select(ChatRoom)
+            .outerjoin(last_message_subq, last_message_subq.c.room_id == ChatRoom.id)
+            .where(
+                ChatRoom.status.in_(("IN_PROGRESS", "active")),
+                or_(
+                    last_message_subq.c.last_message_at < cutoff,
+                    and_(
+                        last_message_subq.c.last_message_at.is_(None),
+                        ChatRoom.created_at < cutoff,
+                    ),
+                ),
+            )
+        )
+        result = await self._session.execute(stmt)
+        rooms = list(result.scalars().all())
+        for room in rooms:
+            room.status = "CLOSED"
+        await self._session.flush()
+        return len(rooms)
 
     async def delete_chat_room(self, room: ChatRoom) -> None:
         """

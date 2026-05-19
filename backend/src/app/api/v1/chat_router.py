@@ -47,6 +47,7 @@ from src.app.agents.biz_mong.nodes.chitchat_node import (
 from src.app.agents.biz_mong.nodes.router_node import router_node
 from src.app.agents.biz_mong.state import make_initial_state
 from src.app.agents.biz_mong.telemetry import estimate_cost_usd
+from src.app.agents.biz_mong.tools.get_biz_info import get_biz_info
 from src.app.api.deps.business_deps import ActiveBusiness
 from src.app.api.deps.chat_deps import BizMongAgentDep, ChatServiceDep
 from src.app.core.config import OPENAI_API_KEY
@@ -560,6 +561,15 @@ async def _build_stream_state(
         "ksic_code": getattr(biz, "ksic_code", None),
         "region_sido": getattr(biz, "region_sido", None),
     }
+    try:
+        biz_info, financial_data = await get_biz_info(str(biz.id), svc._session)
+    except Exception as exc:
+        logger.warning("[chat-stream] business context hydration skipped: %s", exc)
+    else:
+        if biz_info:
+            state["biz_info"] = biz_info
+        if financial_data:
+            state["financial_data"] = financial_data
     return state
 
 

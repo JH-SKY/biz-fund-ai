@@ -33,6 +33,7 @@ from src.app.agents.biz_mong.nodes.router_node import router_node
 from src.app.agents.biz_mong.nodes.stats_node import stats_node
 from src.app.agents.biz_mong.state import make_initial_state
 from src.app.agents.biz_mong.telemetry import build_node_log
+from src.app.agents.biz_mong.tools.get_biz_info import get_biz_info
 from src.app.agents.biz_mong.tools.policy_rag import policy_rag_search
 from src.app.core.config import OPENAI_API_KEY
 from src.app.domains.chat.model import ChatLog
@@ -85,7 +86,12 @@ class BizMongAgent:
         # 처음 시작하는 방이면 사업장 컨텍스트를 포함한 초기 상태를 만든다.
         if existing and existing.values:
             # 기존 대화가 있으면 새 메시지만 추가
-            initial: dict[str, Any] = {"messages": [{"role": "user", "content": message}]}
+            initial: dict[str, Any] = {
+                "messages": [{"role": "user", "content": message}],
+                "user_id": user_id,
+                "business_id": business_id,
+                "room_id": room_id,
+            }
         else:
             # 처음 시작하는 대화 — 사용자·사업장 컨텍스트 포함 초기 상태 생성
             initial = make_initial_state(
@@ -138,6 +144,9 @@ class BizMongAgent:
         session = self._session
         client = self._client
 
+        async def _hydrate_context(state: dict) -> dict:
+            return await _hydrate_business_context(state, session=session)
+
         async def _router(state: dict) -> dict:
             return await router_node(state, client=client)
 
@@ -157,12 +166,14 @@ class BizMongAgent:
             return result
 
         builder = StateGraph(dict)
+        builder.add_node("hydrate_context", _hydrate_context)
         builder.add_node("router", _router)
         builder.add_node("chitchat", _chitchat)
         builder.add_node("rag", _rag)
         builder.add_node("stats", _stats)
 
-        builder.set_entry_point("router")
+        builder.set_entry_point("hydrate_context")
+        builder.add_edge("hydrate_context", "router")
         # router 노드의 current_agent 값에 따라 다음 노드로 조건부 분기
         builder.add_conditional_edges(
             "router",
@@ -180,6 +191,36 @@ class BizMongAgent:
         builder.add_edge("stats", END)
 
         return builder.compile(checkpointer=get_langgraph_checkpointer())
+
+
+async def _hydrate_business_context(
+    state: dict,
+    session: AsyncSession,
+) -> dict[str, Any]:
+    """그래프 실행 전에 사업장/재무 컨텍스트를 채워 상담 품질을 높인다.
+
+    기존 체크포인트에 이미 값이 있으면 그대로 사용하고, 비어 있으면 DB에서 조회한다.
+    조회 실패는 상담 흐름을 막지 않도록 빈 업데이트로 처리한다.
+    """
+    if state.get("biz_info") and state.get("financial_data"):
+        return {}
+
+    business_id = state.get("business_id")
+    if not business_id:
+        return {}
+
+    try:
+        biz_info, financial_data = await get_biz_info(str(business_id), session)
+    except Exception as exc:
+        logger.warning("[bizmong-context] business context hydration failed: %s", exc)
+        return {}
+
+    updates: dict[str, Any] = {}
+    if biz_info and not state.get("biz_info"):
+        updates["biz_info"] = biz_info
+    if financial_data and not state.get("financial_data"):
+        updates["financial_data"] = financial_data
+    return updates
 
 
 async def _write_through(
@@ -326,7 +367,13 @@ async def _run_rag(
     # [4] GPT 답변 생성
     generation_started_at = datetime.now(timezone.utc)
     generation_started = time.monotonic()
-    answer, usage = await _generate_rag_answer(client, last_msg, context)
+    answer, usage = await _generate_rag_answer(
+        client,
+        last_msg,
+        context,
+        biz_info=biz_info,
+        financial_data=state.get("financial_data") or {},
+    )
     if not usage:
         answer = _build_rag_fallback_answer(last_msg, rag_results)
     generation_elapsed_ms = int((time.monotonic() - generation_started) * 1000)
@@ -362,6 +409,9 @@ async def _generate_rag_answer(
     client: AsyncOpenAI,
     question: str,
     context: str,
+    *,
+    biz_info: dict[str, Any] | None = None,
+    financial_data: dict[str, Any] | None = None,
 ) -> tuple[str, object | None]:
     """GPT 에 정책 컨텍스트와 질문을 전달하여 최종 답변을 생성한다.
 
@@ -374,10 +424,15 @@ async def _generate_rag_answer(
     """
     system_prompt = (
         "당신은 정책자금 전문 비서 비즈몽이다. 아래 정책 정보만 근거로 설명하고, "
-        "지원 대상, 신청 자격, 지원 내용, 주의할 조건 순서로 간단히 정리하라. "
-        "근거가 없는 내용은 추측하지 말고 공고 원문 확인이 필요하다고 말하라."
+        "사용자의 사업장 상황을 반영해 우선순위를 정리하세요. "
+        "답변은 1) 핵심 판단, 2) 추천 정책/근거, 3) 확인해야 할 조건, 4) 다음 행동 순서로 작성하세요. "
+        "근거가 없는 내용은 추측하지 말고 공고 원문 확인이 필요하다고 말하세요."
     )
-    user_content = f"[정책 정보]\n{context}\n\n[질문]\n{question}"
+    user_content = (
+        f"[사업장 정보]\n{_format_business_context(biz_info or {}, financial_data or {})}\n\n"
+        f"[정책 정보]\n{context}\n\n"
+        f"[질문]\n{question}"
+    )
 
     # 생성이 실패해도 호출부에서 fallback 답변으로 복구할 수 있게
     # 빈 문자열과 None usage 를 반환한다.
@@ -432,6 +487,43 @@ def _build_rag_fallback_answer(
 
     lines.append("세부 자격과 제외 조건은 실제 공고문 본문에서 마지막으로 한 번 더 확인하는 것이 안전합니다.")
     return "\n".join(lines)
+
+
+def _format_business_context(
+    biz_info: dict[str, Any],
+    financial_data: dict[str, Any],
+) -> str:
+    """RAG 답변 프롬프트에 넣을 사업장 컨텍스트를 짧게 직렬화한다."""
+    parts: list[str] = []
+    mapping = {
+        "biz_name": "상호",
+        "region_sido": "지역",
+        "region_sigungu": "시군구",
+        "ksic_code": "업종코드",
+        "sector_code": "업종분야",
+        "establishment_date": "개업일",
+        "is_ventured": "벤처기업",
+        "has_patent": "특허보유",
+        "is_female_ent": "여성기업",
+    }
+    for key, label in mapping.items():
+        value = biz_info.get(key)
+        if value not in (None, "", []):
+            parts.append(f"{label}={value}")
+
+    finance_mapping = {
+        "snapshot_year": "재무연도",
+        "annual_revenue": "연매출",
+        "employee_count": "직원수",
+        "debt_ratio": "부채비율",
+        "tax_arrears_yn": "세금체납",
+    }
+    for key, label in finance_mapping.items():
+        value = financial_data.get(key)
+        if value not in (None, "", []):
+            parts.append(f"{label}={value}")
+
+    return ", ".join(parts) if parts else "등록된 사업장/재무 정보 없음"
 
 
 def _get_last_user_message(messages: list) -> str:
