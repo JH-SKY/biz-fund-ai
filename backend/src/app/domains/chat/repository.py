@@ -143,8 +143,12 @@ class ChatRepository:
     async def close_inactive_chat_rooms(self, cutoff: datetime) -> int:
         """마지막 메시지 또는 생성 시각이 cutoff 이전인 진행 중 상담을 종료합니다."""
         if cutoff.tzinfo is not None:
+            # DB 컬럼이 timezone-naive TIMESTAMP 이므로 비교 전에 tzinfo 를 제거한다.
+            # 이 보정이 없으면 PostgreSQL/드라이버 조합에 따라 datetime 비교 오류가 날 수 있다.
             cutoff = cutoff.replace(tzinfo=None)
 
+        # 마지막 메시지 시각을 방 단위로 먼저 집계한다.
+        # 메시지가 하나도 없는 방은 created_at 을 기준으로 판단해야 하므로 outer join 을 사용한다.
         last_message_subq = (
             select(
                 ChatLog.room_id.label("room_id"),
@@ -160,7 +164,9 @@ class ChatRepository:
             .where(
                 ChatRoom.status.in_(("IN_PROGRESS", "active")),
                 or_(
+                    # 메시지가 있는 방: 마지막 메시지가 cutoff 이전이면 비활성으로 본다.
                     last_message_subq.c.last_message_at < cutoff,
+                    # 메시지가 없는 방: 방 생성 시각이 cutoff 이전이면 비활성으로 본다.
                     and_(
                         last_message_subq.c.last_message_at.is_(None),
                         ChatRoom.created_at < cutoff,
@@ -171,6 +177,8 @@ class ChatRepository:
         result = await self._session.execute(stmt)
         rooms = list(result.scalars().all())
         for room in rooms:
+            # 삭제가 아니라 종료 처리만 한다.
+            # 상담 기록은 포트폴리오/품질 분석/관리자 모니터링에 계속 필요하다.
             room.status = "CLOSED"
         await self._session.flush()
         return len(rooms)

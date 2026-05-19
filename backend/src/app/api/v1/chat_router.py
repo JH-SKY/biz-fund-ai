@@ -561,6 +561,8 @@ async def _build_stream_state(
         "ksic_code": getattr(biz, "ksic_code", None),
         "region_sido": getattr(biz, "region_sido", None),
     }
+    # ActiveBusiness 객체에는 화면/인증에 필요한 최소 필드만 있을 수 있다.
+    # 상담 품질에 필요한 최신 재무 스냅샷까지 맞추기 위해 DB에서 한 번 더 보강한다.
     try:
         biz_info, financial_data = await get_biz_info(str(biz.id), svc._session)
     except Exception as exc:

@@ -310,6 +310,8 @@ class ChatService:
         cutoff = datetime.now(timezone.utc) - timedelta(hours=inactive_hours)
         closed_count = await self._repo.close_inactive_chat_rooms(cutoff)
         if closed_count > 0:
+            # 실제 변경이 있을 때만 커밋한다.
+            # 배치 작업에서 매번 불필요한 트랜잭션 커밋을 만들지 않기 위한 작은 최적화다.
             await self._session.commit()
         return closed_count
 

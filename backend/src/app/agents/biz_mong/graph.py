@@ -88,6 +88,8 @@ class BizMongAgent:
             # 기존 대화가 있으면 새 메시지만 추가
             initial: dict[str, Any] = {
                 "messages": [{"role": "user", "content": message}],
+                # 체크포인트가 남아 있어도 신규 turn 입력에 식별자를 다시 넣어둔다.
+                # 그래야 hydrate_context/write_through 같은 보조 노드가 항상 같은 기준으로 동작한다.
                 "user_id": user_id,
                 "business_id": business_id,
                 "room_id": room_id,
@@ -173,6 +175,8 @@ class BizMongAgent:
         builder.add_node("stats", _stats)
 
         builder.set_entry_point("hydrate_context")
+        # 상담 품질은 라우팅보다 컨텍스트가 먼저다.
+        # 지역/업종/재무 정보가 채워진 뒤 라우터가 실행되어야 RAG 지역 필터와 통계 노드가 의미 있게 동작한다.
         builder.add_edge("hydrate_context", "router")
         # router 노드의 current_agent 값에 따라 다음 노드로 조건부 분기
         builder.add_conditional_edges(
@@ -210,12 +214,16 @@ async def _hydrate_business_context(
         return {}
 
     try:
+        # get_biz_info 는 DB 조회만 담당하는 도구다.
+        # 정책 판단은 이후 RAG/Stats 노드가 맡고, 여기서는 상태에 필요한 원천 데이터만 채운다.
         biz_info, financial_data = await get_biz_info(str(business_id), session)
     except Exception as exc:
         logger.warning("[bizmong-context] business context hydration failed: %s", exc)
         return {}
 
     updates: dict[str, Any] = {}
+    # LangGraph 상태 업데이트는 "변경할 필드만 반환"하는 방식이다.
+    # 기존 체크포인트 값이 있으면 덮어쓰지 않아 대화 중 누적된 상태를 보존한다.
     if biz_info and not state.get("biz_info"):
         updates["biz_info"] = biz_info
     if financial_data and not state.get("financial_data"):
@@ -329,6 +337,8 @@ async def _run_rag(
     # [1] 정책 청크 검색
     retrieval_started_at = datetime.now(timezone.utc)
     retrieval_started = time.monotonic()
+    # 지역 필터가 있으면 "내 사업장 지역 + 전국 공고" 중심으로 검색해 추천 품질을 높인다.
+    # 지역 정보가 없으면 전체 공고에서 검색되므로 상담은 계속 가능하다.
     rag_results = await policy_rag_search(last_msg, session, region_filter=region)
     retrieval_elapsed_ms = int((time.monotonic() - retrieval_started) * 1000)
     node_logs.append(
@@ -367,6 +377,8 @@ async def _run_rag(
     # [4] GPT 답변 생성
     generation_started_at = datetime.now(timezone.utc)
     generation_started = time.monotonic()
+    # 검색된 정책 문서만 넘기면 답변이 일반적이기 쉽다.
+    # 사업장 컨텍스트를 함께 넣어 "왜 이 사용자에게 맞는지"까지 설명하게 만든다.
     answer, usage = await _generate_rag_answer(
         client,
         last_msg,
@@ -429,6 +441,8 @@ async def _generate_rag_answer(
         "근거가 없는 내용은 추측하지 말고 공고 원문 확인이 필요하다고 말하세요."
     )
     user_content = (
+        # LLM이 DB를 직접 조회할 수 없으므로 필요한 사업장 정보를 프롬프트에 명시적으로 주입한다.
+        # 이 값이 빠지면 지역 필터는 되어도 답변 근거가 사용자 상황과 분리될 수 있다.
         f"[사업장 정보]\n{_format_business_context(biz_info or {}, financial_data or {})}\n\n"
         f"[정책 정보]\n{context}\n\n"
         f"[질문]\n{question}"
@@ -511,6 +525,8 @@ def _format_business_context(
         if value not in (None, "", []):
             parts.append(f"{label}={value}")
 
+    # 재무 정보는 숫자가 그대로 들어가도 LLM이 비교/주의사항을 설명하는 데 충분하다.
+    # 화면 표시용 포맷팅은 프론트나 응답 생성 단계에서 별도로 처리한다.
     finance_mapping = {
         "snapshot_year": "재무연도",
         "annual_revenue": "연매출",
