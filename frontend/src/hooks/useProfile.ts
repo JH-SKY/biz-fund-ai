@@ -15,6 +15,8 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { businessService, profileService } from "@/lib/services";
+import { queryKeys } from "@/lib/query-keys";
+import { useBusinessStore } from "@/stores/business-store";
 import type {
   BusinessUpdateRequest,
   FinanceCreateRequest,
@@ -23,9 +25,9 @@ import type {
 } from "@/types";
 
 export const PROFILE_KEYS = {
-  business: ["profile", "business"] as const,
-  finances: ["profile", "finances"] as const,
-  notificationSettings: ["profile", "notification-settings"] as const,
+  business: queryKeys.business.me,
+  finances: queryKeys.business.finances,
+  notificationSettings: queryKeys.profile.notificationSettings,
 };
 
 export function useProfileBusiness() {
@@ -43,14 +45,18 @@ export function useUpdateBusiness() {
       businessService.updateMyBusiness(body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: PROFILE_KEYS.business });
+      qc.invalidateQueries({ queryKey: queryKeys.policies.all });
+      qc.invalidateQueries({ queryKey: queryKeys.diagnoses.all });
     },
   });
 }
 
 export function useFinanceList() {
+  const bizId = useBusinessStore((s) => s.activeBizId);
   return useQuery({
-    queryKey: PROFILE_KEYS.finances,
+    queryKey: PROFILE_KEYS.finances(bizId),
     queryFn: () => profileService.fetchFinances(),
+    enabled: Boolean(bizId),
     staleTime: 60_000,
   });
 }
@@ -61,7 +67,9 @@ export function useCreateFinance() {
     mutationFn: (body: FinanceCreateRequest) =>
       profileService.createFinance(body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: PROFILE_KEYS.finances });
+      qc.invalidateQueries({ queryKey: ["businesses", "finance"] });
+      qc.invalidateQueries({ queryKey: queryKeys.policies.all });
+      qc.invalidateQueries({ queryKey: queryKeys.diagnoses.all });
     },
   });
 }
@@ -77,7 +85,9 @@ export function useUpdateFinance() {
       body: FinanceUpdateRequest;
     }) => profileService.updateFinance(year, body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: PROFILE_KEYS.finances });
+      qc.invalidateQueries({ queryKey: ["businesses", "finance"] });
+      qc.invalidateQueries({ queryKey: queryKeys.policies.all });
+      qc.invalidateQueries({ queryKey: queryKeys.diagnoses.all });
     },
   });
 }
@@ -87,7 +97,9 @@ export function useDeleteFinance() {
   return useMutation({
     mutationFn: (year: number) => profileService.deleteFinance(year),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: PROFILE_KEYS.finances });
+      qc.invalidateQueries({ queryKey: ["businesses", "finance"] });
+      qc.invalidateQueries({ queryKey: queryKeys.policies.all });
+      qc.invalidateQueries({ queryKey: queryKeys.diagnoses.all });
     },
   });
 }

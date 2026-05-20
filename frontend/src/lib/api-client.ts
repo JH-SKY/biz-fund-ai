@@ -97,7 +97,10 @@ async function refreshAccessToken(): Promise<string | null> {
     const resp = await axios.post<ApiResponse<RefreshTokenResponseData>>(
       `${BASE_URL}/auth/refresh`,
       { refresh_token: refresh },
-      { headers: { "Content-Type": "application/json" } }
+      {
+        headers: { "Content-Type": "application/json" },
+        timeout: 30_000,
+      }
     );
     const newAccess = resp.data?.data?.access_token;
     if (newAccess) {

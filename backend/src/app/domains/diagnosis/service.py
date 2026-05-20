@@ -196,10 +196,14 @@ class DiagnosisService:
         )
 
     async def get_diagnosis_history(
-        self, business: Business
+        self, business: Business, *, limit: int | None = None
     ) -> list[DiagnosisHistoryItem]:
         """사업장의 과거 진단 이력 목록을 최신순으로 반환한다."""
-        logs = await self._repo.get_simulation_logs(business.id, "DIAGNOSIS")
+        logs = await self._repo.get_simulation_logs(
+            business.id,
+            "DIAGNOSIS",
+            limit=limit,
+        )
         return [
             DiagnosisHistoryItem(
                 diagnosis_id=str(log.id),
@@ -309,10 +313,14 @@ class DiagnosisService:
         )
 
     async def get_simulation_history(
-        self, business: Business
+        self, business: Business, *, limit: int | None = None
     ) -> list[SimulationHistoryItem]:
         """사업장의 시뮬레이션 이력 목록을 반환한다."""
-        logs = await self._repo.get_simulation_logs(business.id, "SIMULATION")
+        logs = await self._repo.get_simulation_logs(
+            business.id,
+            "SIMULATION",
+            limit=limit,
+        )
         return [
             SimulationHistoryItem(
                 policy_title=log.input_data.get("policy_title", "이름 없는 정책"),

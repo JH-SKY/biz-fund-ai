@@ -26,7 +26,8 @@ export const diagnosisService = {
   execute: (body: ExecuteDiagnosisRequest) =>
     apiClient.post<ExecuteDiagnosisResponse>("/diagnoses", body),
 
-  fetchHistory: () => apiClient.get<DiagnosisHistoryItem[]>("/diagnoses"),
+  fetchHistory: (limit?: number) =>
+    apiClient.get<DiagnosisHistoryItem[]>("/diagnoses", { params: { limit } }),
 
   fetchDetail: (diagnosisId: string) =>
     apiClient.get<DiagnosisDetail>(`/diagnoses/${diagnosisId}`),

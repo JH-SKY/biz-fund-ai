@@ -16,18 +16,22 @@ import {
 } from "@tanstack/react-query";
 
 import { policyService } from "@/lib/services";
+import { queryKeys } from "@/lib/query-keys";
+import { useBusinessStore } from "@/stores/business-store";
 import type {
   BookmarkToggleResponse,
   PolicySearchParams,
 } from "@/types";
 
 export const POLICY_KEYS = {
-  all: ["policies"] as const,
+  all: queryKeys.policies.all,
   list: (params: PolicySearchParams) =>
-    ["policies", "list", params] as const,
-  recommend: () => ["policies", "recommend"] as const,
-  bookmarks: () => ["policies", "bookmarks"] as const,
-  detail: (id: string) => ["policies", "detail", id] as const,
+    queryKeys.policies.list(params),
+  recommend: (bizId: string | null, page = 1, size = 50) =>
+    queryKeys.policies.recommend(bizId, page, size),
+  bookmarks: (bizId: string | null, page = 1, size = 10) =>
+    queryKeys.policies.bookmarks(bizId, page, size),
+  detail: queryKeys.policies.detail,
 };
 
 /** [P05] 전체 리스트 & 검색 — keyword/region/category/page/size 파라미터 */
@@ -41,9 +45,11 @@ export function usePolicySearch(params: PolicySearchParams) {
 
 /** [P06] 맞춤 추천 (/policies/recommend) */
 export function useRecommendedPolicies() {
+  const bizId = useBusinessStore((s) => s.activeBizId);
   return useQuery({
-    queryKey: POLICY_KEYS.recommend(),
+    queryKey: POLICY_KEYS.recommend(bizId, 1, 50),
     queryFn: () => policyService.fetchRecommendedPolicies(1, 50),
+    enabled: Boolean(bizId),
   });
 }
 

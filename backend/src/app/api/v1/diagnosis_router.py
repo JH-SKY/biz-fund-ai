@@ -18,7 +18,7 @@
 
 import uuid
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Query, status
 
 from src.app.api.deps.business_deps import ActiveBusiness
 from src.app.api.deps.diagnosis_deps import DiagnosisServiceDep
@@ -79,9 +79,10 @@ async def get_diagnosis_detail(
 async def get_diagnosis_history(
     svc: DiagnosisServiceDep,
     biz: ActiveBusiness,
+    limit: int | None = Query(50, ge=1, le=100),
 ):
     """진단 이력 조회."""
-    data = await svc.get_diagnosis_history(biz)
+    data = await svc.get_diagnosis_history(biz, limit=limit)
     return api_json(
         http_status=status.HTTP_200_OK,
         data=[d.model_dump() for d in data],
@@ -123,9 +124,10 @@ async def execute_simulation(
 async def get_simulation_history(
     svc: DiagnosisServiceDep,
     biz: ActiveBusiness,
+    limit: int | None = Query(50, ge=1, le=100),
 ):
     """시뮬레이션 이력 조회."""
-    data = await svc.get_simulation_history(biz)
+    data = await svc.get_simulation_history(biz, limit=limit)
     return api_json(
         http_status=status.HTTP_200_OK,
         data=[d.model_dump() for d in data],

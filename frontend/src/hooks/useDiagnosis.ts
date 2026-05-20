@@ -16,9 +16,11 @@ import {
   businessService,
   diagnosisService,
 } from "@/lib/services";
+import { queryKeys } from "@/lib/query-keys";
 import type {
   ExecuteDiagnosisRequest,
   ExecuteSimulationRequest,
+  FinanceSnapshot,
 } from "@/types";
 import { useBusinessStore } from "@/stores/business-store";
 
@@ -26,7 +28,7 @@ import { useBusinessStore } from "@/stores/business-store";
 export function usePrepareDiagnosis() {
   const bizId = useBusinessStore((s) => s.activeBizId);
   return useQuery({
-    queryKey: ["diagnoses", "prepare", bizId],
+    queryKey: queryKeys.diagnoses.prepare(bizId),
     queryFn: () => diagnosisService.prepare(),
     enabled: Boolean(bizId),
     staleTime: 30 * 1000,
@@ -39,9 +41,9 @@ export function useExecuteDiagnosis() {
   return useMutation({
     mutationFn: (req: ExecuteDiagnosisRequest) => diagnosisService.execute(req),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["diagnoses"] });
-      qc.invalidateQueries({ queryKey: ["policies", "recommend"] });
-      qc.invalidateQueries({ queryKey: ["business", "me"] });
+      qc.invalidateQueries({ queryKey: queryKeys.diagnoses.all });
+      qc.invalidateQueries({ queryKey: queryKeys.policies.all });
+      qc.invalidateQueries({ queryKey: queryKeys.business.me });
       qc.invalidateQueries({ queryKey: ["businesses", "finance"] });
     },
   });
@@ -50,7 +52,7 @@ export function useExecuteDiagnosis() {
 // ── 진단 상세 조회 ────────────────────────────────────────────────────
 export function useDiagnosisDetail(diagnosisId: string | null) {
   return useQuery({
-    queryKey: ["diagnoses", "detail", diagnosisId],
+    queryKey: queryKeys.diagnoses.detail(diagnosisId),
     queryFn: () => diagnosisService.fetchDetail(diagnosisId!),
     enabled: Boolean(diagnosisId),
     staleTime: 5 * 60 * 1000,
@@ -68,12 +70,12 @@ export function useExecuteSimulation() {
 // ── 최신 재무 스냅샷 (시뮬 페이지 사전 채움용) ──────────────────────
 export function useMyFinanceSnapshot() {
   const bizId = useBusinessStore((s) => s.activeBizId);
-  return useQuery({
-    queryKey: ["businesses", "finance", "latest", bizId],
-    queryFn: async () => {
-      const list = await businessService.fetchFinanceHistory();
-      if (!list || list.length === 0) return null;
-      return list.sort((a, b) => b.snapshot_year - a.snapshot_year)[0];
+  return useQuery<FinanceSnapshot[], unknown, FinanceSnapshot | null>({
+    queryKey: queryKeys.business.finances(bizId),
+    queryFn: () => businessService.fetchFinanceHistory(),
+    select: (list) => {
+      if (!list.length) return null;
+      return [...list].sort((a, b) => b.snapshot_year - a.snapshot_year)[0];
     },
     enabled: Boolean(bizId),
     staleTime: 60 * 1000,

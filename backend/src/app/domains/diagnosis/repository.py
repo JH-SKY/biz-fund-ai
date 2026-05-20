@@ -81,6 +81,7 @@ class DiagnosisRepository:
         self,
         business_id: uuid.UUID,
         sim_type: str,
+        limit: int | None = None,
     ) -> List[SimulationLog]:
         """
         1. 기능: 특정 사업장의 시뮬레이션 이력 목록 조회.
@@ -94,6 +95,8 @@ class DiagnosisRepository:
             )
             .order_by(SimulationLog.created_at.desc())
         )
+        if limit is not None:
+            stmt = stmt.limit(limit)
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
 

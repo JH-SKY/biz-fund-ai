@@ -3,16 +3,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { businessService, diagnosisService, policyService } from "@/lib/services";
+import { queryKeys } from "@/lib/query-keys";
 import { useBusinessStore } from "@/stores/business-store";
 
 export const dashboardKeys = {
-  business: ["business", "me"] as const,
+  business: queryKeys.business.me,
   recommendedPolicies: (bizId: string | null) =>
-    ["policies", "recommend", bizId] as const,
+    queryKeys.policies.recommend(bizId),
   bookmarkedPolicies: (bizId: string | null) =>
-    ["policies", "bookmarks", bizId] as const,
-  diagnosisHistory: (bizId: string | null) =>
-    ["diagnoses", "history", bizId] as const,
+    queryKeys.policies.bookmarks(bizId),
+  diagnosisHistory: queryKeys.diagnoses.history,
 };
 
 export function useMyBusiness() {
@@ -30,9 +30,10 @@ export function useMyBusiness() {
 
 export function useRecommendedPolicies(options?: { size?: number }) {
   const bizId = useBusinessStore((s) => s.activeBizId);
+  const size = options?.size ?? 10;
   return useQuery({
-    queryKey: dashboardKeys.recommendedPolicies(bizId),
-    queryFn: () => policyService.fetchRecommendedPolicies(1, options?.size ?? 10),
+    queryKey: queryKeys.policies.recommend(bizId, 1, size),
+    queryFn: () => policyService.fetchRecommendedPolicies(1, size),
     enabled: Boolean(bizId),
     staleTime: 60 * 1000,
   });
@@ -42,7 +43,7 @@ export function useDiagnosisHistory() {
   const bizId = useBusinessStore((s) => s.activeBizId);
   return useQuery({
     queryKey: dashboardKeys.diagnosisHistory(bizId),
-    queryFn: () => diagnosisService.fetchHistory(),
+    queryFn: () => diagnosisService.fetchHistory(1),
     enabled: Boolean(bizId),
     staleTime: 60 * 1000,
   });
