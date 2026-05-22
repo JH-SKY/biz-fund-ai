@@ -1,0 +1,11 @@
+{
+  "name": "biz-fund-ai-workspace",
+  "private": true,
+  "scripts": {
+    "frontend:lint": "npm --prefix frontend run lint",
+    "frontend:type-check": "npm --prefix frontend run type-check",
+    "frontend:build": "npm --prefix frontend run build",
+    "backend:test": "uv run --project backend pytest backend/tests",
+    "check": "npm run frontend:lint && npm run frontend:type-check && npm run backend:test"
+  }
+}
