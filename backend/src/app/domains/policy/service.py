@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Optional
+from typing import Optional, Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -154,6 +154,44 @@ class PolicyService:
         if business.id != requested_business_id:
             raise business_not_found()
 
+    async def _get_bookmarked_ids(
+        self,
+        policies: Sequence[Policy],
+        business_id: uuid.UUID | None,
+    ) -> set[uuid.UUID]:
+        """정책 목록에 대해 현재 사업자의 북마크 id 집합만 조회한다."""
+        if business_id is None or not policies:
+            return set()
+
+        return await self._repo.get_bookmarked_policy_ids(
+            business_id=business_id,
+            policy_ids=[policy.id for policy in policies],
+        )
+
+    async def _build_policy_list_response(
+        self,
+        policies: Sequence[Policy],
+        *,
+        total_count: int,
+        total_pages: int,
+        business_id: uuid.UUID | None = None,
+        force_bookmarked: bool = False,
+    ) -> PolicyListResponse:
+        """Policy 모델 목록을 API 응답 DTO로 조립한다."""
+        bookmarked_ids = await self._get_bookmarked_ids(policies, business_id)
+        items = [
+            _to_list_item(
+                policy,
+                is_bookmarked=force_bookmarked or policy.id in bookmarked_ids,
+            )
+            for policy in policies
+        ]
+        return PolicyListResponse(
+            items=items,
+            total_count=total_count,
+            total_pages=total_pages,
+        )
+
     async def get_active_policies(
         self,
         *,
@@ -169,19 +207,11 @@ class PolicyService:
             page=page,
             size=size,
         )
-
-        bookmarked_ids: set[uuid.UUID] = set()
-        if business_id and policies:
-            bookmarked_ids = await self._repo.get_bookmarked_policy_ids(
-                business_id=business_id,
-                policy_ids=[policy.id for policy in policies],
-            )
-
-        items = [_to_list_item(policy, policy.id in bookmarked_ids) for policy in policies]
-        return PolicyListResponse(
-            items=items,
+        return await self._build_policy_list_response(
+            policies,
             total_count=total_count,
             total_pages=total_pages,
+            business_id=business_id,
         )
 
     async def search_policies(
@@ -206,19 +236,11 @@ class PolicyService:
             page=page,
             size=size,
         )
-
-        bookmarked_ids: set[uuid.UUID] = set()
-        if business_id and policies:
-            bookmarked_ids = await self._repo.get_bookmarked_policy_ids(
-                business_id=business_id,
-                policy_ids=[policy.id for policy in policies],
-            )
-
-        items = [_to_list_item(policy, policy.id in bookmarked_ids) for policy in policies]
-        return PolicyListResponse(
-            items=items,
+        return await self._build_policy_list_response(
+            policies,
             total_count=total_count,
             total_pages=total_pages,
+            business_id=business_id,
         )
 
     async def get_policy_detail(
@@ -373,11 +395,11 @@ class PolicyService:
             size=size,
         )
 
-        items = [_to_list_item(policy, True) for policy in policies]
-        return PolicyListResponse(
-            items=items,
+        return await self._build_policy_list_response(
+            policies,
             total_count=total_count,
             total_pages=total_pages,
+            force_bookmarked=True,
         )
 
     async def toggle_bookmark(
@@ -497,16 +519,9 @@ class PolicyService:
         )
 
         policies = [row[0] for row in results]
-        bookmarked_ids: set[uuid.UUID] = set()
-        if business_id and policies:
-            bookmarked_ids = await self._repo.get_bookmarked_policy_ids(
-                business_id=business_id,
-                policy_ids=[policy.id for policy in policies],
-            )
-
-        items = [_to_list_item(policy, policy.id in bookmarked_ids) for policy in policies]
-        return PolicyListResponse(
-            items=items,
-            total_count=len(items),
+        return await self._build_policy_list_response(
+            policies,
+            total_count=len(policies),
             total_pages=1,
+            business_id=business_id,
         )

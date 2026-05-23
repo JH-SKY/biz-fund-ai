@@ -51,6 +51,7 @@ class _FakePolicyRepo:
             ),
         ]
         self.toggled_with: tuple[uuid.UUID, uuid.UUID] | None = None
+        self.bookmarked_lookup_calls = 0
 
     async def get_active_policies(self, *, page: int = 1, size: int = 10):
         return self._policies[:size], len(self._policies), 1
@@ -58,6 +59,7 @@ class _FakePolicyRepo:
     async def get_bookmarked_policy_ids(
         self, *, business_id: uuid.UUID, policy_ids: list[uuid.UUID]
     ):
+        self.bookmarked_lookup_calls += 1
         return {policy_ids[0]} if policy_ids else set()
 
     async def get_bookmarked_policies(
@@ -138,6 +140,30 @@ async def test_get_bookmarked_policies_returns_items_for_matching_business():
     assert data.total_count == 2
     assert len(data.items) == 2
     assert all(item.is_bookmarked is True for item in data.items)
+
+
+@pytest.mark.asyncio
+async def test_get_active_policies_skips_bookmark_lookup_without_business_context():
+    repo = _FakePolicyRepo()
+    svc = _make_policy_service(repo)
+
+    data = await svc.get_active_policies(page=1, size=10, business_id=None)
+
+    assert data.total_count == 2
+    assert repo.bookmarked_lookup_calls == 0
+    assert all(item.is_bookmarked is False for item in data.items)
+
+
+@pytest.mark.asyncio
+async def test_get_active_policies_includes_bookmark_state_with_business_context():
+    repo = _FakePolicyRepo()
+    svc = _make_policy_service(repo)
+
+    data = await svc.get_active_policies(page=1, size=10, business_id=uuid.uuid4())
+
+    assert repo.bookmarked_lookup_calls == 1
+    assert data.items[0].is_bookmarked is True
+    assert data.items[1].is_bookmarked is False
 
 
 @pytest.mark.asyncio
