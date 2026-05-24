@@ -176,6 +176,35 @@ class BusinessService:
         self._stats_validation = stats_validation
         self._file_storage = file_storage
 
+    @staticmethod
+    def _has_real_finance_data(
+        snapshot: BusinessFinancialSnapshot | None = None,
+        *,
+        annual_revenue: int | None = None,
+    ) -> bool:
+        """프로필 점수에 반영할 실제 재무 정보가 존재하는지 판별한다."""
+        if annual_revenue is not None:
+            return True
+        return snapshot is not None and snapshot.annual_revenue is not None
+
+    async def _sync_profile_score(
+        self,
+        biz: Business,
+        *,
+        snapshot: BusinessFinancialSnapshot | None = None,
+        annual_revenue: int | None = None,
+    ) -> int:
+        """사업장 상태를 기준으로 profile_score를 다시 계산해 저장한다."""
+        score = _compute_profile_score(
+            biz,
+            has_real_finance=self._has_real_finance_data(
+                snapshot,
+                annual_revenue=annual_revenue,
+            ),
+        )
+        await self._repo.update_business(biz, profile_score=score)
+        return score
+
     # ── 온보딩 ────────────────────────────────────────────────────────────
 
     async def verify_biz_number(self, biz_no: str) -> VerifyBizNumberResponseData:
@@ -302,8 +331,7 @@ class BusinessService:
         )
 
         # [5] profile_score 자동 계산
-        score = _compute_profile_score(biz)
-        await self._repo.update_business(biz, profile_score=score)
+        score = await self._sync_profile_score(biz)
         await self._session.commit()
 
         return OnboardingRegisterResponseData(
@@ -414,9 +442,7 @@ class BusinessService:
         )
         # 재무정보 유무 확인 후 score 재계산
         latest_finance = await self._repo.get_latest_financial_snapshot_internal(biz.id)
-        has_real_finance = latest_finance is not None and latest_finance.annual_revenue is not None
-        score = _compute_profile_score(biz, has_real_finance=has_real_finance)
-        await self._repo.update_business(biz, profile_score=score)
+        await self._sync_profile_score(biz, snapshot=latest_finance)
         await self._session.commit()
 
     # ── 재무 스냅샷 ───────────────────────────────────────────────────────
@@ -447,6 +473,11 @@ class BusinessService:
                     else existing.employee_count,
                     tax_arrears_yn=body.tax_arrears_yn,
                 )
+                await self._sync_profile_score(
+                    biz,
+                    snapshot=existing,
+                    annual_revenue=body.annual_revenue,
+                )
                 await self._session.commit()
                 return _to_finance_response(existing)
             else:
@@ -467,9 +498,7 @@ class BusinessService:
             tax_arrears_yn=body.tax_arrears_yn,
         )
         # 재무정보 실제 입력 시 profile_score +40점 반영
-        if body.annual_revenue is not None:
-            new_score = _compute_profile_score(biz, has_real_finance=True)
-            await self._repo.update_business(biz, profile_score=new_score)
+        await self._sync_profile_score(biz, snapshot=snap, annual_revenue=body.annual_revenue)
         await self._session.commit()
         return _to_finance_response(snap)
 
@@ -503,10 +532,10 @@ class BusinessService:
             tax_arrears_yn=body.tax_arrears_yn,
         )
         # 연매출이 실제로 채워지면 profile_score +40점 반영
-        effective_revenue = body.annual_revenue if body.annual_revenue is not None else snap.annual_revenue
-        if effective_revenue is not None:
-            new_score = _compute_profile_score(biz, has_real_finance=True)
-            await self._repo.update_business(biz, profile_score=new_score)
+        effective_revenue = (
+            body.annual_revenue if body.annual_revenue is not None else snap.annual_revenue
+        )
+        await self._sync_profile_score(biz, snapshot=snap, annual_revenue=effective_revenue)
         await self._session.commit()
 
     async def sync_diagnosis_inputs_internal(
@@ -576,9 +605,7 @@ class BusinessService:
 
         # 연매출이 들어온 시점부터는 2차 재무 정보가 채워졌다고 보고
         # 프로필 완성도 점수의 재무 보너스를 반영한다.
-        has_real_finance = annual_revenue is not None
-        new_score = _compute_profile_score(biz, has_real_finance=has_real_finance)
-        await self._repo.update_business(biz, profile_score=new_score)
+        await self._sync_profile_score(biz, annual_revenue=annual_revenue)
 
     async def get_financial_history(
         self, biz: Business
