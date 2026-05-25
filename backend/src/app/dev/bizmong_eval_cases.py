@@ -113,4 +113,28 @@ EVAL_CASES: tuple[BizMongEvalCase, ...] = (
         expected_answer_keywords=("운전자금", "시설자금"),
         note="용어 해석 질문",
     ),
+    BizMongEvalCase(
+        scenario_key="BIZ-01",
+        question="직원 월급이랑 가게 월세가 같이 부담돼서요. 둘 다 조금이라도 숨통 틔워줄 만한 지원이 있을까요?",
+        expected_route="rag",
+        expected_policies=("고용안정 지원 정책자금", "경기 소상공인 운전자금"),
+        expected_answer_keywords=("고용", "운전자금", "정책"),
+        note="생활어 기반 복합 의도 질문",
+    ),
+    BizMongEvalCase(
+        scenario_key="BIZ-02",
+        question="공장 설비를 좀 바꾸고 싶은데 제조업 쪽에서 장비 교체 도와주는 자금도 있나요?",
+        expected_route="rag",
+        expected_policies=("경기 제조업 설비개선 자금",),
+        expected_answer_keywords=("설비", "제조업"),
+        note="제조업 설비 교체 자연어 질문",
+    ),
+    BizMongEvalCase(
+        scenario_key="BIZ-05",
+        question="강원 쪽 관광 손님이 줄어서 걱정인데, 관광업 회복 쪽으로 바로 떠오르는 지원이 있을까요?",
+        expected_route="rag",
+        expected_policies=("강원 관광업 회복 지원",),
+        expected_answer_keywords=("강원", "관광"),
+        note="지역+업종 위기 상황 자연어 질문",
+    ),
 )

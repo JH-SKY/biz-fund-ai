@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
 import statistics
@@ -125,13 +126,39 @@ def _summarize(rows: list[dict]) -> dict:
     }
 
 
-async def main() -> None:
+def _select_cases(
+    *,
+    scenario_key: str | None,
+    contains: str | None,
+    limit: int | None,
+) -> list:
+    cases = list(EVAL_CASES)
+    if scenario_key:
+        cases = [case for case in cases if case.scenario_key == scenario_key]
+    if contains:
+        cases = [case for case in cases if contains in case.question]
+    if limit is not None:
+        cases = cases[:limit]
+    return cases
+
+
+async def main(
+    *,
+    scenario_key: str | None = None,
+    contains: str | None = None,
+    limit: int | None = None,
+) -> None:
     """전체 질문셋을 돌며 JSON 라인 로그와 최종 통계를 출력한다."""
     transport = httpx.ASGITransport(app=app)
     summary: list[dict] = []
+    cases = _select_cases(
+        scenario_key=scenario_key,
+        contains=contains,
+        limit=limit,
+    )
 
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver", timeout=120.0) as client:
-        for case in EVAL_CASES:
+        for case in cases:
             result = await _run_case(client, case.scenario_key, case.question)
             evaluation = _evaluate(
                 result,
@@ -167,5 +194,20 @@ async def main() -> None:
     print(json.dumps(summary_row, ensure_ascii=False))
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="BizMong quality evaluation runner")
+    parser.add_argument("--scenario", dest="scenario_key")
+    parser.add_argument("--contains")
+    parser.add_argument("--limit", type=int)
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    args = _parse_args()
+    asyncio.run(
+        main(
+            scenario_key=args.scenario_key,
+            contains=args.contains,
+            limit=args.limit,
+        )
+    )

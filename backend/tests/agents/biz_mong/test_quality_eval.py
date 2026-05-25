@@ -1,4 +1,4 @@
-from src.app.scripts.evaluate_bizmong_quality import _evaluate, _summarize
+from src.app.scripts.evaluate_bizmong_quality import _evaluate, _select_cases, _summarize
 
 
 def test_evaluate_reports_missing_policy_and_keyword_reasons():
@@ -66,3 +66,10 @@ def test_summarize_returns_accuracy_and_latency_breakdown():
         "policy_mismatch",
         "keyword_mismatch",
     ]
+
+
+def test_select_cases_filters_by_scenario_and_limit():
+    cases = _select_cases(scenario_key="BIZ-01", contains=None, limit=2)
+
+    assert len(cases) == 2
+    assert all(case.scenario_key == "BIZ-01" for case in cases)
