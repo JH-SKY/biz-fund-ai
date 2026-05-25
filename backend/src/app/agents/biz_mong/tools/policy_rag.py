@@ -34,6 +34,45 @@ _RRF_K = 60          # RRF 표준 상수
 _VECTOR_LIMIT = 20   # 벡터 검색 후보 수
 _FTS_LIMIT = 20      # FTS 후보 수
 _FINAL_LIMIT = 5     # 최종 반환 개수
+_MAX_KEYWORDS = 8
+
+_STOPWORDS = {
+    "이",
+    "가",
+    "을",
+    "를",
+    "은",
+    "는",
+    "에",
+    "의",
+    "도",
+    "좀",
+    "저",
+    "제",
+    "뭐",
+    "문의",
+    "관련",
+    "있나",
+    "있어요",
+    "있을까",
+    "주세요",
+    "알려줘",
+    "알려주세요",
+    "궁금해",
+    "궁금합니다",
+}
+
+_DOMAIN_SYNONYMS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (("운영비", "고정비", "월세", "임대료", "인건비"), ("운영자금", "소상공인", "지원금")),
+    (("직원", "채용", "급여", "인력", "고용"), ("고용", "고용지원", "지원금")),
+    (("대출", "보증", "융자", "자금"), ("대출", "융자", "정책자금")),
+    (("시설", "설비", "장비", "기계"), ("시설자금", "설비", "스마트공장")),
+    (("창업", "초기", "스타트업"), ("창업", "초기창업")),
+    (("수출", "해외", "판로"), ("수출", "해외진출", "판로")),
+    (("특허", "지식재산"), ("특허", "지식재산")),
+    (("벤처",), ("벤처",)),
+    (("여성", "여성기업"), ("여성기업",)),
+)
 
 
 async def policy_rag_search(
@@ -225,33 +264,40 @@ def _extract_keywords(text: str) -> list[str]:
     """
     # 사용자가 "가게 보증금", "월급 지원"처럼 생활 언어로 묻더라도
     # 검색기는 정책 문서에 가까운 단어(운전자금, 고용지원 등)로 확장해서 찾는다.
-    stopwords = {
-        "이", "가", "은", "는", "을", "를", "에", "서", "의", "와", "과",
-        "그", "이것", "저것", "무엇", "어디", "어떻게", "왜", "언제",
-        "있나요", "있어요", "주세요", "알려", "해줘", "해주세요",
-        "너무", "요즘", "하나씩만", "각각", "좀", "이라도",
-    }
-    tokens = [t for t in re.split(r"[\s,?.!]+", text) if len(t) >= 2 and t not in stopwords]
+    normalized_text = text.lower().strip()
+    tokens = [
+        token
+        for token in re.split(r"[\s,?.!~]+", normalized_text)
+        if _is_meaningful_token(token)
+    ]
 
     expanded: list[str] = []
-    lowered = text.lower()
-    if any(keyword in lowered for keyword in ("가스비", "전기세", "월세", "임대료", "고정비", "운영비")):
-        expanded.extend(["운영자금", "소상공인", "지원금"])
-    if any(keyword in lowered for keyword in ("직원", "월급", "인건비", "고용")):
-        expanded.extend(["고용", "고용지원", "지원금"])
-    if any(keyword in lowered for keyword in ("보증금", "대출", "융자")):
-        expanded.extend(["대출", "운전자금", "정책자금"])
-    if any(keyword in lowered for keyword in ("창업", "업력", "몇 년", "연차")):
-        expanded.extend(["창업", "업력"])
-    if any(keyword in lowered for keyword in ("여성기업", "여성")):
-        expanded.append("여성기업")
+    for triggers, synonyms in _DOMAIN_SYNONYMS:
+        if any(trigger in normalized_text for trigger in triggers):
+            expanded.extend(synonyms)
 
+    return _merge_keywords(expanded, tokens)[:_MAX_KEYWORDS]
+
+
+def _is_meaningful_token(token: str) -> bool:
+    stripped = re.sub(r"[^\w가-힣]", "", token).strip()
+    if len(stripped) < 2:
+        return False
+    if stripped in _STOPWORDS:
+        return False
+    if stripped.isdigit():
+        return False
+    return True
+
+
+def _merge_keywords(*keyword_groups: list[str]) -> list[str]:
     ordered: list[str] = []
-    for keyword in expanded + tokens:
-        normalized = keyword.strip()
-        if not normalized or normalized in ordered:
-            continue
-        ordered.append(normalized)
+    for group in keyword_groups:
+        for keyword in group:
+            normalized = re.sub(r"[^\w가-힣]", "", keyword).strip()
+            if not normalized or normalized in ordered:
+                continue
+            ordered.append(normalized)
     return ordered
 
 
