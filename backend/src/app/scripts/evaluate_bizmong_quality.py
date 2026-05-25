@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import statistics
+import time
 
 import httpx
 
@@ -32,11 +34,13 @@ async def _run_case(client: httpx.AsyncClient, scenario_key: str, question: str)
     )
     session_id = session.json()["data"]["session_id"]
 
+    started_at = time.perf_counter()
     response = await client.post(
         f"/api/v1/chats/sessions/{session_id}/agent-message",
         headers=headers,
         json={"message": question},
     )
+    elapsed_ms = round((time.perf_counter() - started_at) * 1000, 1)
     data = response.json()["data"]
     return {
         "scenario_key": scenario_key,
@@ -46,6 +50,7 @@ async def _run_case(client: httpx.AsyncClient, scenario_key: str, question: str)
         "content": data.get("content") or "",
         "rag_titles": [item.get("title") for item in (data.get("rag_results") or [])],
         "stats_insight": data.get("stats_insight") or {},
+        "response_ms": elapsed_ms,
     }
 
 
@@ -53,17 +58,70 @@ def _evaluate(result: dict, expected_route: str, expected_policies: tuple[str, .
     """실행 결과가 기대 라우팅/정책/핵심 키워드를 만족하는지 판정한다."""
     route_ok = result["agent_type"] == expected_route
     policy_ok = True
+    missing_policies: list[str] = []
     if expected_policies:
-        policy_ok = any(
-            expected_policy in " ".join(result["rag_titles"])
+        joined_titles = " ".join(result["rag_titles"])
+        missing_policies = [
+            expected_policy
             for expected_policy in expected_policies
-        )
-    keyword_ok = all(keyword in result["content"] for keyword in expected_keywords) if expected_keywords else True
+            if expected_policy not in joined_titles
+        ]
+        policy_ok = len(missing_policies) < len(expected_policies)
+    missing_keywords = [
+        keyword for keyword in expected_keywords if keyword not in result["content"]
+    ]
+    keyword_ok = not missing_keywords if expected_keywords else True
+    failure_reasons: list[str] = []
+    if not route_ok:
+        failure_reasons.append("route_mismatch")
+    if not policy_ok:
+        failure_reasons.append("policy_mismatch")
+    if not keyword_ok:
+        failure_reasons.append("keyword_mismatch")
     return {
         "route_ok": route_ok,
         "policy_ok": policy_ok,
         "keyword_ok": keyword_ok,
         "passed": route_ok and policy_ok and keyword_ok,
+        "missing_policies": missing_policies,
+        "missing_keywords": missing_keywords,
+        "failure_reasons": failure_reasons,
+    }
+
+
+def _summarize(rows: list[dict]) -> dict:
+    total = len(rows)
+    passed = sum(1 for row in rows if row["passed"])
+    route_ok = sum(1 for row in rows if row["route_ok"])
+    policy_ok = sum(1 for row in rows if row["policy_ok"])
+    keyword_ok = sum(1 for row in rows if row["keyword_ok"])
+    latencies = [row["response_ms"] for row in rows]
+    failed_cases = [
+        {
+            "question": row["question"],
+            "failure_reasons": row["failure_reasons"],
+            "actual_route": row["actual_route"],
+        }
+        for row in rows
+        if not row["passed"]
+    ]
+
+    latency_avg = round(statistics.mean(latencies), 1) if latencies else 0.0
+    latency_p95 = (
+        round(sorted(latencies)[max(0, int(len(latencies) * 0.95) - 1)], 1)
+        if latencies
+        else 0.0
+    )
+    return {
+        "passed": passed,
+        "total": total,
+        "pass_rate": round((passed / total) * 100, 1) if total else 0.0,
+        "route_accuracy": round((route_ok / total) * 100, 1) if total else 0.0,
+        "policy_accuracy": round((policy_ok / total) * 100, 1) if total else 0.0,
+        "keyword_accuracy": round((keyword_ok / total) * 100, 1) if total else 0.0,
+        "latency_avg_ms": latency_avg,
+        "latency_p95_ms": latency_p95,
+        "failed_cases": failed_cases,
     }
 
 
@@ -93,16 +151,20 @@ async def main() -> None:
                 "route_ok": evaluation["route_ok"],
                 "policy_ok": evaluation["policy_ok"],
                 "keyword_ok": evaluation["keyword_ok"],
+                "missing_policies": evaluation["missing_policies"],
+                "missing_keywords": evaluation["missing_keywords"],
+                "failure_reasons": evaluation["failure_reasons"],
                 "note": case.note,
                 "content_preview": result["content"][:240],
+                "response_ms": result["response_ms"],
+                "rag_result_count": len(result["rag_titles"]),
             }
             summary.append(row)
             print(json.dumps(row, ensure_ascii=False))
 
-    passed = sum(1 for row in summary if row["passed"])
-    total = len(summary)
+    summary_row = _summarize(summary)
     print()
-    print(json.dumps({"passed": passed, "total": total, "pass_rate": round((passed / total) * 100, 1)}, ensure_ascii=False))
+    print(json.dumps(summary_row, ensure_ascii=False))
 
 
 if __name__ == "__main__":
