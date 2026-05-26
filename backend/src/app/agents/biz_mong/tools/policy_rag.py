@@ -74,6 +74,27 @@ _DOMAIN_SYNONYMS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (("여성", "여성기업"), ("여성기업",)),
 )
 
+_REGION_HINTS = (
+    "서울",
+    "경기",
+    "인천",
+    "부산",
+    "대구",
+    "광주",
+    "대전",
+    "울산",
+    "세종",
+    "강원",
+    "충북",
+    "충남",
+    "전북",
+    "전남",
+    "경북",
+    "경남",
+    "제주",
+    "전국",
+)
+
 
 async def policy_rag_search(
     query_text: str,
@@ -248,13 +269,23 @@ async def _fts_search(
         return []
 
     stmt = (
-        select(Policy.id)
+        select(Policy)
         .where(*base_conditions, or_(*keyword_clauses))
         .order_by(Policy.view_count.desc())
-        .limit(limit)
+        .limit(limit * 4)
     )
     result = await session.execute(stmt)
-    return [str(row[0]) for row in result.all()]
+    policies = list(result.scalars().all())
+    region_hint = _extract_region_hint(" ".join(keywords)) or region_filter
+    ranked = sorted(
+        policies,
+        key=lambda policy: (
+            _score_fts_candidate(policy, keywords, region_hint),
+            policy.view_count,
+        ),
+        reverse=True,
+    )
+    return [str(policy.id) for policy in ranked[:limit]]
 
 
 def _extract_keywords(text: str) -> list[str]:
@@ -277,6 +308,51 @@ def _extract_keywords(text: str) -> list[str]:
             expanded.extend(synonyms)
 
     return _merge_keywords(expanded, tokens)[:_MAX_KEYWORDS]
+
+
+def _extract_region_hint(text: str) -> str | None:
+    for region in _REGION_HINTS:
+        if region in text:
+            return region
+    return None
+
+
+def _score_text_match(text: str, keywords: list[str]) -> int:
+    normalized = text.lower()
+    score = 0
+    for keyword in keywords:
+        lowered = keyword.lower()
+        if lowered in normalized:
+            score += 1
+    return score
+
+
+def _score_fts_candidate(
+    policy: Policy,
+    keywords: list[str],
+    region_hint: str | None,
+) -> int:
+    title = policy.title or ""
+    summary = policy.ai_summary or ""
+    explanation = policy.ai_full_explanation or ""
+    region = policy.region or ""
+
+    score = 0
+    score += _score_text_match(title, keywords) * 5
+    score += _score_text_match(summary, keywords) * 3
+    score += _score_text_match(explanation, keywords)
+
+    if region_hint:
+        if region_hint in region:
+            score += 6
+        elif "전국" in region:
+            score += 2
+
+    joined_title = f"{title} {summary}".lower()
+    if any(keyword.lower() in joined_title for keyword in keywords[:2]):
+        score += 2
+
+    return score
 
 
 def _is_meaningful_token(token: str) -> bool:
