@@ -1,8 +1,10 @@
 from types import SimpleNamespace
 
 from src.app.agents.biz_mong.tools.policy_rag import (
+    _detect_query_intents,
     _extract_keywords,
     _extract_region_hint,
+    _rewrite_query_variants,
     _score_fts_candidate,
 )
 
@@ -63,3 +65,18 @@ def test_score_fts_candidate_prefers_region_and_title_keyword_overlap():
         keywords,
         "서울",
     )
+
+
+def test_detect_query_intents_handles_mixed_operating_and_hiring_signals():
+    intents = _detect_query_intents("월세랑 직원 월급이 같이 부담돼서 버티기 힘들어요")
+
+    assert "operating_cost" in intents
+    assert "hiring" in intents
+
+
+def test_rewrite_query_variants_adds_search_friendly_expansions():
+    variants = _rewrite_query_variants("요즘 전기세랑 월세가 너무 올라서 버티기 힘들어요")
+
+    assert variants[0] == "요즘 전기세랑 월세가 너무 올라서 버티기 힘들어요"
+    assert any("운영자금" in variant for variant in variants)
+    assert any("정책자금" in variant for variant in variants)
