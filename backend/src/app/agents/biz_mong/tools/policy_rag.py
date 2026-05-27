@@ -95,6 +95,34 @@ _REGION_HINTS = (
     "전국",
 )
 
+_QUERY_INTENT_RULES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
+    (
+        "operating_cost",
+        ("월세", "임대료", "전기세", "가스비", "고정비", "운영비", "버티기", "팍팍"),
+        ("소상공인", "운영자금", "고정비", "긴급", "정책자금"),
+    ),
+    (
+        "hiring",
+        ("직원", "채용", "월급", "인건비", "고용", "급여"),
+        ("고용지원", "인건비", "일자리", "채용지원", "소상공인"),
+    ),
+    (
+        "facility",
+        ("설비", "장비", "기계", "공장", "교체", "자동화"),
+        ("시설자금", "설비", "제조업", "자동화", "스마트공장"),
+    ),
+    (
+        "startup",
+        ("창업", "초기", "업력", "스타트업", "예비창업"),
+        ("초기창업", "창업자금", "창업지원", "사업화"),
+    ),
+    (
+        "export",
+        ("수출", "해외", "판로", "바이어"),
+        ("수출", "해외진출", "판로", "마케팅"),
+    ),
+)
+
 
 async def policy_rag_search(
     query_text: str,
@@ -146,8 +174,24 @@ async def policy_rag_search(
         vector_ids = await _vector_search(session, query_vector, region_filter, limit=_VECTOR_LIMIT)
 
     # ── Step 3: FTS (키워드) 검색 ────────────────────────────────────────
-    keywords = _extract_keywords(query_text)
-    fts_ids: list[str] = await _fts_search(session, keywords, region_filter, limit=_FTS_LIMIT)
+    # 생활어 질문은 그대로 검색하면 후보가 너무 넓게 퍼지기 쉬워서
+    # 검색용 질의를 몇 개로 다시 써 본 뒤 FTS 결과를 합친다.
+    rewritten_queries = _rewrite_query_variants(query_text)
+    fts_ids: list[str] = []
+    seen_fts_ids: set[str] = set()
+    for rewritten_query in rewritten_queries:
+        keywords = _extract_keywords(rewritten_query)
+        candidate_ids = await _fts_search(
+            session,
+            keywords,
+            region_filter,
+            limit=_FTS_LIMIT,
+        )
+        for candidate_id in candidate_ids:
+            if candidate_id in seen_fts_ids:
+                continue
+            seen_fts_ids.add(candidate_id)
+            fts_ids.append(candidate_id)
 
     # ── Step 4: RRF 결합 ─────────────────────────────────────────────────
     # RRF 는 두 검색 결과를 한 점수표로 합치는 단계다.
@@ -308,6 +352,37 @@ def _extract_keywords(text: str) -> list[str]:
             expanded.extend(synonyms)
 
     return _merge_keywords(expanded, tokens)[:_MAX_KEYWORDS]
+
+
+def _detect_query_intents(text: str) -> list[str]:
+    normalized_text = text.lower()
+    detected: list[str] = []
+    for intent_name, triggers, _ in _QUERY_INTENT_RULES:
+        if any(trigger in normalized_text for trigger in triggers):
+            detected.append(intent_name)
+    return detected
+
+
+def _rewrite_query_variants(text: str) -> list[str]:
+    normalized_text = text.strip()
+    intents = _detect_query_intents(normalized_text)
+    if not intents:
+        return [normalized_text]
+
+    rewritten_queries = [normalized_text]
+    for intent_name, _, rewrite_terms in _QUERY_INTENT_RULES:
+        if intent_name not in intents:
+            continue
+        # 원문을 버리지 않고 확장 질의를 덧붙여야
+        # 질문의 말투와 정책 문서 어휘를 둘 다 살릴 수 있다.
+        rewritten_queries.append(f"{normalized_text} {' '.join(rewrite_terms)}")
+    ordered_queries: list[str] = []
+    for query in rewritten_queries:
+        compact = " ".join(query.split())
+        if not compact or compact in ordered_queries:
+            continue
+        ordered_queries.append(compact)
+    return ordered_queries
 
 
 def _extract_region_hint(text: str) -> str | None:
