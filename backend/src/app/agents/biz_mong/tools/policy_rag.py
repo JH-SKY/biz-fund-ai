@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import re
 import uuid
+from datetime import date
 from typing import Any
 
 from openai import AsyncOpenAI
@@ -129,6 +130,7 @@ async def policy_rag_search(
     session: AsyncSession,
     *,
     region_filter: str | None = None,
+    biz_info: dict[str, Any] | None = None,
     top_k: int = _FINAL_LIMIT,
 ) -> list[dict[str, Any]]:
     """사용자 질문에 맞는 정책 공고를 Hybrid Search 로 검색한다.
@@ -176,7 +178,7 @@ async def policy_rag_search(
     # ── Step 3: FTS (키워드) 검색 ────────────────────────────────────────
     # 생활어 질문은 그대로 검색하면 후보가 너무 넓게 퍼지기 쉬워서
     # 검색용 질의를 몇 개로 다시 써 본 뒤 FTS 결과를 합친다.
-    rewritten_queries = _rewrite_query_variants(query_text)
+    rewritten_queries = _rewrite_query_variants(query_text, biz_info=biz_info)
     fts_ids: list[str] = []
     seen_fts_ids: set[str] = set()
     for rewritten_query in rewritten_queries:
@@ -299,7 +301,7 @@ async def _fts_search(
 
     # 각 키워드를 title, ai_summary 에서 OR 검색
     keyword_clauses = []
-    for kw in keywords[:5]:  # 최대 5개 키워드만 사용
+    for kw in keywords[:8]:  # 재작성 질의에서 붙인 문맥 키워드까지 후보 필터에 반영한다.
         pattern = f"%{kw}%"
         keyword_clauses.append(
             or_(
@@ -363,12 +365,13 @@ def _detect_query_intents(text: str) -> list[str]:
     return detected
 
 
-def _rewrite_query_variants(text: str) -> list[str]:
+def _rewrite_query_variants(
+    text: str,
+    *,
+    biz_info: dict[str, Any] | None = None,
+) -> list[str]:
     normalized_text = text.strip()
     intents = _detect_query_intents(normalized_text)
-    if not intents:
-        return [normalized_text]
-
     rewritten_queries = [normalized_text]
     for intent_name, _, rewrite_terms in _QUERY_INTENT_RULES:
         if intent_name not in intents:
@@ -376,6 +379,12 @@ def _rewrite_query_variants(text: str) -> list[str]:
         # 원문을 버리지 않고 확장 질의를 덧붙여야
         # 질문의 말투와 정책 문서 어휘를 둘 다 살릴 수 있다.
         rewritten_queries.append(f"{normalized_text} {' '.join(rewrite_terms)}")
+
+    if biz_info and _is_broad_funding_query(normalized_text):
+        context_terms = _build_business_context_terms(biz_info)
+        if context_terms:
+            rewritten_queries.append(f"{' '.join(context_terms)} {normalized_text}")
+
     ordered_queries: list[str] = []
     for query in rewritten_queries:
         compact = " ".join(query.split())
@@ -383,6 +392,61 @@ def _rewrite_query_variants(text: str) -> list[str]:
             continue
         ordered_queries.append(compact)
     return ordered_queries
+
+
+def _is_broad_funding_query(text: str) -> bool:
+    normalized_text = text.lower()
+    funding_markers = ("정책자금", "지원금", "운전자금", "대출", "융자", "보증금")
+    broad_markers = ("뭐", "뭐야", "있어", "있을까", "추천", "받을 수", "가능", "알려")
+    return any(marker in normalized_text for marker in funding_markers) and any(
+        marker in normalized_text for marker in broad_markers
+    )
+
+
+def _build_business_context_terms(biz_info: dict[str, Any]) -> list[str]:
+    terms: list[str] = []
+
+    region_sido = biz_info.get("region_sido")
+    if region_sido:
+        terms.append(str(region_sido))
+
+    terms.append("소상공인")
+
+    funding_purpose = str(biz_info.get("funding_purpose") or "").upper()
+    if funding_purpose in {"OPERATING", "WORKING", "MIXED"}:
+        terms.append("운영자금")
+
+    if _is_early_stage_business(biz_info.get("establishment_date")):
+        terms.extend(["초기창업", "창업자금"])
+
+    return _merge_keywords(terms)
+
+
+def _is_early_stage_business(
+    establishment_date: str | date | None,
+    *,
+    today: date | None = None,
+) -> bool:
+    opened_at = _parse_establishment_date(establishment_date)
+    if opened_at is None:
+        return False
+
+    base_date = today or date.today()
+    elapsed_months = (base_date.year - opened_at.year) * 12 + (base_date.month - opened_at.month)
+    if base_date.day < opened_at.day:
+        elapsed_months -= 1
+    return elapsed_months <= 36
+
+
+def _parse_establishment_date(value: str | date | None) -> date | None:
+    if isinstance(value, date):
+        return value
+    if not isinstance(value, str):
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
 
 
 def _extract_region_hint(text: str) -> str | None:

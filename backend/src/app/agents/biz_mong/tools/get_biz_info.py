@@ -86,7 +86,9 @@ async def get_biz_info(
         "is_ventured": biz.is_ventured,
         "is_female_ent": biz.is_female_ent,
         "ksic_code": biz.ksic_code,
+        "ksic_name": biz.ksic_name,
         "sector_code": biz.sector_code,
+        "funding_purpose": biz.funding_purpose,
         "biz_verified_status": biz.biz_verified_status,
     }
 

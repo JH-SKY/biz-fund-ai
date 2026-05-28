@@ -339,7 +339,12 @@ async def _run_rag(
     retrieval_started = time.monotonic()
     # 지역 필터가 있으면 "내 사업장 지역 + 전국 공고" 중심으로 검색해 추천 품질을 높인다.
     # 지역 정보가 없으면 전체 공고에서 검색되므로 상담은 계속 가능하다.
-    rag_results = await policy_rag_search(last_msg, session, region_filter=region)
+    rag_results = await policy_rag_search(
+        last_msg,
+        session,
+        region_filter=region,
+        biz_info=biz_info,
+    )
     retrieval_elapsed_ms = int((time.monotonic() - retrieval_started) * 1000)
     node_logs.append(
         build_node_log(
