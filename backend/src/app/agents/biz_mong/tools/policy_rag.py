@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core.config import OPENAI_API_KEY
 from src.app.domains.policy.model import Policy, PolicyChunk, PolicyStatus
+from src.app.domains.policy.target_logic import parse_target_logic
 
 logger = logging.getLogger(__name__)
 
@@ -187,6 +188,7 @@ async def policy_rag_search(
             session,
             keywords,
             region_filter,
+            biz_info=biz_info,
             limit=_FTS_LIMIT,
         )
         for candidate_id in candidate_ids:
@@ -281,6 +283,7 @@ async def _fts_search(
     keywords: list[str],
     region_filter: str | None,
     *,
+    biz_info: dict[str, Any] | None = None,
     limit: int,
 ) -> list[str]:
     """키워드 기반 ilike 검색으로 정책 ID 목록 반환."""
@@ -326,7 +329,7 @@ async def _fts_search(
     ranked = sorted(
         policies,
         key=lambda policy: (
-            _score_fts_candidate(policy, keywords, region_hint),
+            _score_fts_candidate(policy, keywords, region_hint, biz_info=biz_info),
             policy.view_count,
         ),
         reverse=True,
@@ -470,6 +473,8 @@ def _score_fts_candidate(
     policy: Policy,
     keywords: list[str],
     region_hint: str | None,
+    *,
+    biz_info: dict[str, Any] | None = None,
 ) -> int:
     title = policy.title or ""
     summary = policy.ai_summary or ""
@@ -491,7 +496,133 @@ def _score_fts_candidate(
     if any(keyword.lower() in joined_title for keyword in keywords[:2]):
         score += 2
 
+    score += _score_business_context_match(policy, biz_info)
     return score
+
+
+def _score_business_context_match(
+    policy: Policy,
+    biz_info: dict[str, Any] | None,
+) -> int:
+    if not biz_info:
+        return 0
+
+    score = 0
+    logic = parse_target_logic(getattr(policy, "target_logic", None))
+    haystack = " ".join(
+        filter(
+            None,
+            [
+                policy.title,
+                policy.category,
+                policy.support_type,
+                policy.region,
+                policy.ai_summary,
+                policy.ai_full_explanation,
+            ],
+        )
+    ).lower()
+
+    region_sido = str(biz_info.get("region_sido") or "")
+    if logic is not None and logic.region_restricted and logic.allowed_regions:
+        if _biz_region_matches(region_sido, logic.allowed_regions):
+            score += 6
+        else:
+            score -= 8
+    elif region_sido:
+        if region_sido.lower() in haystack:
+            score += 3
+        elif "전국" in haystack:
+            score += 1
+
+    if logic is not None and logic.sectors:
+        if _biz_sector_matches(biz_info, logic.sectors):
+            score += 5
+        else:
+            score -= 6
+
+    if _biz_funding_purpose_matches(biz_info, haystack):
+        score += 4
+
+    if _is_early_stage_business(biz_info.get("establishment_date")):
+        if "초기창업" in haystack or "창업" in haystack:
+            score += 3
+
+    if logic is not None and logic.require_ventured and not bool(biz_info.get("is_ventured")):
+        score -= 6
+    if logic is not None and logic.require_patent and not bool(biz_info.get("has_patent")):
+        score -= 6
+
+    return score
+
+
+def _biz_region_matches(region_sido: str, allowed_regions: list[str]) -> bool:
+    normalized_region = region_sido.lower().strip()
+    if not normalized_region:
+        return False
+    return any(normalized_region in str(item).lower() for item in allowed_regions)
+
+
+def _biz_sector_matches(biz_info: dict[str, Any], sectors: list[str]) -> bool:
+    raw_tokens = [
+        str(biz_info.get("ksic_code") or ""),
+        str(biz_info.get("ksic_name") or ""),
+        str(biz_info.get("sector_code") or ""),
+    ]
+    haystack = " ".join(token.lower() for token in raw_tokens if token)
+    normalized_biz_tokens = {_normalize_sector_token(token) for token in raw_tokens if token}
+
+    for sector in sectors:
+        lowered = str(sector).lower()
+        if lowered and lowered in haystack:
+            return True
+        if _normalize_sector_token(str(sector)) in normalized_biz_tokens:
+            return True
+    return False
+
+
+def _biz_funding_purpose_matches(biz_info: dict[str, Any], haystack: str) -> bool:
+    purpose_keywords = {
+        "FACILITY": ("시설", "설비", "장비"),
+        "OPERATING": ("운영", "경영", "고정비"),
+        "WORKING": ("운전자금", "자재", "인건비"),
+        "MIXED": ("자금", "운영", "시설"),
+    }
+    funding_purpose = str(biz_info.get("funding_purpose") or "").upper()
+    keywords = purpose_keywords.get(funding_purpose, ())
+    return any(keyword in haystack for keyword in keywords)
+
+
+def _normalize_sector_token(value: str) -> str:
+    text = value.strip().lower()
+    alias_map = {
+        "service": "service",
+        "서비스": "service",
+        "컨설팅": "service",
+        "제조": "manufacturing",
+        "manufacturing": "manufacturing",
+        "금속": "manufacturing",
+        "기계": "manufacturing",
+        "it": "it",
+        "기술": "it",
+        "프로그램": "it",
+        "소프트웨어": "it",
+        "관광": "tourism",
+        "숙박": "tourism",
+        "호텔": "tourism",
+        "retail": "retail",
+        "도매": "retail",
+        "소매": "retail",
+        "유통": "retail",
+        "food": "food",
+        "음식": "food",
+        "카페": "food",
+        "요식": "food",
+    }
+    for keyword, normalized in alias_map.items():
+        if keyword in text:
+            return normalized
+    return text
 
 
 def _is_meaningful_token(token: str) -> bool:
