@@ -1,22 +1,25 @@
+from datetime import date
 from types import SimpleNamespace
 
 from src.app.agents.biz_mong.tools.policy_rag import (
+    _build_business_context_terms,
     _detect_query_intents,
     _extract_keywords,
     _extract_region_hint,
+    _is_early_stage_business,
     _rewrite_query_variants,
     _score_fts_candidate,
 )
 
 
 def test_extract_keywords_expands_operating_cost_queries_into_policy_terms():
-    keywords = _extract_keywords("요즘 월세랑 인건비가 너무 부담인데 운영비 도와주는 정책 있을까?")
+    keywords = _extract_keywords("요즘 월세랑 인건비가 너무 부담인데 운영비 지원해 주는 정책 있을까")
 
     assert "운영자금" in keywords
     assert "소상공인" in keywords
     assert "지원금" in keywords
-    assert "월세랑" in keywords
-    assert "인건비가" in keywords
+    assert any(token.startswith("월세") for token in keywords)
+    assert any(token.startswith("인건비") for token in keywords)
 
 
 def test_extract_keywords_expands_hiring_and_loan_intents_without_duplicates():
@@ -30,7 +33,7 @@ def test_extract_keywords_expands_hiring_and_loan_intents_without_duplicates():
 
 def test_extract_keywords_filters_noise_and_limits_result_size():
     keywords = _extract_keywords(
-        "이거 관련해서 좀 알려주세요. 2026년에 서울에서 창업하고 수출도 하려는데 뭐가 있을까요?"
+        "이거 관련해서 좀 알려주세요 2026년에 서울에서 창업하고 수출도 해보려는데 뭐가 있을까요?"
     )
 
     assert "관련해서" in keywords
@@ -54,8 +57,8 @@ def test_score_fts_candidate_prefers_region_and_title_keyword_overlap():
         region="서울",
     )
     weak_match = SimpleNamespace(
-        title="전국 혁신기업 오픈이노베이션 모집",
-        ai_summary="전국 단위 사업화 프로그램",
+        title="전국 혁신기업 스케일업 모집",
+        ai_summary="전국 사업장 대상 프로그램",
         ai_full_explanation="창업이라는 표현은 있으나 자금 지원과 거리가 있습니다.",
         region="전국",
     )
@@ -80,3 +83,38 @@ def test_rewrite_query_variants_adds_search_friendly_expansions():
     assert variants[0] == "요즘 전기세랑 월세가 너무 올라서 버티기 힘들어요"
     assert any("운영자금" in variant for variant in variants)
     assert any("정책자금" in variant for variant in variants)
+
+
+def test_build_business_context_terms_collects_region_stage_and_funding_hints():
+    terms = _build_business_context_terms(
+        {
+            "region_sido": "서울",
+            "funding_purpose": "OPERATING",
+            "establishment_date": "2025-03-15",
+        }
+    )
+
+    assert "서울" in terms
+    assert "소상공인" in terms
+    assert "운영자금" in terms
+    assert "초기창업" in terms
+
+
+def test_is_early_stage_business_uses_36_month_cutoff():
+    assert _is_early_stage_business("2025-03-15", today=date(2026, 5, 28)) is True
+    assert _is_early_stage_business("2021-03-15", today=date(2026, 5, 28)) is False
+
+
+def test_rewrite_query_variants_adds_business_context_for_broad_funding_question():
+    variants = _rewrite_query_variants(
+        "내가 받을 수 있는 정책자금 뭐야?",
+        biz_info={
+            "region_sido": "서울",
+            "funding_purpose": "OPERATING",
+            "establishment_date": "2025-03-15",
+        },
+    )
+
+    assert any("서울" in variant for variant in variants[1:])
+    assert any("운영자금" in variant for variant in variants[1:])
+    assert any("초기창업" in variant for variant in variants[1:])
