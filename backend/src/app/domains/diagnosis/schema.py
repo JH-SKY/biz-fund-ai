@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Self
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -73,7 +73,7 @@ class DiagnosisFinalInputs(BaseModel):
     is_ventured: bool = False
 
     @model_validator(mode="after")
-    def _derive_debt_ratio(self) -> DiagnosisFinalInputs:
+    def _derive_debt_ratio(self) -> Self:
         """debt_ratio 가 없으면 annual_revenue 와 total_debt 로 자동 계산한다."""
         if self.debt_ratio is not None:
             return self

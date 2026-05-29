@@ -15,7 +15,6 @@ import time
 import httpx
 
 from src.app.dev.bizmong_eval_cases import EVAL_CASES
-from src.app.main import app
 
 
 async def _run_case(client: httpx.AsyncClient, scenario_key: str, question: str) -> dict:
@@ -149,6 +148,10 @@ async def main(
     limit: int | None = None,
 ) -> None:
     """전체 질문셋을 돌며 JSON 라인 로그와 최종 통계를 출력한다."""
+    # 평가 함수만 import 하는 테스트에서는 앱 전체 초기화가 필요 없으므로,
+    # 실제 실행 시점에만 app 을 가져오도록 지연 import 한다.
+    from src.app.main import app
+
     transport = httpx.ASGITransport(app=app)
     summary: list[dict] = []
     cases = _select_cases(
