@@ -486,11 +486,15 @@ def _build_rag_fallback_answer(
     for idx, result in enumerate(top_results, start=1):
         title = result.get("title") or "정책명 미상"
         region = result.get("region") or "전국"
+        support_type = result.get("support_type") or ""
         support_amount = result.get("support_amount_desc") or "지원 내용은 공고문 확인이 필요합니다."
         summary = result.get("ai_summary") or ""
         end_date = result.get("end_date") or "상시/공고문 확인"
 
-        detail_parts = [region, support_amount, f"마감 {end_date}"]
+        detail_parts = [region]
+        if support_type:
+            detail_parts.append(support_type)
+        detail_parts.extend([support_amount, f"마감 {end_date}"])
         if summary:
             detail_parts.append(summary)
         lines.append(f"{idx}. {title}: " + " / ".join(detail_parts))
