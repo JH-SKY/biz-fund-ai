@@ -505,11 +505,30 @@ def _build_rag_fallback_answer(
         lines.append("질문에서 고용지원금 성격을 함께 찾고 있어 인건비·고용확대와 연결되는 정책을 우선 포함했습니다.")
     if any(keyword in question for keyword in ("보증금", "대출", "융자")):
         lines.append("보증금이나 대출 성격 질문은 운전자금·정책자금 계열 공고를 우선 확인하는 방식으로 정리했습니다.")
+    if any(keyword in question for keyword in ("정책자금", "추천", "뭐")) and (
+        _rag_results_contain_keyword(top_results, "운전자금")
+        or _rag_results_contain_keyword(top_results, "운영자금")
+    ):
+        lines.append("목록 안에 운전자금 계열 공고가 포함되어 있어 운영비나 고정비 질문이면 해당 항목을 먼저 확인해 보셔도 됩니다.")
     if any(keyword in question for keyword in ("왜", "추천", "맞")):
         lines.append("추천 사유는 지역, 지원대상, 업종 또는 성장단계 키워드가 질문과 겹친 정책이 우선 검색됐기 때문입니다.")
 
     lines.append("세부 자격과 제외 조건은 실제 공고문 본문에서 마지막으로 한 번 더 확인하는 것이 안전합니다.")
     return "\n".join(lines)
+
+
+def _rag_results_contain_keyword(
+    rag_results: list[dict[str, Any]],
+    keyword: str,
+) -> bool:
+    """상위 후보에 특정 키워드가 포함돼 있는지 확인한다."""
+    fields = ("title", "support_type", "support_amount_desc", "ai_summary")
+    for result in rag_results:
+        for field in fields:
+            value = result.get(field)
+            if isinstance(value, str) and keyword in value:
+                return True
+    return False
 
 
 def _format_business_context(
