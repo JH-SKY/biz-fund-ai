@@ -326,10 +326,17 @@ async def _fts_search(
     result = await session.execute(stmt)
     policies = list(result.scalars().all())
     region_hint = _extract_region_hint(" ".join(keywords)) or region_filter
+    broad_funding_query = _is_broad_funding_query(" ".join(keywords))
     ranked = sorted(
         policies,
         key=lambda policy: (
-            _score_fts_candidate(policy, keywords, region_hint, biz_info=biz_info),
+            _score_fts_candidate(
+                policy,
+                keywords,
+                region_hint,
+                biz_info=biz_info,
+                broad_funding_query=broad_funding_query,
+            ),
             policy.view_count,
         ),
         reverse=True,
@@ -475,6 +482,7 @@ def _score_fts_candidate(
     region_hint: str | None,
     *,
     biz_info: dict[str, Any] | None = None,
+    broad_funding_query: bool = False,
 ) -> int:
     title = policy.title or ""
     summary = policy.ai_summary or ""
@@ -497,6 +505,30 @@ def _score_fts_candidate(
         score += 2
 
     score += _score_business_context_match(policy, biz_info)
+    if broad_funding_query:
+        score += _score_broad_funding_match(policy)
+    return score
+
+
+def _score_broad_funding_match(policy: Policy) -> int:
+    """넓은 정책자금 질문에서는 자금 성격이 보이는 후보를 조금 더 앞세운다."""
+    haystack = " ".join(
+        filter(
+            None,
+            [
+                policy.title,
+                policy.category,
+                policy.support_type,
+                policy.ai_summary,
+            ],
+        )
+    ).lower()
+
+    score = 0
+    if any(keyword in haystack for keyword in ("운전자금", "운영자금", "정책자금")):
+        score += 4
+    if "소상공인" in haystack:
+        score += 2
     return score
 
 
