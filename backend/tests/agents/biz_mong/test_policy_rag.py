@@ -167,3 +167,37 @@ def test_score_fts_candidate_prefers_business_context_matched_policy():
         "서울",
         biz_info=biz_info,
     )
+
+
+def test_score_fts_candidate_prefers_working_capital_policy_for_broad_funding_query():
+    keywords = ["정책자금", "서울", "운영자금"]
+    operating_policy = SimpleNamespace(
+        title="서울 소상공인 운전자금",
+        ai_summary="서울 소상공인 운영비 부담 완화용 정책자금",
+        ai_full_explanation="운전자금 중심 정책입니다.",
+        region="서울",
+        category="정책자금",
+        support_type="운영자금",
+        target_logic=None,
+    )
+    program_policy = SimpleNamespace(
+        title="서울 창업 성장 프로그램",
+        ai_summary="서울 창업 기업 성장을 돕는 프로그램",
+        ai_full_explanation="교육과 멘토링 중심 지원입니다.",
+        region="서울",
+        category="창업지원",
+        support_type="프로그램",
+        target_logic=None,
+    )
+
+    assert _score_fts_candidate(
+        operating_policy,
+        keywords,
+        "서울",
+        broad_funding_query=True,
+    ) > _score_fts_candidate(
+        program_policy,
+        keywords,
+        "서울",
+        broad_funding_query=True,
+    )
