@@ -63,3 +63,29 @@ def test_build_rag_fallback_answer_mentions_funding_keyword():
     )
 
     assert "운전자금 계열 공고" in answer
+
+
+def test_build_rag_fallback_answer_prioritizes_working_capital_results():
+    answer = _build_rag_fallback_answer(
+        "내가 받을 수 있는 정책자금 뭐야?",
+        [
+            {
+                "title": "서울 창업 성장 프로그램",
+                "region": "서울",
+                "support_type": "프로그램",
+                "support_amount_desc": "교육과 멘토링 지원",
+                "ai_summary": "창업 기업 성장 지원 프로그램입니다.",
+                "end_date": "2026-12-31",
+            },
+            {
+                "title": "전국 소상공인 운전자금",
+                "region": "전국",
+                "support_type": "운영자금",
+                "support_amount_desc": "최대 1억원 운전자금",
+                "ai_summary": "소상공인 운영비 부담 완화용 정책자금입니다.",
+                "end_date": "2026-12-31",
+            },
+        ],
+    )
+
+    assert answer.splitlines()[1].startswith("1. 전국 소상공인 운전자금")
