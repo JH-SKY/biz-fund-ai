@@ -475,7 +475,7 @@ def _build_rag_fallback_answer(
     rag_results: list[dict[str, Any]],
 ) -> str:
     """OpenAI 생성이 실패해도 검색 결과 기반 요약 답변을 만든다."""
-    top_results = rag_results[:3]
+    top_results = _prioritize_fallback_results(question, rag_results)[:3]
     if not top_results:
         return (
             "관련 정책 정보를 바로 찾지 못했습니다. 정책명이나 기관명, 지역, 분야를 조금 더 "
@@ -529,6 +529,38 @@ def _rag_results_contain_keyword(
             if isinstance(value, str) and keyword in value:
                 return True
     return False
+
+
+def _prioritize_fallback_results(
+    question: str,
+    rag_results: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """넓은 정책자금 질문에서는 자금 성격이 드러나는 후보를 먼저 보여준다."""
+    if not _is_broad_funding_question(question):
+        return rag_results
+
+    scored_results: list[tuple[int, int, dict[str, Any]]] = []
+    for index, result in enumerate(rag_results):
+        score = 0
+        haystack = " ".join(
+            str(result.get(field) or "")
+            for field in ("title", "support_type", "support_amount_desc", "ai_summary")
+        )
+        if any(keyword in haystack for keyword in ("운전자금", "운영자금", "정책자금")):
+            score += 3
+        if "소상공인" in haystack:
+            score += 1
+        scored_results.append((score, -index, result))
+
+    return [result for _, _, result in sorted(scored_results, reverse=True)]
+
+
+def _is_broad_funding_question(question: str) -> bool:
+    funding_markers = ("정책자금", "지원금", "운전자금", "대출", "융자", "보증금")
+    broad_markers = ("뭐", "뭐야", "있어", "추천", "받을 수", "알려")
+    return any(marker in question for marker in funding_markers) and any(
+        marker in question for marker in broad_markers
+    )
 
 
 def _format_business_context(
