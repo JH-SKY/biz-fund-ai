@@ -125,6 +125,30 @@ def _summarize(rows: list[dict]) -> dict:
     }
 
 
+def _build_error_row(case, exc: Exception) -> dict:
+    """평가 실행 중 예외가 나면 중단하지 않고 실패 행으로 남긴다."""
+    return {
+        "scenario_key": case.scenario_key,
+        "business_name": "",
+        "question": case.question,
+        "expected_route": case.expected_route,
+        "actual_route": "runner_error",
+        "expected_policies": list(case.expected_policies),
+        "actual_policies": [],
+        "passed": False,
+        "route_ok": False,
+        "policy_ok": False,
+        "keyword_ok": False,
+        "missing_policies": list(case.expected_policies),
+        "missing_keywords": list(case.expected_answer_keywords),
+        "failure_reasons": ["runner_error"],
+        "note": case.note,
+        "content_preview": str(exc),
+        "response_ms": 0.0,
+        "rag_result_count": 0,
+    }
+
+
 def _select_cases(
     *,
     scenario_key: str | None,
@@ -162,33 +186,36 @@ async def main(
 
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver", timeout=120.0) as client:
         for case in cases:
-            result = await _run_case(client, case.scenario_key, case.question)
-            evaluation = _evaluate(
-                result,
-                case.expected_route,
-                case.expected_policies,
-                case.expected_answer_keywords,
-            )
-            row = {
-                "scenario_key": case.scenario_key,
-                "business_name": result["business_name"],
-                "question": case.question,
-                "expected_route": case.expected_route,
-                "actual_route": result["agent_type"],
-                "expected_policies": list(case.expected_policies),
-                "actual_policies": result["rag_titles"],
-                "passed": evaluation["passed"],
-                "route_ok": evaluation["route_ok"],
-                "policy_ok": evaluation["policy_ok"],
-                "keyword_ok": evaluation["keyword_ok"],
-                "missing_policies": evaluation["missing_policies"],
-                "missing_keywords": evaluation["missing_keywords"],
-                "failure_reasons": evaluation["failure_reasons"],
-                "note": case.note,
-                "content_preview": result["content"][:240],
-                "response_ms": result["response_ms"],
-                "rag_result_count": len(result["rag_titles"]),
-            }
+            try:
+                result = await _run_case(client, case.scenario_key, case.question)
+                evaluation = _evaluate(
+                    result,
+                    case.expected_route,
+                    case.expected_policies,
+                    case.expected_answer_keywords,
+                )
+                row = {
+                    "scenario_key": case.scenario_key,
+                    "business_name": result["business_name"],
+                    "question": case.question,
+                    "expected_route": case.expected_route,
+                    "actual_route": result["agent_type"],
+                    "expected_policies": list(case.expected_policies),
+                    "actual_policies": result["rag_titles"],
+                    "passed": evaluation["passed"],
+                    "route_ok": evaluation["route_ok"],
+                    "policy_ok": evaluation["policy_ok"],
+                    "keyword_ok": evaluation["keyword_ok"],
+                    "missing_policies": evaluation["missing_policies"],
+                    "missing_keywords": evaluation["missing_keywords"],
+                    "failure_reasons": evaluation["failure_reasons"],
+                    "note": case.note,
+                    "content_preview": result["content"][:240],
+                    "response_ms": result["response_ms"],
+                    "rag_result_count": len(result["rag_titles"]),
+                }
+            except Exception as exc:
+                row = _build_error_row(case, exc)
             summary.append(row)
             print(json.dumps(row, ensure_ascii=False))
 
