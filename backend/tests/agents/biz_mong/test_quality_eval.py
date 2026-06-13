@@ -1,4 +1,11 @@
-from src.app.scripts.evaluate_bizmong_quality import _evaluate, _select_cases, _summarize
+from types import SimpleNamespace
+
+from src.app.scripts.evaluate_bizmong_quality import (
+    _build_error_row,
+    _evaluate,
+    _select_cases,
+    _summarize,
+)
 
 
 def test_evaluate_reports_missing_policy_and_keyword_reasons():
@@ -73,3 +80,23 @@ def test_select_cases_filters_by_scenario_and_limit():
 
     assert len(cases) == 2
     assert all(case.scenario_key == "BIZ-01" for case in cases)
+
+
+def test_build_error_row_marks_runner_error_case():
+    case = SimpleNamespace(
+        scenario_key="BIZ-01",
+        question="내가 받을 수 있는 정책자금 뭐야?",
+        expected_route="rag",
+        expected_policies=("전국 소상공인 운전자금",),
+        expected_answer_keywords=("운전자금", "정책"),
+        note="환경 오류 테스트",
+    )
+
+    row = _build_error_row(case, RuntimeError("database offline"))
+
+    assert row["actual_route"] == "runner_error"
+    assert row["passed"] is False
+    assert row["failure_reasons"] == ["runner_error"]
+    assert row["missing_policies"] == ["전국 소상공인 운전자금"]
+    assert row["missing_keywords"] == ["운전자금", "정책"]
+    assert row["content_preview"] == "database offline"
