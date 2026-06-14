@@ -47,6 +47,7 @@ def test_summarize_returns_accuracy_and_latency_breakdown():
                 "response_ms": 100.0,
                 "failure_reasons": [],
                 "actual_route": "rag",
+                "response_metadata": {"is_fallback": False},
             },
             {
                 "question": "q2",
@@ -57,6 +58,7 @@ def test_summarize_returns_accuracy_and_latency_breakdown():
                 "response_ms": 300.0,
                 "failure_reasons": ["policy_mismatch", "keyword_mismatch"],
                 "actual_route": "rag",
+                "response_metadata": {"is_fallback": True},
             },
         ]
     )
@@ -67,6 +69,8 @@ def test_summarize_returns_accuracy_and_latency_breakdown():
     assert summary["route_accuracy"] == 100.0
     assert summary["policy_accuracy"] == 50.0
     assert summary["keyword_accuracy"] == 50.0
+    assert summary["fallback_count"] == 1
+    assert summary["fallback_rate"] == 50.0
     assert summary["latency_avg_ms"] == 200.0
     assert summary["latency_p95_ms"] == 100.0
     assert summary["failed_cases"][0]["failure_reasons"] == [

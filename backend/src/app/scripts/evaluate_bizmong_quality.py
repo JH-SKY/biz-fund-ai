@@ -50,6 +50,7 @@ async def _run_case(client: httpx.AsyncClient, scenario_key: str, question: str)
         "content": data.get("content") or "",
         "rag_titles": [item.get("title") for item in (data.get("rag_results") or [])],
         "stats_insight": data.get("stats_insight") or {},
+        "response_metadata": data.get("metadata") or {},
         "response_ms": elapsed_ms,
     }
 
@@ -96,6 +97,7 @@ def _summarize(rows: list[dict]) -> dict:
     policy_ok = sum(1 for row in rows if row["policy_ok"])
     keyword_ok = sum(1 for row in rows if row["keyword_ok"])
     latencies = [row["response_ms"] for row in rows]
+    fallback_count = sum(1 for row in rows if _is_fallback_response(row))
     failed_cases = [
         {
             "question": row["question"],
@@ -119,10 +121,17 @@ def _summarize(rows: list[dict]) -> dict:
         "route_accuracy": round((route_ok / total) * 100, 1) if total else 0.0,
         "policy_accuracy": round((policy_ok / total) * 100, 1) if total else 0.0,
         "keyword_accuracy": round((keyword_ok / total) * 100, 1) if total else 0.0,
+        "fallback_count": fallback_count,
+        "fallback_rate": round((fallback_count / total) * 100, 1) if total else 0.0,
         "latency_avg_ms": latency_avg,
         "latency_p95_ms": latency_p95,
         "failed_cases": failed_cases,
     }
+
+
+def _is_fallback_response(row: dict) -> bool:
+    metadata = row.get("response_metadata") or {}
+    return isinstance(metadata, dict) and metadata.get("is_fallback") is True
 
 
 def _build_error_row(case, exc: Exception) -> dict:
@@ -144,6 +153,7 @@ def _build_error_row(case, exc: Exception) -> dict:
         "failure_reasons": ["runner_error"],
         "note": case.note,
         "content_preview": str(exc),
+        "response_metadata": {},
         "response_ms": 0.0,
         "rag_result_count": 0,
     }
@@ -211,6 +221,7 @@ async def main(
                     "failure_reasons": evaluation["failure_reasons"],
                     "note": case.note,
                     "content_preview": result["content"][:240],
+                    "response_metadata": result["response_metadata"],
                     "response_ms": result["response_ms"],
                     "rag_result_count": len(result["rag_titles"]),
                 }

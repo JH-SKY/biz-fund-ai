@@ -71,6 +71,7 @@ class AgentMessageResponse(BaseModel):
     simulation_report: Optional[dict] = None
     stats_insight: Optional[dict] = None   # stats 노드 결과
     rag_results: Optional[list] = None     # RAG 검색 결과
+    metadata: Optional[dict[str, Any]] = None
     created_at: datetime
 
 
@@ -190,6 +191,13 @@ async def send_agent_message(
     node_logs = _normalize_node_logs(router_result.get("node_logs"))
     node_logs.extend(_normalize_node_logs(final_state.get("node_logs")))
     prompt_version = final_state.get("prompt_version") or PROMPT_VERSION_GENERAL
+    response_metadata = _build_agent_response_metadata(
+        agent_type=agent_type,
+        router_result=router_result,
+        final_state=final_state,
+    )
+    fallback_mode = final_state.get("fallback_mode") or router_result.get("fallback_mode")
+    fallback_reason = final_state.get("fallback_reason") or router_result.get("fallback_reason")
 
     ai_log = await svc._repo.create_chat_log(
         user_id=biz.user_id,
@@ -216,8 +224,8 @@ async def send_agent_message(
         first_token_latency_ms=None,
         prompt_version=prompt_version,
         rag_hit_count=len(final_state.get("rag_results") or []),
-        fallback_mode=router_result.get("fallback_mode"),
-        fallback_reason=router_result.get("fallback_reason"),
+        fallback_mode=fallback_mode,
+        fallback_reason=fallback_reason,
     )
 
     response_data = AgentMessageResponse(
@@ -230,6 +238,7 @@ async def send_agent_message(
         simulation_report=None,
         stats_insight=final_state.get("stats_insight") or None,
         rag_results=final_state.get("rag_results") or None,
+        metadata=response_metadata,
         created_at=ai_created_at,
     )
     return api_json(http_status=status.HTTP_200_OK, data=response_data.model_dump(), message="success")
@@ -292,6 +301,7 @@ async def stream_agent_message(
             prompt_version = PROMPT_VERSION_GENERAL
             fallback_mode = router_result.get("fallback_mode")
             fallback_reason = router_result.get("fallback_reason")
+            response_state: dict[str, Any] = {}
 
             if intent in ("greeting", "general_qa"):
                 qa_started_at = datetime.utcnow()
@@ -368,12 +378,21 @@ async def stream_agent_message(
                     state=merged_state,
                     route_intent=intent,
                 )
+                response_state = final_state
                 agent_type = final_state.get("current_agent") or intent
                 full_content = _build_response_content(agent_type, final_state)
                 node_logs.extend(_normalize_node_logs(final_state.get("node_logs")))
                 prompt_version = final_state.get("prompt_version") or prompt_version
                 stats_insight = final_state.get("stats_insight")
                 rag_results = final_state.get("rag_results")
+                fallback_mode = final_state.get("fallback_mode") or fallback_mode
+                fallback_reason = final_state.get("fallback_reason") or fallback_reason
+
+            response_metadata = _build_agent_response_metadata(
+                agent_type=agent_type,
+                router_result=router_result,
+                final_state=response_state,
+            )
 
             ai_log = await svc._repo.create_chat_log(
                 user_id=biz.user_id,
@@ -413,6 +432,7 @@ async def stream_agent_message(
                     "simulation_report": None,
                     "stats_insight": stats_insight,
                     "rag_results": rag_results,
+                    "metadata": response_metadata,
                 },
             )
         except Exception as exc:
@@ -515,6 +535,38 @@ def _build_response_content(agent_type: str, state: dict[str, Any]) -> str:
         return trend or comparison or "통계 비교 정보를 정리했습니다."
 
     return "답변을 정리했습니다."
+
+
+def _build_agent_response_metadata(
+    *,
+    agent_type: str,
+    router_result: dict[str, Any],
+    final_state: dict[str, Any],
+) -> dict[str, Any]:
+    """평가와 디버깅에 필요한 응답 메타데이터를 정리한다."""
+    metadata: dict[str, Any] = {
+        "is_fallback": False,
+        "response_source": agent_type,
+    }
+
+    routing_fallback_mode = router_result.get("fallback_mode")
+    routing_fallback_reason = router_result.get("fallback_reason")
+    if routing_fallback_mode:
+        metadata["routing_fallback_mode"] = routing_fallback_mode
+    if routing_fallback_reason:
+        metadata["routing_fallback_reason"] = routing_fallback_reason
+
+    response_metadata = final_state.get("response_metadata") or {}
+    if isinstance(response_metadata, dict):
+        metadata.update(response_metadata)
+
+    fallback_mode = final_state.get("fallback_mode") or routing_fallback_mode
+    fallback_reason = final_state.get("fallback_reason") or routing_fallback_reason
+    if fallback_mode:
+        metadata["fallback_mode"] = fallback_mode
+    if fallback_reason:
+        metadata["fallback_reason"] = fallback_reason
+    return metadata
 
 
 async def _verify_room_access(

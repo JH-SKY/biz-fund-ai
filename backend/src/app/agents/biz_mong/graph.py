@@ -368,6 +368,12 @@ async def _run_rag(
                     "content": "관련 정책 정보를 바로 찾지 못했습니다. 정책명이나 기관명, 지역, 분야를 조금 더 구체적으로 알려주시면 다시 찾아볼게요.",
                 }
             ],
+            "fallback_mode": "rag",
+            "fallback_reason": "no_rag_results",
+            "response_metadata": {
+                "is_fallback": True,
+                "response_source": "rag_empty_result",
+            },
             "node_logs": node_logs,
         }
 
@@ -391,8 +397,20 @@ async def _run_rag(
         biz_info=biz_info,
         financial_data=state.get("financial_data") or {},
     )
+    fallback_mode: str | None = None
+    fallback_reason: str | None = None
+    response_metadata = {
+        "is_fallback": False,
+        "response_source": "rag_generated",
+    }
     if not usage:
         answer = _build_rag_fallback_answer(last_msg, rag_results)
+        fallback_mode = "rag"
+        fallback_reason = "generation_error"
+        response_metadata = {
+            "is_fallback": True,
+            "response_source": "rag_fallback",
+        }
     generation_elapsed_ms = int((time.monotonic() - generation_started) * 1000)
     node_logs.append(
         build_node_log(
@@ -413,6 +431,9 @@ async def _run_rag(
         "rag_results": rag_results,
         "messages": [{"role": "assistant", "content": answer}],
         "node_logs": node_logs,
+        "fallback_mode": fallback_mode,
+        "fallback_reason": fallback_reason,
+        "response_metadata": response_metadata,
         "last_usage": {
             "tokens_in": getattr(usage, "prompt_tokens", None),
             "tokens_out": getattr(usage, "completion_tokens", None),
