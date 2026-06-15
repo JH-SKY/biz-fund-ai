@@ -2,6 +2,7 @@ from datetime import date
 from types import SimpleNamespace
 
 from src.app.agents.biz_mong.tools.policy_rag import (
+    _build_policy_dedupe_key,
     _build_business_context_terms,
     _detect_query_intents,
     _extract_keywords,
@@ -159,6 +160,15 @@ def test_build_business_context_terms_collects_region_stage_and_funding_hints():
 def test_is_early_stage_business_uses_36_month_cutoff():
     assert _is_early_stage_business("2025-03-15", today=date(2026, 5, 28)) is True
     assert _is_early_stage_business("2021-03-15", today=date(2026, 5, 28)) is False
+
+
+def test_build_policy_dedupe_key_normalizes_spacing_and_punctuation():
+    first = _build_policy_dedupe_key("2026 서울 소상공인 지원자금", "서울신용보증재단")
+    second = _build_policy_dedupe_key("2026  서울 소상공인 지원자금 ", "서울신용보증재단")
+    third = _build_policy_dedupe_key("2026 서울 소상공인 지원자금", "서울신용보증재단)")
+
+    assert first == second
+    assert first == third
 
 
 def test_rewrite_query_variants_adds_business_context_for_broad_funding_question():
