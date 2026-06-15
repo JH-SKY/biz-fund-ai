@@ -58,6 +58,11 @@ def test_extract_region_hint_finds_explicit_region_name():
     assert _extract_region_hint("지역 언급 없이 물어보는 질문") is None
 
 
+def test_extract_region_hint_maps_sigungu_alias_to_parent_region():
+    assert _extract_region_hint("강남에서 받을 수 있는 창업 지원이 있을까요?") == "서울"
+    assert _extract_region_hint("수원 소상공인 지원도 있나요?") == "경기"
+
+
 def test_score_fts_candidate_prefers_region_and_title_keyword_overlap():
     keywords = ["서울", "창업", "지원자금"]
     strong_match = SimpleNamespace(
@@ -83,6 +88,34 @@ def test_score_fts_candidate_prefers_region_and_title_keyword_overlap():
         weak_match,
         keywords,
         "서울",
+    )
+
+
+def test_score_fts_candidate_uses_sigungu_alias_region_hint():
+    keywords = ["강남", "창업", "지원"]
+    seoul_policy = SimpleNamespace(
+        title="서울 초기창업 지원자금",
+        ai_summary="서울 창업 기업 대상 정책자금 지원",
+        ai_full_explanation="서울 소재 초기창업 기업이 신청할 수 있는 자금입니다.",
+        region="서울",
+        category="창업지원",
+        support_type="운영자금",
+        target_logic=None,
+    )
+    busan_policy = SimpleNamespace(
+        title="부산 창업 성장 프로그램",
+        ai_summary="부산 창업 기업 성장 프로그램",
+        ai_full_explanation="부산 소재 기업 대상 지원입니다.",
+        region="부산",
+        category="창업지원",
+        support_type="프로그램",
+        target_logic=None,
+    )
+
+    assert _score_fts_candidate(seoul_policy, keywords, _extract_region_hint("강남 창업 지원"),) > _score_fts_candidate(
+        busan_policy,
+        keywords,
+        _extract_region_hint("강남 창업 지원"),
     )
 
 
