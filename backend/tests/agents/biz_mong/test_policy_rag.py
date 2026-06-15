@@ -31,6 +31,16 @@ def test_extract_keywords_expands_hiring_and_loan_intents_without_duplicates():
     assert keywords.count("지원금") == 1
 
 
+def test_extract_keywords_expands_management_and_material_cost_words():
+    keywords = _extract_keywords("관리비랑 식자재값이 너무 올라서 버티기 빠듯해요")
+
+    assert "운영자금" in keywords
+    assert "경영안정" in keywords
+    assert "긴급경영안정" in keywords
+    assert any(token.startswith("관리비") for token in keywords)
+    assert any(token.startswith("식자재값") or token.startswith("식자재") for token in keywords)
+
+
 def test_extract_keywords_filters_noise_and_limits_result_size():
     keywords = _extract_keywords(
         "이거 관련해서 좀 알려주세요 2026년에 서울에서 창업하고 수출도 해보려는데 뭐가 있을까요?"
@@ -78,6 +88,13 @@ def test_score_fts_candidate_prefers_region_and_title_keyword_overlap():
 
 def test_detect_query_intents_handles_mixed_operating_and_hiring_signals():
     intents = _detect_query_intents("월세랑 직원 월급이 같이 부담돼서 버티기 힘들어요")
+
+    assert "operating_cost" in intents
+    assert "hiring" in intents
+
+
+def test_detect_query_intents_recognizes_management_and_part_time_cost_signals():
+    intents = _detect_query_intents("관리비랑 알바 월급이 같이 올라서 너무 버거워요")
 
     assert "operating_cost" in intents
     assert "hiring" in intents
