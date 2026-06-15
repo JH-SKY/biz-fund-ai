@@ -20,6 +20,7 @@ import re
 import uuid
 from datetime import date
 from typing import Any
+import unicodedata
 
 from openai import AsyncOpenAI
 from sqlalchemy import func, or_, select
@@ -274,14 +275,19 @@ async def policy_rag_search(
         logger.info("[policy_rag] 검색 결과 없음 (query=%s)", query_text[:50])
         return []
 
-    top_ids = sorted(rrf_scores, key=lambda x: rrf_scores[x], reverse=True)[:top_k]
+    top_ids = sorted(rrf_scores, key=lambda x: rrf_scores[x], reverse=True)[: max(top_k * 3, top_k)]
 
     # ── Step 5: 정책 상세 조회 ────────────────────────────────────────────
     results: list[dict[str, Any]] = []
+    seen_policy_keys: set[str] = set()
     for policy_id in top_ids:
         policy = await _get_policy(session, policy_id)
         if policy is None:
             continue
+        dedupe_key = _build_policy_dedupe_key(policy.title, policy.agency_name)
+        if dedupe_key in seen_policy_keys:
+            continue
+        seen_policy_keys.add(dedupe_key)
 
         # 가장 관련 있는 청크 텍스트 추출 (벡터 검색 결과 우선)
         chunk_text = await _get_relevant_chunk(session, policy.id, query_vector)
@@ -299,6 +305,8 @@ async def policy_rag_search(
             "rrf_score": rrf_scores[policy_id],
             "relevant_chunk": chunk_text,
         })
+        if len(results) >= top_k:
+            break
 
     logger.info("[policy_rag] query='%s' → %d 개 결과", query_text[:50], len(results))
     return results
@@ -744,6 +752,21 @@ def _merge_keywords(*keyword_groups: list[str]) -> list[str]:
                 continue
             ordered.append(normalized)
     return ordered
+
+
+def _build_policy_dedupe_key(title: str | None, agency_name: str | None) -> str:
+    normalized_title = _normalize_dedupe_text(title)
+    normalized_agency = _normalize_dedupe_text(agency_name)
+    return f"{normalized_title}::{normalized_agency}"
+
+
+def _normalize_dedupe_text(value: str | None) -> str:
+    if not value:
+        return ""
+    normalized = unicodedata.normalize("NFKC", value).lower().strip()
+    normalized = re.sub(r"\s+", "", normalized)
+    normalized = re.sub(r"[^\w가-힣]", "", normalized)
+    return normalized
 
 
 async def _get_policy(session: AsyncSession, policy_id: str) -> Policy | None:
