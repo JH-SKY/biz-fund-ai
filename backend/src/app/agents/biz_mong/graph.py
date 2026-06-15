@@ -339,12 +339,15 @@ async def _run_rag(
     retrieval_started = time.monotonic()
     # 지역 필터가 있으면 "내 사업장 지역 + 전국 공고" 중심으로 검색해 추천 품질을 높인다.
     # 지역 정보가 없으면 전체 공고에서 검색되므로 상담은 계속 가능하다.
-    rag_results = await policy_rag_search(
+    search_payload = await policy_rag_search(
         last_msg,
         session,
         region_filter=region,
         biz_info=biz_info,
     )
+    rag_results = search_payload.get("results") or []
+    rag_intent_results = search_payload.get("intent_results") or []
+    search_metadata = search_payload.get("search_metadata") or {}
     retrieval_elapsed_ms = int((time.monotonic() - retrieval_started) * 1000)
     node_logs.append(
         build_node_log(
@@ -354,7 +357,12 @@ async def _run_rag(
             latency_ms=retrieval_elapsed_ms,
             started_at=retrieval_started_at,
             completed_at=datetime.now(timezone.utc),
-            metadata={"region_filter": region, "result_count": len(rag_results)},
+            metadata={
+                "region_filter": region,
+                "result_count": len(rag_results),
+                "detected_intents": search_metadata.get("detected_intents") or [],
+                "multi_intent_mode": search_metadata.get("multi_intent_mode", False),
+            },
         )
     )
 
@@ -362,6 +370,7 @@ async def _run_rag(
     if not rag_results:
         return {
             "rag_results": [],
+            "rag_intent_results": [],
             "messages": [
                 {
                     "role": "assistant",
@@ -373,6 +382,7 @@ async def _run_rag(
             "response_metadata": {
                 "is_fallback": True,
                 "response_source": "rag_empty_result",
+                **search_metadata,
             },
             "node_logs": node_logs,
         }
@@ -380,10 +390,7 @@ async def _run_rag(
     # [3] 상위 3개 청크를 컨텍스트 문자열로 조합
     # 상위 몇 개 근거만 문맥에 넣어 토큰 사용량을 줄이고,
     # 너무 많은 문서를 넣어서 답변 초점이 흐려지는 것도 막는다.
-    context = "\n\n".join(
-        f"[{result['title']}]\n{result['relevant_chunk']}"
-        for result in rag_results[:3]
-    )
+    context = _build_rag_context(rag_intent_results, rag_results)
 
     # [4] GPT 답변 생성
     generation_started_at = datetime.now(timezone.utc)
@@ -396,20 +403,24 @@ async def _run_rag(
         context,
         biz_info=biz_info,
         financial_data=state.get("financial_data") or {},
+        multi_intent_mode=search_metadata.get("multi_intent_mode", False),
+        detected_intents=search_metadata.get("detected_intents") or [],
     )
     fallback_mode: str | None = None
     fallback_reason: str | None = None
     response_metadata = {
         "is_fallback": False,
         "response_source": "rag_generated",
+        **search_metadata,
     }
     if not usage:
-        answer = _build_rag_fallback_answer(last_msg, rag_results)
+        answer = _build_rag_fallback_answer(last_msg, rag_intent_results, rag_results)
         fallback_mode = "rag"
         fallback_reason = "generation_error"
         response_metadata = {
             "is_fallback": True,
             "response_source": "rag_fallback",
+            **search_metadata,
         }
     generation_elapsed_ms = int((time.monotonic() - generation_started) * 1000)
     node_logs.append(
@@ -423,12 +434,16 @@ async def _run_rag(
             tokens_out=getattr(usage, "completion_tokens", None),
             started_at=generation_started_at,
             completed_at=datetime.now(timezone.utc),
-            metadata={"result_count": len(rag_results)},
+            metadata={
+                "result_count": len(rag_results),
+                "intent_group_count": len(rag_intent_results),
+            },
         )
     )
 
     return {
         "rag_results": rag_results,
+        "rag_intent_results": rag_intent_results,
         "messages": [{"role": "assistant", "content": answer}],
         "node_logs": node_logs,
         "fallback_mode": fallback_mode,
@@ -450,6 +465,8 @@ async def _generate_rag_answer(
     *,
     biz_info: dict[str, Any] | None = None,
     financial_data: dict[str, Any] | None = None,
+    multi_intent_mode: bool = False,
+    detected_intents: list[str] | None = None,
 ) -> tuple[str, object | None]:
     """GPT 에 정책 컨텍스트와 질문을 전달하여 최종 답변을 생성한다.
 
@@ -460,6 +477,8 @@ async def _generate_rag_answer(
     Returns:
         (answer_text, usage) — usage 는 토큰 사용량 집계용
     """
+    needs_sections = multi_intent_mode or _requires_sectioned_rag_answer(question)
+    detected_intent_text = ", ".join(detected_intents or []) or "없음"
     system_prompt = (
         "당신은 정책자금 전문 비서 비즈몽이다. 아래 정책 정보만 근거로 설명하고, "
         "사용자의 사업장 상황을 반영해 우선순위를 정리하세요. "
@@ -493,6 +512,7 @@ async def _generate_rag_answer(
 
 def _build_rag_fallback_answer(
     question: str,
+    rag_intent_results: list[dict[str, Any]],
     rag_results: list[dict[str, Any]],
 ) -> str:
     """OpenAI 생성이 실패해도 검색 결과 기반 요약 답변을 만든다."""
@@ -582,6 +602,152 @@ def _is_broad_funding_question(question: str) -> bool:
     return any(marker in question for marker in funding_markers) and any(
         marker in question for marker in broad_markers
     )
+
+
+async def _generate_rag_answer(
+    client: AsyncOpenAI,
+    question: str,
+    context: str,
+    *,
+    biz_info: dict[str, Any] | None = None,
+    financial_data: dict[str, Any] | None = None,
+    multi_intent_mode: bool = False,
+    detected_intents: list[str] | None = None,
+) -> tuple[str, object | None]:
+    needs_sections = multi_intent_mode or _requires_sectioned_rag_answer(question)
+    detected_intent_text = ", ".join(detected_intents or []) or "없음"
+    system_prompt = (
+        "당신은 정책자금 분석 도우미 BizMong이다. "
+        "아래 정책 정보만 근거로 설명하고 근거 없는 추측은 하지 않는다. "
+        "답변은 1) 판단 요약, 2) 추천 정책과 근거, 3) 확인할 조건, 4) 다음 행동 순서로 작성한다. "
+        "복합 질문이면 의도별로 섹션을 분리해 답변하고, 각각/하나씩/두 가지 같은 표현이 있으면 섹션 분리를 반드시 지킨다."
+    )
+    user_content = (
+        f"[사업자 정보]\n{_format_business_context(biz_info or {}, financial_data or {})}\n\n"
+        f"[감지된 의도]\n{detected_intent_text}\n\n"
+        f"[복합 의도 모드]\n{needs_sections}\n\n"
+        f"[정책 정보]\n{context}\n\n"
+        f"[질문]\n{question}"
+    )
+
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            temperature=0.2,
+        )
+        return (response.choices[0].message.content or "").strip(), response.usage
+    except Exception as exc:
+        logger.warning("[rag] answer generation failed: %s", exc)
+        return "", None
+
+
+def _build_rag_fallback_answer(
+    question: str,
+    rag_intent_results: list[dict[str, Any]],
+    rag_results: list[dict[str, Any]],
+) -> str:
+    if not rag_results:
+        return "관련 정책 정보를 바로 찾지 못했어요. 정책명이나 기간, 지역, 지원 분야를 조금 더 구체적으로 알려주시면 다시 찾아볼게요."
+
+    if len(rag_intent_results) > 1:
+        lines = ["질문을 의도별로 나눠서 우선 확인된 정책을 정리했어요."]
+        for group in rag_intent_results:
+            grouped_results = _prioritize_fallback_results(question, group.get("results") or [])[:2]
+            if not grouped_results:
+                continue
+            lines.append(f"[{group.get('intent_label') or group.get('intent')}]")
+            lines.extend(_build_fallback_lines_for_results(grouped_results))
+        lines.append("각 의도별 자격조건과 제외조건은 실제 공고문에서 마지막으로 다시 확인하는 것이 안전합니다.")
+        return "\n".join(lines)
+
+    top_results = _prioritize_fallback_results(question, rag_results)[:3]
+    lines = ["지금 확인되는 관련 정책은 아래와 같습니다."]
+    lines.extend(_build_fallback_lines_for_results(top_results))
+    lines.append("자격조건과 제외조건은 실제 공고문에서 마지막으로 다시 확인하는 것이 안전합니다.")
+    return "\n".join(lines)
+
+
+def _prioritize_fallback_results(
+    question: str,
+    rag_results: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not _is_broad_funding_question(question):
+        return rag_results
+
+    scored_results: list[tuple[int, int, dict[str, Any]]] = []
+    for index, result in enumerate(rag_results):
+        score = 0
+        haystack = " ".join(
+            str(result.get(field) or "")
+            for field in ("title", "support_type", "support_amount_desc", "ai_summary")
+        )
+        if any(keyword in haystack for keyword in ("운전자금", "운영자금", "정책자금")):
+            score += 3
+        if "소상공인" in haystack:
+            score += 1
+        scored_results.append((score, -index, result))
+
+    return [result for _, _, result in sorted(scored_results, reverse=True)]
+
+
+def _is_broad_funding_question(question: str) -> bool:
+    funding_markers = ("정책자금", "지원자금", "운전자금", "대출", "융자", "보증금")
+    broad_markers = ("뭐", "뭐야", "있어", "추천", "받을 수", "알려")
+    return any(marker in question for marker in funding_markers) and any(
+        marker in question for marker in broad_markers
+    )
+
+
+def _build_rag_context(
+    rag_intent_results: list[dict[str, Any]],
+    rag_results: list[dict[str, Any]],
+) -> str:
+    if len(rag_intent_results) > 1:
+        sections: list[str] = []
+        for group in rag_intent_results:
+            top_results = group.get("results") or []
+            if not top_results:
+                continue
+            body = "\n\n".join(
+                f"[{result['title']}]\n{result['relevant_chunk']}"
+                for result in top_results[:2]
+            )
+            sections.append(f"[의도: {group.get('intent_label') or group.get('intent')}]\n{body}")
+        return "\n\n".join(sections)
+
+    return "\n\n".join(
+        f"[{result['title']}]\n{result['relevant_chunk']}"
+        for result in rag_results[:3]
+    )
+
+
+def _requires_sectioned_rag_answer(question: str) -> bool:
+    markers = ("각각", "각자", "하나씩", "한 개씩", "1개씩", "두 가지")
+    return any(marker in question for marker in markers)
+
+
+def _build_fallback_lines_for_results(results: list[dict[str, Any]]) -> list[str]:
+    lines: list[str] = []
+    for idx, result in enumerate(results, start=1):
+        title = result.get("title") or "정책명 미상"
+        region = result.get("region") or "전국"
+        support_type = result.get("support_type") or ""
+        support_amount = result.get("support_amount_desc") or "지원 내용은 공고문 확인이 필요합니다."
+        summary = result.get("ai_summary") or ""
+        end_date = result.get("end_date") or "상시/공고문 확인"
+
+        detail_parts = [region]
+        if support_type:
+            detail_parts.append(support_type)
+        detail_parts.extend([support_amount, f"마감 {end_date}"])
+        if summary:
+            detail_parts.append(summary)
+        lines.append(f"{idx}. {title}: " + " / ".join(detail_parts))
+    return lines
 
 
 def _format_business_context(
