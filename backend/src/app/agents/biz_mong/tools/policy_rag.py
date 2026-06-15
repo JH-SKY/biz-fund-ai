@@ -1,26 +1,13 @@
-# src/app/agents/biz_mong/tools/policy_rag.py
-"""Tool: Hybrid RAG — 벡터 검색 + FTS(키워드) 검색 + RRF 결합.
-
-설계 원칙:
-  [Hybrid Search Strategy]
-  1. Vector Search  — OpenAI text-embedding-3-small 으로 쿼리를 임베딩하고 pgvector cosine distance 검색.
-  2. FTS Search     — Policy.title, ai_summary, ai_full_explanation 에 대해 ilike 키워드 검색.
-                      (PostgreSQL pg_trgm 미설치 환경을 고려하여 표준 ilike 를 사용한다.)
-  3. RRF Fusion     — Reciprocal Rank Fusion(k=60) 으로 두 결과를 결합, 상위 N 개를 반환한다.
-
-  RRF 공식: score(d) = Σ 1 / (k + rank_i(d))
-  - k=60 은 Cormack et al.(2009) 논문에서 권장하는 표준값입니다.
-  - 두 검색 결과 중 하나에만 있는 문서는 해당 항목만 더해집니다.
-"""
-
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import date
+import json
 import logging
 import re
-import uuid
-from datetime import date
-from typing import Any
 import unicodedata
+import uuid
+from typing import Any
 
 from openai import AsyncOpenAI
 from sqlalchemy import func, or_, select
@@ -33,30 +20,26 @@ from src.app.domains.policy.target_logic import parse_target_logic
 logger = logging.getLogger(__name__)
 
 _EMBEDDING_MODEL = "text-embedding-3-small"
-_RRF_K = 60          # RRF 표준 상수
-_VECTOR_LIMIT = 20   # 벡터 검색 후보 수
-_FTS_LIMIT = 20      # FTS 후보 수
-_FINAL_LIMIT = 5     # 최종 반환 개수
+_RRF_K = 60
+_VECTOR_LIMIT = 20
+_FTS_LIMIT = 20
+_FINAL_LIMIT = 5
 _MAX_KEYWORDS = 8
+_QUERY_REWRITE_MODEL = "gpt-4o-mini"
 
 _STOPWORDS = {
     "이",
     "가",
-    "을",
-    "를",
     "은",
     "는",
-    "에",
-    "의",
-    "도",
+    "을",
+    "를",
     "좀",
-    "저",
-    "제",
-    "뭐",
-    "문의",
+    "조금",
     "관련",
+    "문의",
     "있나",
-    "있어요",
+    "있어",
     "있을까",
     "주세요",
     "알려줘",
@@ -67,12 +50,12 @@ _STOPWORDS = {
 
 _DOMAIN_SYNONYMS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
-        ("운영비", "고정비", "월세", "임대료", "인건비", "관리비", "유지비", "재료비", "식자재", "원자재", "공과금"),
-        ("운영자금", "소상공인", "지원금", "경영안정", "긴급경영안정"),
+        ("운영비", "고정비", "월세", "전기료", "가스비", "관리비", "수도비", "재료비", "원자재", "공과금"),
+        ("운영자금", "소상공인", "지원자금", "경영안정", "긴급경영안정"),
     ),
     (
         ("직원", "채용", "급여", "인력", "고용", "월급", "알바", "아르바이트"),
-        ("고용", "고용지원", "지원금", "일자리", "고용유지"),
+        ("고용", "고용지원", "지원자금", "일자리", "고용유지"),
     ),
     (("대출", "보증", "융자", "자금"), ("대출", "융자", "정책자금")),
     (("시설", "설비", "장비", "기계"), ("시설자금", "설비", "스마트공장")),
@@ -142,7 +125,7 @@ _REGION_HINT_ALIASES = {
     "달서": "대구",
     "유성": "대전",
     "서귀포": "제주",
-    "제주도": "제주",
+    "제주시": "제주",
 }
 
 _QUERY_INTENT_RULES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
@@ -150,21 +133,20 @@ _QUERY_INTENT_RULES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = 
         "operating_cost",
         (
             "월세",
-            "임대료",
+            "전기료",
             "전기세",
             "가스비",
             "고정비",
             "운영비",
             "관리비",
-            "유지비",
+            "수도비",
             "재료비",
-            "식자재",
             "원자재값",
             "공과금",
             "버티기",
-            "팍팍",
-            "빠듯",
-            "버거",
+            "빡빡",
+            "부담",
+            "벅거",
         ),
         ("소상공인", "운영자금", "경영안정", "긴급경영안정", "정책자금"),
     ),
@@ -176,11 +158,11 @@ _QUERY_INTENT_RULES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = 
     (
         "facility",
         ("설비", "장비", "기계", "공장", "교체", "자동화"),
-        ("시설자금", "설비", "제조업", "자동화", "스마트공장"),
+        ("시설자금", "설비", "제조", "자동화", "스마트공장"),
     ),
     (
         "startup",
-        ("창업", "초기", "업력", "스타트업", "예비창업"),
+        ("창업", "초기", "입문", "스타트업", "예비창업"),
         ("초기창업", "창업자금", "창업지원", "사업화"),
     ),
     (
@@ -190,6 +172,35 @@ _QUERY_INTENT_RULES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = 
     ),
 )
 
+_INTENT_DISPLAY_NAMES = {
+    "operating_cost": "운영자금",
+    "hiring": "고용지원",
+    "facility": "시설자금",
+    "startup": "창업지원",
+    "export": "수출지원",
+    "general": "정책자금",
+}
+
+_PER_INTENT_QUOTA_MARKERS = (
+    "각각",
+    "각자",
+    "하나씩",
+    "한 개씩",
+    "1개씩",
+    "각 1개",
+    "각각 하나",
+    "두 가지",
+)
+
+
+@dataclass(slots=True)
+class SearchTask:
+    intent_name: str
+    rewritten_queries: list[str]
+    expected_support_types: list[str]
+    explanation: str
+    seed_query: str
+
 
 async def policy_rag_search(
     query_text: str,
@@ -198,88 +209,262 @@ async def policy_rag_search(
     region_filter: str | None = None,
     biz_info: dict[str, Any] | None = None,
     top_k: int = _FINAL_LIMIT,
-) -> list[dict[str, Any]]:
-    """사용자 질문에 맞는 정책 공고를 Hybrid Search 로 검색한다.
-
-    Args:
-        query_text:    사용자 자연어 질문
-        session:       AsyncSession
-        region_filter: 지역 필터 (선택). 예: "서울", "전국"
-        top_k:         반환할 최대 정책 수 (기본 5)
-
-    Returns:
-        [{
-            "policy_id": str,
-            "title": str,
-            "agency_name": str,
-            "ai_summary": str,
-            "support_amount_desc": str,
-            "region": str,
-            "end_date": str,
-            "apply_url": str,
-            "rrf_score": float,
-            "relevant_chunk": str,  # 검색에 매칭된 청크 텍스트
-        }, ...]
-    """
-    # 검색기는 "질문을 임베딩으로 찾는 방식"과 "키워드로 찾는 방식"을 함께 쓴다.
-    # 한쪽만 쓰면 의미 검색은 되는데 정책명을 놓치거나, 반대로 정확한 명칭만 찾고 문맥을 놓칠 수 있다.
+) -> dict[str, Any]:
     client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+    search_plan = await _build_search_plan(query_text, biz_info=biz_info, client=client)
+    per_task_limit = 3 if top_k >= 3 else max(2, top_k)
+    intent_results: list[dict[str, Any]] = []
 
-    # ── Step 1: 쿼리 임베딩 ──────────────────────────────────────────────
-    try:
-        emb_response = await client.embeddings.create(
-            model=_EMBEDDING_MODEL,
-            input=query_text,
+    for task in search_plan:
+        task_results = await _search_for_task(
+            task,
+            session,
+            region_filter=region_filter,
+            biz_info=biz_info,
+            client=client,
+            limit=per_task_limit,
         )
-        query_vector = emb_response.data[0].embedding
+        intent_results.append({
+            "intent": task.intent_name,
+            "intent_label": _INTENT_DISPLAY_NAMES.get(task.intent_name, task.intent_name),
+            "queries": task.rewritten_queries,
+            "expected_support_types": task.expected_support_types,
+            "explanation": task.explanation,
+            "results": task_results,
+        })
+
+    merged_results = _merge_intent_result_sets(intent_results, question=query_text, top_k=top_k)
+    search_metadata = _build_search_metadata(search_plan, intent_results)
+
+    logger.info(
+        "[policy_rag] query='%s' intents=%s results=%d llm_rewrite=%s",
+        query_text[:50],
+        search_metadata["detected_intents"],
+        len(merged_results),
+        search_metadata["rewritten_by_llm"],
+    )
+    return {
+        "results": merged_results,
+        "intent_results": intent_results,
+        "search_metadata": search_metadata,
+    }
+
+
+async def _build_search_plan(
+    question: str,
+    *,
+    biz_info: dict[str, Any] | None = None,
+    client: AsyncOpenAI | None = None,
+) -> list[SearchTask]:
+    detected_intents = _detect_query_intents(question)
+    if not detected_intents:
+        detected_intents = ["general"]
+
+    tasks: list[SearchTask] = []
+    for intent_name in detected_intents:
+        expected_support_types = _get_intent_support_types(intent_name)
+        seed_query = _build_task_seed_query(question, expected_support_types)
+        rewritten_queries, rewrite_source = await _prepare_task_queries(
+            seed_query,
+            biz_info=biz_info,
+            intent_name=intent_name,
+            client=client,
+        )
+        explanation = _build_task_explanation(intent_name, rewrite_source, expected_support_types)
+        tasks.append(
+            SearchTask(
+                intent_name=intent_name,
+                rewritten_queries=rewritten_queries,
+                expected_support_types=expected_support_types,
+                explanation=explanation,
+                seed_query=seed_query,
+            )
+        )
+    return tasks
+
+
+async def _prepare_task_queries(
+    question: str,
+    *,
+    biz_info: dict[str, Any] | None,
+    intent_name: str,
+    client: AsyncOpenAI | None,
+) -> tuple[list[str], str]:
+    try:
+        rewritten_queries = await _rewrite_query_with_llm(
+            question,
+            biz_info=biz_info,
+            intent_name=intent_name,
+            client=client,
+        )
+        return rewritten_queries, "llm"
     except Exception as exc:
-        logger.warning("[policy_rag] 임베딩 실패, FTS 단독 검색으로 폴백: %s", exc)
-        query_vector = None
+        logger.warning("[policy_rag] llm rewrite fallback intent=%s reason=%s", intent_name, exc)
+        return _rewrite_query_variants(question, biz_info=biz_info), "rule"
 
-    # ── Step 2: 벡터 검색 ──────────────────────────────────────────────
-    vector_ids: list[str] = []
-    if query_vector:
-        vector_ids = await _vector_search(session, query_vector, region_filter, limit=_VECTOR_LIMIT)
 
-    # ── Step 3: FTS (키워드) 검색 ────────────────────────────────────────
-    # 생활어 질문은 그대로 검색하면 후보가 너무 넓게 퍼지기 쉬워서
-    # 검색용 질의를 몇 개로 다시 써 본 뒤 FTS 결과를 합친다.
-    rewritten_queries = _rewrite_query_variants(query_text, biz_info=biz_info)
-    fts_ids: list[str] = []
-    seen_fts_ids: set[str] = set()
-    for rewritten_query in rewritten_queries:
+async def _rewrite_query_with_llm(
+    question: str,
+    biz_info: dict[str, Any] | None = None,
+    *,
+    intent_name: str | None = None,
+    client: AsyncOpenAI | None = None,
+) -> list[str]:
+    openai_client = client or AsyncOpenAI(api_key=OPENAI_API_KEY)
+    intent_label = _INTENT_DISPLAY_NAMES.get(intent_name or "general", "정책자금")
+    business_context = ", ".join(_build_business_context_terms(biz_info or {})) or "없음"
+    response = await openai_client.chat.completions.create(
+        model=_QUERY_REWRITE_MODEL,
+        temperature=0.1,
+        response_format={"type": "json_object"},
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "당신은 정책자금 검색어 재작성기다. "
+                    "반드시 JSON 객체만 반환하고 key는 queries 하나만 사용한다. "
+                    "queries는 1~3개의 한국어 검색 질의 배열이며 설명문은 넣지 않는다."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"원문 질문: {question}\n"
+                    f"집중 의도: {intent_label}\n"
+                    f"사업자 맥락: {business_context}\n"
+                    "요구사항:\n"
+                    "- 우회 표현은 정책 검색에 맞는 지원명/자금명으로 바꿀 것\n"
+                    "- 원문 질문도 후보 중 하나로 포함할 것\n"
+                    "- 너무 긴 문장은 피하고 검색 친화적으로 만들 것\n"
+                    '- 예시 형태: {"queries":["원문","소상공인 운영자금","경영안정 정책자금"]}'
+                ),
+            },
+        ],
+    )
+    content = (response.choices[0].message.content or "").strip()
+    payload = json.loads(content)
+    queries = payload.get("queries")
+    if not isinstance(queries, list):
+        raise ValueError("rewrite response missing queries")
+
+    ordered: list[str] = []
+    for raw_query in queries[:3]:
+        if not isinstance(raw_query, str):
+            continue
+        compact = " ".join(raw_query.split())
+        if compact and compact not in ordered:
+            ordered.append(compact)
+    original = " ".join(question.split())
+    if original and original not in ordered:
+        ordered.insert(0, original)
+    if not ordered:
+        raise ValueError("rewrite returned empty queries")
+    return ordered[:3]
+
+
+def _get_intent_support_types(intent_name: str) -> list[str]:
+    for rule_intent, _, rewrite_terms in _QUERY_INTENT_RULES:
+        if rule_intent == intent_name:
+            return list(rewrite_terms)
+    return ["정책자금", "소상공인", "지원사업"]
+
+
+def _build_task_seed_query(question: str, expected_support_types: list[str]) -> str:
+    if not expected_support_types:
+        return question
+    return f"{question} {' '.join(expected_support_types[:2])}"
+
+
+def _build_task_explanation(
+    intent_name: str,
+    rewrite_source: str,
+    expected_support_types: list[str],
+) -> str:
+    support_hint = ", ".join(expected_support_types[:3])
+    rewrite_label = "LLM 재작성" if rewrite_source == "llm" else "규칙 기반 폴백"
+    return f"{_INTENT_DISPLAY_NAMES.get(intent_name, intent_name)} 관점으로 분리했고 {rewrite_label}을 사용해 {support_hint} 중심으로 검색합니다."
+
+
+async def _search_for_task(
+    task: SearchTask,
+    session: AsyncSession,
+    *,
+    region_filter: str | None,
+    biz_info: dict[str, Any] | None,
+    client: AsyncOpenAI,
+    limit: int,
+) -> list[dict[str, Any]]:
+    rrf_scores: dict[str, float] = {}
+    query_vectors: dict[str, list[float] | None] = {}
+
+    for rewritten_query in task.rewritten_queries:
+        query_vector = await _create_query_embedding(client, rewritten_query)
+        query_vectors[rewritten_query] = query_vector
+
+        vector_ids: list[str] = []
+        if query_vector:
+            vector_ids = await _vector_search(
+                session,
+                query_vector,
+                region_filter,
+                limit=_VECTOR_LIMIT,
+            )
+
         keywords = _extract_keywords(rewritten_query)
-        candidate_ids = await _fts_search(
+        fts_ids = await _fts_search(
             session,
             keywords,
             region_filter,
             biz_info=biz_info,
             limit=_FTS_LIMIT,
         )
-        for candidate_id in candidate_ids:
-            if candidate_id in seen_fts_ids:
-                continue
-            seen_fts_ids.add(candidate_id)
-            fts_ids.append(candidate_id)
 
-    # ── Step 4: RRF 결합 ─────────────────────────────────────────────────
-    # RRF 는 두 검색 결과를 한 점수표로 합치는 단계다.
-    # 벡터 검색 상위권이면서 키워드 검색 상위권인 문서일수록 더 앞으로 오르게 된다.
-    rrf_scores: dict[str, float] = {}
-    for rank, pid in enumerate(vector_ids):
-        rrf_scores[pid] = rrf_scores.get(pid, 0.0) + 1.0 / (_RRF_K + rank + 1)
-    for rank, pid in enumerate(fts_ids):
-        rrf_scores[pid] = rrf_scores.get(pid, 0.0) + 1.0 / (_RRF_K + rank + 1)
+        for rank, policy_id in enumerate(vector_ids):
+            rrf_scores[policy_id] = rrf_scores.get(policy_id, 0.0) + 1.0 / (_RRF_K + rank + 1)
+        for rank, policy_id in enumerate(fts_ids):
+            rrf_scores[policy_id] = rrf_scores.get(policy_id, 0.0) + 1.0 / (_RRF_K + rank + 1)
 
     if not rrf_scores:
-        logger.info("[policy_rag] 검색 결과 없음 (query=%s)", query_text[:50])
         return []
 
-    top_ids = sorted(rrf_scores, key=lambda x: rrf_scores[x], reverse=True)[: max(top_k * 3, top_k)]
+    top_ids = sorted(rrf_scores, key=lambda item: rrf_scores[item], reverse=True)[: max(limit * 3, limit)]
+    primary_vector = next((vector for vector in query_vectors.values() if vector), None)
+    results = await _materialize_policy_results(
+        session,
+        top_ids,
+        rrf_scores=rrf_scores,
+        query_vector=primary_vector,
+        limit=limit,
+    )
+    for result in results:
+        result["intent"] = task.intent_name
+        result["intent_label"] = _INTENT_DISPLAY_NAMES.get(task.intent_name, task.intent_name)
+    return results
 
-    # ── Step 5: 정책 상세 조회 ────────────────────────────────────────────
+
+async def _create_query_embedding(
+    client: AsyncOpenAI,
+    query_text: str,
+) -> list[float] | None:
+    try:
+        emb_response = await client.embeddings.create(model=_EMBEDDING_MODEL, input=query_text)
+        return emb_response.data[0].embedding
+    except Exception as exc:
+        logger.warning("[policy_rag] embedding fallback query='%s' reason=%s", query_text[:40], exc)
+        return None
+
+
+async def _materialize_policy_results(
+    session: AsyncSession,
+    top_ids: list[str],
+    *,
+    rrf_scores: dict[str, float],
+    query_vector: list[float] | None,
+    limit: int,
+) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     seen_policy_keys: set[str] = set()
+
     for policy_id in top_ids:
         policy = await _get_policy(session, policy_id)
         if policy is None:
@@ -288,31 +473,109 @@ async def policy_rag_search(
         if dedupe_key in seen_policy_keys:
             continue
         seen_policy_keys.add(dedupe_key)
-
-        # 가장 관련 있는 청크 텍스트 추출 (벡터 검색 결과 우선)
         chunk_text = await _get_relevant_chunk(session, policy.id, query_vector)
-
         results.append({
             "policy_id": str(policy.id),
             "title": policy.title,
             "agency_name": policy.agency_name,
             "ai_summary": policy.ai_summary or "",
             "support_amount_desc": policy.support_amount_desc or "",
+            "support_type": policy.support_type or "",
+            "category": policy.category or "",
             "max_support": policy.max_support,
             "region": policy.region or "전국",
             "end_date": policy.closed_at.isoformat() if policy.closed_at else "",
             "apply_url": policy.apply_url or "",
             "rrf_score": rrf_scores[policy_id],
             "relevant_chunk": chunk_text,
+            "_dedupe_key": dedupe_key,
         })
-        if len(results) >= top_k:
+        if len(results) >= limit:
             break
-
-    logger.info("[policy_rag] query='%s' → %d 개 결과", query_text[:50], len(results))
     return results
 
 
-# ── 내부 헬퍼 ─────────────────────────────────────────────────────────────────
+def _merge_intent_result_sets(
+    intent_results: list[dict[str, Any]],
+    *,
+    question: str,
+    top_k: int,
+) -> list[dict[str, Any]]:
+    if not intent_results:
+        return []
+
+    if len(intent_results) == 1:
+        return [_strip_internal_fields(item) for item in intent_results[0].get("results", [])[:top_k]]
+
+    merged: list[dict[str, Any]] = []
+    seen_policy_keys: set[str] = set()
+    require_per_intent_minimum = _requires_per_intent_minimum(question) or len(intent_results) > 1
+
+    if require_per_intent_minimum:
+        for group in intent_results:
+            for candidate in group.get("results", []):
+                dedupe_key = candidate.get("_dedupe_key")
+                if dedupe_key in seen_policy_keys:
+                    continue
+                seen_policy_keys.add(dedupe_key)
+                merged.append(_strip_internal_fields(candidate))
+                break
+
+    result_pointers = {group["intent"]: 0 for group in intent_results}
+    while len(merged) < top_k:
+        best_candidate: dict[str, Any] | None = None
+        best_group_intent: str | None = None
+        best_score = -1.0
+
+        for group in intent_results:
+            group_results = group.get("results", [])
+            cursor = result_pointers[group["intent"]]
+            while cursor < len(group_results):
+                candidate = group_results[cursor]
+                if candidate.get("_dedupe_key") in seen_policy_keys:
+                    cursor += 1
+                    result_pointers[group["intent"]] = cursor
+                    continue
+                score = float(candidate.get("rrf_score") or 0.0)
+                if score > best_score:
+                    best_candidate = candidate
+                    best_group_intent = group["intent"]
+                    best_score = score
+                break
+
+        if best_candidate is None or best_group_intent is None:
+            break
+
+        seen_policy_keys.add(best_candidate.get("_dedupe_key"))
+        merged.append(_strip_internal_fields(best_candidate))
+        result_pointers[best_group_intent] += 1
+
+    return merged[:top_k]
+
+
+def _strip_internal_fields(result: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in result.items() if not key.startswith("_")}
+
+
+def _build_search_metadata(
+    search_plan: list[SearchTask],
+    intent_results: list[dict[str, Any]],
+) -> dict[str, Any]:
+    detected_intents = [task.intent_name for task in search_plan]
+    rewritten_by_llm = any("LLM 재작성" in task.explanation for task in search_plan)
+    return {
+        "rewritten_by_llm": rewritten_by_llm,
+        "detected_intents": detected_intents,
+        "search_plan_count": len(search_plan),
+        "multi_intent_mode": len(detected_intents) > 1,
+        "intent_result_count": len(intent_results),
+    }
+
+
+def _requires_per_intent_minimum(question: str) -> bool:
+    normalized_question = question.replace(" ", "")
+    return any(marker.replace(" ", "") in normalized_question for marker in _PER_INTENT_QUOTA_MARKERS)
+
 
 async def _vector_search(
     session: AsyncSession,
@@ -321,7 +584,6 @@ async def _vector_search(
     *,
     limit: int,
 ) -> list[str]:
-    """pgvector cosine distance 기반 정책 ID 목록 반환 (거리 오름차순)."""
     policy_conditions = [
         Policy.is_active.is_(True),
         Policy.status == PolicyStatus.RECRUITING,
@@ -334,10 +596,7 @@ async def _vector_search(
             )
         )
 
-    min_dist = func.min(
-        PolicyChunk.embedding.cosine_distance(query_vector)
-    ).label("min_dist")
-
+    min_dist = func.min(PolicyChunk.embedding.cosine_distance(query_vector)).label("min_dist")
     stmt = (
         select(Policy.id, min_dist)
         .join(PolicyChunk, PolicyChunk.policy_id == Policy.id)
@@ -358,7 +617,6 @@ async def _fts_search(
     biz_info: dict[str, Any] | None = None,
     limit: int,
 ) -> list[str]:
-    """키워드 기반 ilike 검색으로 정책 ID 목록 반환."""
     if not keywords:
         return []
 
@@ -374,9 +632,8 @@ async def _fts_search(
             )
         )
 
-    # 각 키워드를 title, ai_summary 에서 OR 검색
     keyword_clauses = []
-    for kw in keywords[:8]:  # 재작성 질의에서 붙인 문맥 키워드까지 후보 필터에 반영한다.
+    for kw in keywords[:8]:
         pattern = f"%{kw}%"
         keyword_clauses.append(
             or_(
@@ -417,16 +674,10 @@ async def _fts_search(
 
 
 def _extract_keywords(text: str) -> list[str]:
-    """자연어 질문에서 검색 키워드를 추출한다.
-
-    한국어 공백 분리 후 2글자 이상, 불용어 제거.
-    """
-    # 사용자가 "가게 보증금", "월급 지원"처럼 생활 언어로 묻더라도
-    # 검색기는 정책 문서에 가까운 단어(운전자금, 고용지원 등)로 확장해서 찾는다.
     normalized_text = text.lower().strip()
     tokens = [
         token
-        for token in re.split(r"[\s,?.!~]+", normalized_text)
+        for token in re.split(r"[\s,?.!~+/]+", normalized_text)
         if _is_meaningful_token(token)
     ]
 
@@ -458,8 +709,6 @@ def _rewrite_query_variants(
     for intent_name, _, rewrite_terms in _QUERY_INTENT_RULES:
         if intent_name not in intents:
             continue
-        # 원문을 버리지 않고 확장 질의를 덧붙여야
-        # 질문의 말투와 정책 문서 어휘를 둘 다 살릴 수 있다.
         rewritten_queries.append(f"{normalized_text} {' '.join(rewrite_terms)}")
 
     if biz_info and _is_broad_funding_query(normalized_text):
@@ -470,15 +719,14 @@ def _rewrite_query_variants(
     ordered_queries: list[str] = []
     for query in rewritten_queries:
         compact = " ".join(query.split())
-        if not compact or compact in ordered_queries:
-            continue
-        ordered_queries.append(compact)
+        if compact and compact not in ordered_queries:
+            ordered_queries.append(compact)
     return ordered_queries
 
 
 def _is_broad_funding_query(text: str) -> bool:
     normalized_text = text.lower()
-    funding_markers = ("정책자금", "지원금", "운전자금", "대출", "융자", "보증금")
+    funding_markers = ("정책자금", "지원자금", "운전자금", "대출", "융자", "보증금")
     broad_markers = ("뭐", "뭐야", "있어", "있을까", "추천", "받을 수", "가능", "알려")
     return any(marker in normalized_text for marker in funding_markers) and any(
         marker in normalized_text for marker in broad_markers
@@ -586,7 +834,6 @@ def _score_fts_candidate(
 
 
 def _score_broad_funding_match(policy: Policy) -> int:
-    """넓은 정책자금 질문에서는 자금 성격이 보이는 후보를 조금 더 앞세운다."""
     haystack = " ".join(
         filter(
             None,
@@ -691,7 +938,7 @@ def _biz_sector_matches(biz_info: dict[str, Any], sectors: list[str]) -> bool:
 def _biz_funding_purpose_matches(biz_info: dict[str, Any], haystack: str) -> bool:
     purpose_keywords = {
         "FACILITY": ("시설", "설비", "장비"),
-        "OPERATING": ("운영", "경영", "고정비", "관리비", "유지비", "공과금"),
+        "OPERATING": ("운영", "경영", "고정비", "관리비", "수도비", "공과금"),
         "WORKING": ("운전자금", "자재", "원자재", "재료비", "인건비"),
         "MIXED": ("자금", "운영", "시설"),
     }
@@ -718,13 +965,13 @@ def _normalize_sector_token(value: str) -> str:
         "숙박": "tourism",
         "호텔": "tourism",
         "retail": "retail",
+        "판매": "retail",
         "도매": "retail",
-        "소매": "retail",
         "유통": "retail",
         "food": "food",
-        "음식": "food",
+        "외식": "food",
         "카페": "food",
-        "요식": "food",
+        "급식": "food",
     }
     for keyword, normalized in alias_map.items():
         if keyword in text:
@@ -780,9 +1027,6 @@ async def _get_relevant_chunk(
     policy_id: uuid.UUID,
     query_vector: list[float] | None,
 ) -> str:
-    """정책에서 가장 관련 있는 청크 텍스트를 반환한다."""
-    # 임베딩이 있으면 질문과 가장 가까운 청크를 고르고,
-    # 없으면 최소한 첫 번째 청크라도 보여 주도록 안전하게 폴백한다.
     if query_vector:
         stmt = (
             select(PolicyChunk.chunk_text)
