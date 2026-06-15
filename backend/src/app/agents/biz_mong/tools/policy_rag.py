@@ -103,6 +103,47 @@ _REGION_HINTS = (
     "전국",
 )
 
+_REGION_HINT_ALIASES = {
+    "강남": "서울",
+    "강북": "서울",
+    "서초": "서울",
+    "송파": "서울",
+    "마포": "서울",
+    "영등포": "서울",
+    "수원": "경기",
+    "성남": "경기",
+    "용인": "경기",
+    "고양": "경기",
+    "화성": "경기",
+    "부천": "경기",
+    "안산": "경기",
+    "평택": "경기",
+    "천안": "충남",
+    "아산": "충남",
+    "청주": "충북",
+    "충주": "충북",
+    "전주": "전북",
+    "익산": "전북",
+    "군산": "전북",
+    "목포": "전남",
+    "여수": "전남",
+    "순천": "전남",
+    "포항": "경북",
+    "구미": "경북",
+    "경주": "경북",
+    "창원": "경남",
+    "김해": "경남",
+    "진주": "경남",
+    "춘천": "강원",
+    "원주": "강원",
+    "강릉": "강원",
+    "해운대": "부산",
+    "달서": "대구",
+    "유성": "대전",
+    "서귀포": "제주",
+    "제주도": "제주",
+}
+
 _QUERY_INTENT_RULES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     (
         "operating_cost",
@@ -485,6 +526,9 @@ def _parse_establishment_date(value: str | date | None) -> date | None:
 def _extract_region_hint(text: str) -> str | None:
     for region in _REGION_HINTS:
         if region in text:
+            return region
+    for alias, region in _REGION_HINT_ALIASES.items():
+        if alias in text:
             return region
     return None
 
