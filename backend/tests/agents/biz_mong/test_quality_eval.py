@@ -4,6 +4,7 @@ from src.app.scripts.evaluate_bizmong_quality import (
     _build_error_row,
     _classify_runner_error,
     _evaluate,
+    _parse_args,
     _select_cases,
     _summarize,
 )
@@ -90,6 +91,24 @@ def test_select_cases_filters_by_scenario_and_limit():
 
     assert len(cases) == 2
     assert all(case.scenario_key == "BIZ-01" for case in cases)
+
+
+def test_parse_args_reads_database_url_option(monkeypatch):
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "evaluate_bizmong_quality.py",
+            "--scenario",
+            "BIZ-01",
+            "--database-url",
+            "postgresql+asyncpg://biz_user:biz_password@localhost:5432/biz_fund_ai",
+        ],
+    )
+
+    args = _parse_args()
+
+    assert args.scenario_key == "BIZ-01"
+    assert args.database_url == "postgresql+asyncpg://biz_user:biz_password@localhost:5432/biz_fund_ai"
 
 
 def test_build_error_row_marks_runner_error_case():
