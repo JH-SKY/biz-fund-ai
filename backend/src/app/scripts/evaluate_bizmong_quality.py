@@ -97,7 +97,12 @@ def _evaluate(result: dict, expected_route: str, expected_policies: tuple[str, .
     }
 
 
-def _summarize(rows: list[dict]) -> dict:
+def _summarize(
+    rows: list[dict],
+    *,
+    planned_total: int | None = None,
+    aborted_reason: str | None = None,
+) -> dict:
     total = len(rows)
     passed = sum(1 for row in rows if row["passed"])
     route_ok = sum(1 for row in rows if row["route_ok"])
@@ -124,6 +129,7 @@ def _summarize(rows: list[dict]) -> dict:
     return {
         "passed": passed,
         "total": total,
+        "planned_total": planned_total or total,
         "pass_rate": round((passed / total) * 100, 1) if total else 0.0,
         "route_accuracy": round((route_ok / total) * 100, 1) if total else 0.0,
         "policy_accuracy": round((policy_ok / total) * 100, 1) if total else 0.0,
@@ -132,6 +138,8 @@ def _summarize(rows: list[dict]) -> dict:
         "fallback_rate": round((fallback_count / total) * 100, 1) if total else 0.0,
         "latency_avg_ms": latency_avg,
         "latency_p95_ms": latency_p95,
+        "aborted": aborted_reason is not None,
+        "aborted_reason": aborted_reason,
         "failed_cases": failed_cases,
     }
 
@@ -143,6 +151,7 @@ def _is_fallback_response(row: dict) -> bool:
 
 def _build_error_row(case, exc: Exception) -> dict:
     """평가 실행 중 예외가 나면 중단하지 않고 실패 행으로 남긴다."""
+    error_message = str(exc)
     return {
         "scenario_key": case.scenario_key,
         "business_name": "",
@@ -158,12 +167,31 @@ def _build_error_row(case, exc: Exception) -> dict:
         "missing_policies": list(case.expected_policies),
         "missing_keywords": list(case.expected_answer_keywords),
         "failure_reasons": ["runner_error"],
+        "error_kind": _classify_runner_error(error_message),
         "note": case.note,
-        "content_preview": str(exc),
+        "content_preview": error_message,
         "response_metadata": {},
         "response_ms": 0.0,
         "rag_result_count": 0,
     }
+
+
+def _classify_runner_error(error_message: str) -> str:
+    normalized = error_message.lower()
+    infra_markers = (
+        "enotfound",
+        "connection refused",
+        "timeout",
+        "timed out",
+        "temporary failure in name resolution",
+        "could not translate host name",
+        "connection reset",
+        "password authentication failed",
+        "network is unreachable",
+    )
+    if any(marker in normalized for marker in infra_markers):
+        return "infra_unavailable"
+    return "runner_error"
 
 
 def _select_cases(
@@ -195,6 +223,7 @@ async def main(
 
     transport = httpx.ASGITransport(app=app)
     summary: list[dict] = []
+    aborted_reason: str | None = None
     cases = _select_cases(
         scenario_key=scenario_key,
         contains=contains,
@@ -226,6 +255,7 @@ async def main(
                     "missing_policies": evaluation["missing_policies"],
                     "missing_keywords": evaluation["missing_keywords"],
                     "failure_reasons": evaluation["failure_reasons"],
+                    "error_kind": None,
                     "note": case.note,
                     "content_preview": result["content"][:240],
                     "response_metadata": result["response_metadata"],
@@ -236,8 +266,15 @@ async def main(
                 row = _build_error_row(case, exc)
             summary.append(row)
             print(json.dumps(row, ensure_ascii=False))
+            if row.get("error_kind") == "infra_unavailable":
+                aborted_reason = row.get("content_preview") or "infra_unavailable"
+                break
 
-    summary_row = _summarize(summary)
+    summary_row = _summarize(
+        summary,
+        planned_total=len(cases),
+        aborted_reason=aborted_reason,
+    )
     print()
     print(json.dumps(summary_row, ensure_ascii=False))
 
