@@ -9,10 +9,17 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+from pathlib import Path
 import statistics
+import sys
 import time
 
 import httpx
+
+if __package__ in {None, ""}:
+    backend_root = Path(__file__).resolve().parents[3]
+    if str(backend_root) not in sys.path:
+        sys.path.insert(0, str(backend_root))
 
 from src.app.dev.bizmong_eval_cases import EVAL_CASES
 
