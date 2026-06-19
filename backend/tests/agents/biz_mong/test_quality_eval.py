@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 from src.app.scripts.evaluate_bizmong_quality import (
     _build_error_row,
+    _classify_runner_error,
     _evaluate,
     _select_cases,
     _summarize,
@@ -60,7 +61,9 @@ def test_summarize_returns_accuracy_and_latency_breakdown():
                 "actual_route": "rag",
                 "response_metadata": {"is_fallback": True},
             },
-        ]
+        ],
+        planned_total=3,
+        aborted_reason="database offline",
     )
 
     assert summary["passed"] == 1
@@ -73,6 +76,9 @@ def test_summarize_returns_accuracy_and_latency_breakdown():
     assert summary["fallback_rate"] == 50.0
     assert summary["latency_avg_ms"] == 200.0
     assert summary["latency_p95_ms"] == 100.0
+    assert summary["planned_total"] == 3
+    assert summary["aborted"] is True
+    assert summary["aborted_reason"] == "database offline"
     assert summary["failed_cases"][0]["failure_reasons"] == [
         "policy_mismatch",
         "keyword_mismatch",
@@ -104,3 +110,8 @@ def test_build_error_row_marks_runner_error_case():
     assert row["missing_policies"] == ["전국 소상공인 운전자금"]
     assert row["missing_keywords"] == ["운전자금", "정책"]
     assert row["content_preview"] == "database offline"
+
+
+def test_classify_runner_error_marks_infra_unavailable():
+    assert _classify_runner_error("(ENOTFOUND) postgres host not found") == "infra_unavailable"
+    assert _classify_runner_error("database offline") == "runner_error"
