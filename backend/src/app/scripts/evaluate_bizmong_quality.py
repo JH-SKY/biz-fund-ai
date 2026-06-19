@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 from pathlib import Path
 import statistics
 import sys
@@ -215,8 +216,12 @@ async def main(
     scenario_key: str | None = None,
     contains: str | None = None,
     limit: int | None = None,
+    database_url: str | None = None,
 ) -> None:
     """전체 질문셋을 돌며 JSON 라인 로그와 최종 통계를 출력한다."""
+    if database_url:
+        os.environ["DATABASE_URL"] = database_url
+
     # 평가 함수만 import 하는 테스트에서는 앱 전체 초기화가 필요 없으므로,
     # 실제 실행 시점에만 app 을 가져오도록 지연 import 한다.
     from src.app.main import app
@@ -284,6 +289,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--scenario", dest="scenario_key")
     parser.add_argument("--contains")
     parser.add_argument("--limit", type=int)
+    parser.add_argument("--database-url")
     return parser.parse_args()
 
 
@@ -294,5 +300,6 @@ if __name__ == "__main__":
             scenario_key=args.scenario_key,
             contains=args.contains,
             limit=args.limit,
+            database_url=args.database_url,
         )
     )
