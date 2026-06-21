@@ -89,3 +89,40 @@ def test_build_rag_fallback_answer_prioritizes_working_capital_results():
     )
 
     assert answer.splitlines()[1].startswith("1. 전국 소상공인 운전자금")
+
+
+def test_build_rag_fallback_answer_groups_multi_intent_results():
+    answer = _build_rag_fallback_answer(
+        "운영비와 채용 지원 정책을 각각 알려줘",
+        [
+            {
+                "intent": "operating_cost",
+                "intent_label": "운영비",
+                "results": [
+                    {
+                        "title": "소상공인 운전자금",
+                        "support_type": "운영자금",
+                    }
+                ],
+            },
+            {
+                "intent": "hiring",
+                "intent_label": "채용",
+                "results": [
+                    {
+                        "title": "청년 고용지원 사업",
+                        "support_type": "인건비",
+                    }
+                ],
+            },
+        ],
+        [
+            {"title": "소상공인 운전자금", "support_type": "운영자금"},
+            {"title": "청년 고용지원 사업", "support_type": "인건비"},
+        ],
+    )
+
+    assert "[운영비]" in answer
+    assert "[채용]" in answer
+    assert "소상공인 운전자금" in answer
+    assert "청년 고용지원 사업" in answer

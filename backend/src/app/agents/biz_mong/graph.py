@@ -468,152 +468,6 @@ async def _generate_rag_answer(
     multi_intent_mode: bool = False,
     detected_intents: list[str] | None = None,
 ) -> tuple[str, object | None]:
-    """GPT 에 정책 컨텍스트와 질문을 전달하여 최종 답변을 생성한다.
-
-    - 시스템 프롬프트에서 "근거 없는 내용 추측 금지"를 명시하여 환각(hallucination)을 방지한다.
-    - temperature=0.2 로 낮게 설정해 일관된 형식의 답변을 유도한다.
-    - API 호출 실패 시 안내 메시지와 None usage 를 반환한다.
-
-    Returns:
-        (answer_text, usage) — usage 는 토큰 사용량 집계용
-    """
-    needs_sections = multi_intent_mode or _requires_sectioned_rag_answer(question)
-    detected_intent_text = ", ".join(detected_intents or []) or "없음"
-    system_prompt = (
-        "당신은 정책자금 전문 비서 비즈몽이다. 아래 정책 정보만 근거로 설명하고, "
-        "사용자의 사업장 상황을 반영해 우선순위를 정리하세요. "
-        "답변은 1) 핵심 판단, 2) 추천 정책/근거, 3) 확인해야 할 조건, 4) 다음 행동 순서로 작성하세요. "
-        "근거가 없는 내용은 추측하지 말고 공고 원문 확인이 필요하다고 말하세요."
-    )
-    user_content = (
-        # LLM이 DB를 직접 조회할 수 없으므로 필요한 사업장 정보를 프롬프트에 명시적으로 주입한다.
-        # 이 값이 빠지면 지역 필터는 되어도 답변 근거가 사용자 상황과 분리될 수 있다.
-        f"[사업장 정보]\n{_format_business_context(biz_info or {}, financial_data or {})}\n\n"
-        f"[정책 정보]\n{context}\n\n"
-        f"[질문]\n{question}"
-    )
-
-    # 생성이 실패해도 호출부에서 fallback 답변으로 복구할 수 있게
-    # 빈 문자열과 None usage 를 반환한다.
-    try:
-        response = await client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content},
-            ],
-            temperature=0.2,
-        )
-        return (response.choices[0].message.content or "").strip(), response.usage
-    except Exception as exc:
-        logger.warning("[rag] answer generation failed: %s", exc)
-        return "", None
-
-
-def _build_rag_fallback_answer(
-    question: str,
-    rag_intent_results: list[dict[str, Any]],
-    rag_results: list[dict[str, Any]],
-) -> str:
-    """OpenAI 생성이 실패해도 검색 결과 기반 요약 답변을 만든다."""
-    top_results = _prioritize_fallback_results(question, rag_results)[:3]
-    if not top_results:
-        return (
-            "관련 정책 정보를 바로 찾지 못했습니다. 정책명이나 기관명, 지역, 분야를 조금 더 "
-            "구체적으로 알려주시면 다시 찾아볼게요."
-        )
-
-    lines = ["지금 확인되는 관련 정책은 아래와 같습니다."]
-    for idx, result in enumerate(top_results, start=1):
-        title = result.get("title") or "정책명 미상"
-        region = result.get("region") or "전국"
-        support_type = result.get("support_type") or ""
-        support_amount = result.get("support_amount_desc") or "지원 내용은 공고문 확인이 필요합니다."
-        summary = result.get("ai_summary") or ""
-        end_date = result.get("end_date") or "상시/공고문 확인"
-
-        detail_parts = [region]
-        if support_type:
-            detail_parts.append(support_type)
-        detail_parts.extend([support_amount, f"마감 {end_date}"])
-        if summary:
-            detail_parts.append(summary)
-        lines.append(f"{idx}. {title}: " + " / ".join(detail_parts))
-
-    if any(keyword in question for keyword in ("벤처", "특허", "기술창업", "it", "IT")):
-        lines.append("질문에 벤처·특허·기술창업 조건이 들어 있어서 기술창업 성격의 정책을 우선 확인했습니다.")
-    if any(keyword in question for keyword in ("고용", "월급", "인건비")):
-        lines.append("질문에서 고용지원금 성격을 함께 찾고 있어 인건비·고용확대와 연결되는 정책을 우선 포함했습니다.")
-    if any(keyword in question for keyword in ("보증금", "대출", "융자")):
-        lines.append("보증금이나 대출 성격 질문은 운전자금·정책자금 계열 공고를 우선 확인하는 방식으로 정리했습니다.")
-    if any(keyword in question for keyword in ("정책자금", "추천", "뭐")) and (
-        _rag_results_contain_keyword(top_results, "운전자금")
-        or _rag_results_contain_keyword(top_results, "운영자금")
-    ):
-        lines.append("목록 안에 운전자금 계열 공고가 포함되어 있어 운영비나 고정비 질문이면 해당 항목을 먼저 확인해 보셔도 됩니다.")
-    if any(keyword in question for keyword in ("왜", "추천", "맞")):
-        lines.append("추천 사유는 지역, 지원대상, 업종 또는 성장단계 키워드가 질문과 겹친 정책이 우선 검색됐기 때문입니다.")
-
-    lines.append("세부 자격과 제외 조건은 실제 공고문 본문에서 마지막으로 한 번 더 확인하는 것이 안전합니다.")
-    return "\n".join(lines)
-
-
-def _rag_results_contain_keyword(
-    rag_results: list[dict[str, Any]],
-    keyword: str,
-) -> bool:
-    """상위 후보에 특정 키워드가 포함돼 있는지 확인한다."""
-    fields = ("title", "support_type", "support_amount_desc", "ai_summary")
-    for result in rag_results:
-        for field in fields:
-            value = result.get(field)
-            if isinstance(value, str) and keyword in value:
-                return True
-    return False
-
-
-def _prioritize_fallback_results(
-    question: str,
-    rag_results: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """넓은 정책자금 질문에서는 자금 성격이 드러나는 후보를 먼저 보여준다."""
-    if not _is_broad_funding_question(question):
-        return rag_results
-
-    scored_results: list[tuple[int, int, dict[str, Any]]] = []
-    for index, result in enumerate(rag_results):
-        score = 0
-        haystack = " ".join(
-            str(result.get(field) or "")
-            for field in ("title", "support_type", "support_amount_desc", "ai_summary")
-        )
-        if any(keyword in haystack for keyword in ("운전자금", "운영자금", "정책자금")):
-            score += 3
-        if "소상공인" in haystack:
-            score += 1
-        scored_results.append((score, -index, result))
-
-    return [result for _, _, result in sorted(scored_results, reverse=True)]
-
-
-def _is_broad_funding_question(question: str) -> bool:
-    funding_markers = ("정책자금", "지원금", "운전자금", "대출", "융자", "보증금")
-    broad_markers = ("뭐", "뭐야", "있어", "추천", "받을 수", "알려")
-    return any(marker in question for marker in funding_markers) and any(
-        marker in question for marker in broad_markers
-    )
-
-
-async def _generate_rag_answer(
-    client: AsyncOpenAI,
-    question: str,
-    context: str,
-    *,
-    biz_info: dict[str, Any] | None = None,
-    financial_data: dict[str, Any] | None = None,
-    multi_intent_mode: bool = False,
-    detected_intents: list[str] | None = None,
-) -> tuple[str, object | None]:
     needs_sections = multi_intent_mode or _requires_sectioned_rag_answer(question)
     detected_intent_text = ", ".join(detected_intents or []) or "없음"
     system_prompt = (
@@ -648,8 +502,17 @@ async def _generate_rag_answer(
 def _build_rag_fallback_answer(
     question: str,
     rag_intent_results: list[dict[str, Any]],
-    rag_results: list[dict[str, Any]],
+    rag_results: list[dict[str, Any]] | None = None,
 ) -> str:
+    """LLM 생성 실패 시 검색 결과만으로 답변을 만든다.
+
+    기존 단일 검색 호출 ``(question, rag_results)``과 복합 의도 호출
+    ``(question, rag_intent_results, rag_results)``을 모두 지원한다.
+    """
+    if rag_results is None:
+        rag_results = rag_intent_results
+        rag_intent_results = []
+
     if not rag_results:
         return "관련 정책 정보를 바로 찾지 못했어요. 정책명이나 기간, 지역, 지원 분야를 조금 더 구체적으로 알려주시면 다시 찾아볼게요."
 
@@ -667,8 +530,44 @@ def _build_rag_fallback_answer(
     top_results = _prioritize_fallback_results(question, rag_results)[:3]
     lines = ["지금 확인되는 관련 정책은 아래와 같습니다."]
     lines.extend(_build_fallback_lines_for_results(top_results))
+    lines.extend(_build_fallback_guidance(question, top_results))
     lines.append("자격조건과 제외조건은 실제 공고문에서 마지막으로 다시 확인하는 것이 안전합니다.")
     return "\n".join(lines)
+
+
+def _build_fallback_guidance(
+    question: str,
+    rag_results: list[dict[str, Any]],
+) -> list[str]:
+    """질문 의도와 검색 결과를 바탕으로 규칙 기반 후속 안내를 만든다."""
+    lines: list[str] = []
+    if any(keyword in question for keyword in ("벤처", "특허", "기술창업", "it", "IT")):
+        lines.append("질문에 벤처·특허·기술창업 조건이 들어 있어서 기술창업 성격의 정책을 우선 확인했습니다.")
+    if any(keyword in question for keyword in ("고용", "월급", "인건비")):
+        lines.append("질문에서 고용지원금 성격을 함께 찾고 있어 인건비·고용확대와 연결되는 정책을 우선 포함했습니다.")
+    if any(keyword in question for keyword in ("보증금", "대출", "융자")):
+        lines.append("보증금이나 대출 성격 질문은 운전자금·정책자금 계열 공고를 우선 확인하는 방식으로 정리했습니다.")
+    if any(keyword in question for keyword in ("정책자금", "추천", "뭐")) and (
+        _rag_results_contain_keyword(rag_results, "운전자금")
+        or _rag_results_contain_keyword(rag_results, "운영자금")
+    ):
+        lines.append("목록 안에 운전자금 계열 공고가 포함되어 있어 운영비나 고정비 질문이면 해당 항목을 먼저 확인해 보셔도 됩니다.")
+    if any(keyword in question for keyword in ("왜", "추천", "맞")):
+        lines.append("추천 사유는 지역, 지원대상, 업종 또는 성장단계 키워드가 질문과 겹친 정책이 우선 검색됐기 때문입니다.")
+    return lines
+
+
+def _rag_results_contain_keyword(
+    rag_results: list[dict[str, Any]],
+    keyword: str,
+) -> bool:
+    """상위 후보에 특정 키워드가 포함돼 있는지 확인한다."""
+    fields = ("title", "support_type", "support_amount_desc", "ai_summary")
+    return any(
+        isinstance(result.get(field), str) and keyword in result[field]
+        for result in rag_results
+        for field in fields
+    )
 
 
 def _prioritize_fallback_results(
