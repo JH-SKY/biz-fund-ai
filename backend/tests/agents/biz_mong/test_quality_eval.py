@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from src.app.scripts.evaluate_bizmong_quality import (
     _build_error_row,
     _classify_runner_error,
+    _normalize_database_url_for_asyncpg,
     _evaluate,
     _parse_args,
     _select_cases,
@@ -133,4 +134,14 @@ def test_build_error_row_marks_runner_error_case():
 
 def test_classify_runner_error_marks_infra_unavailable():
     assert _classify_runner_error("(ENOTFOUND) postgres host not found") == "infra_unavailable"
+    assert _classify_runner_error("connection was closed in the middle of operation") == "infra_unavailable"
     assert _classify_runner_error("database offline") == "runner_error"
+
+
+def test_normalize_database_url_for_asyncpg_strips_driver_name():
+    assert (
+        _normalize_database_url_for_asyncpg(
+            "postgresql+asyncpg://biz_user:biz_password@localhost:5432/biz_fund_ai"
+        )
+        == "postgresql://biz_user:biz_password@localhost:5432/biz_fund_ai"
+    )
