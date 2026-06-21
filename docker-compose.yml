@@ -18,6 +18,24 @@ services:
       timeout: 5s
       retries: 10
 
+  elasticsearch:
+    build:
+      context: .
+      dockerfile: docker/elasticsearch/Dockerfile
+    container_name: biz-fund-ai-elasticsearch
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+
   app:
     image: python:3.12-slim
     container_name: biz-fund-ai-app
@@ -48,6 +66,10 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       NTS_API_KEY: ${NTS_API_KEY:-}
       BIZINFO_API_KEY: ${BIZINFO_API_KEY:-}
+      ELASTICSEARCH_ENABLED: ${ELASTICSEARCH_ENABLED:-true}
+      ELASTICSEARCH_URL: ${ELASTICSEARCH_URL:-http://elasticsearch:9200}
+      ELASTICSEARCH_INDEX_POLICY_CHUNKS: ${ELASTICSEARCH_INDEX_POLICY_CHUNKS:-policy_chunks_sparse}
+      ELASTICSEARCH_REQUEST_TIMEOUT: ${ELASTICSEARCH_REQUEST_TIMEOUT:-5}
     ports:
       - "8000:8000"
 

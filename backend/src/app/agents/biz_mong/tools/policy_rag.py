@@ -14,6 +14,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core.config import OPENAI_API_KEY
+from src.app.core.elasticsearch import get_elasticsearch_client, is_elasticsearch_enabled
+from src.app.domains.policy.elasticsearch_sparse_search import ElasticsearchSparseSearcher
 from src.app.domains.policy.model import Policy, PolicyChunk, PolicyStatus
 from src.app.domains.policy.target_logic import parse_target_logic
 
@@ -396,6 +398,11 @@ async def _search_for_task(
 ) -> list[dict[str, Any]]:
     rrf_scores: dict[str, float] = {}
     query_vectors: dict[str, list[float] | None] = {}
+    dense_rank_map: dict[str, int] = {}
+    sparse_rank_map: dict[str, int] = {}
+    sparse_score_map: dict[str, float] = {}
+    sparse_backend_labels: set[str] = set()
+    sparse_fallback_used = False
 
     for rewritten_query in task.rewritten_queries:
         query_vector = await _create_query_embedding(client, rewritten_query)
@@ -409,20 +416,50 @@ async def _search_for_task(
                 region_filter,
                 limit=_VECTOR_LIMIT,
             )
+            for rank, policy_id in enumerate(vector_ids):
+                previous = dense_rank_map.get(policy_id)
+                if previous is None or rank < previous:
+                    dense_rank_map[policy_id] = rank
 
         keywords = _extract_keywords(rewritten_query)
-        fts_ids = await _fts_search(
-            session,
-            keywords,
-            region_filter,
-            biz_info=biz_info,
-            limit=_FTS_LIMIT,
-        )
+        try:
+            sparse_hits = await _sparse_search_elasticsearch(
+                query_text=rewritten_query,
+                keywords=keywords,
+                region_filter=region_filter,
+                biz_info=biz_info,
+                limit=_FTS_LIMIT,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[policy_rag] elasticsearch sparse fallback query='%s' reason=%s",
+                rewritten_query[:40],
+                exc,
+            )
+            sparse_fallback_used = True
+            sparse_hits = await _keyword_search_postgres(
+                session,
+                keywords,
+                region_filter,
+                biz_info=biz_info,
+                limit=_FTS_LIMIT,
+            )
 
         for rank, policy_id in enumerate(vector_ids):
             rrf_scores[policy_id] = rrf_scores.get(policy_id, 0.0) + 1.0 / (_RRF_K + rank + 1)
-        for rank, policy_id in enumerate(fts_ids):
+        for sparse_hit in sparse_hits:
+            policy_id = str(sparse_hit["policy_id"])
+            rank = int(sparse_hit.get("rank", 0))
+            score = float(sparse_hit.get("score") or 0.0)
+            backend = str(sparse_hit.get("backend") or "postgres_fallback")
+            sparse_backend_labels.add(backend)
+            if backend != "elasticsearch_bm25":
+                sparse_fallback_used = True
             rrf_scores[policy_id] = rrf_scores.get(policy_id, 0.0) + 1.0 / (_RRF_K + rank + 1)
+            previous = sparse_rank_map.get(policy_id)
+            if previous is None or rank < previous:
+                sparse_rank_map[policy_id] = rank
+            sparse_score_map[policy_id] = max(sparse_score_map.get(policy_id, 0.0), score)
 
     if not rrf_scores:
         return []
@@ -434,6 +471,11 @@ async def _search_for_task(
         top_ids,
         rrf_scores=rrf_scores,
         query_vector=primary_vector,
+        dense_rank_map=dense_rank_map,
+        sparse_rank_map=sparse_rank_map,
+        sparse_score_map=sparse_score_map,
+        sparse_backend_labels=sparse_backend_labels,
+        sparse_fallback_used=sparse_fallback_used,
         limit=limit,
     )
     for result in results:
@@ -460,6 +502,11 @@ async def _materialize_policy_results(
     *,
     rrf_scores: dict[str, float],
     query_vector: list[float] | None,
+    dense_rank_map: dict[str, int],
+    sparse_rank_map: dict[str, int],
+    sparse_score_map: dict[str, float],
+    sparse_backend_labels: set[str],
+    sparse_fallback_used: bool,
     limit: int,
 ) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
@@ -487,6 +534,15 @@ async def _materialize_policy_results(
             "end_date": policy.closed_at.isoformat() if policy.closed_at else "",
             "apply_url": policy.apply_url or "",
             "rrf_score": rrf_scores[policy_id],
+            "dense_rank": dense_rank_map.get(policy_id),
+            "sparse_rank": sparse_rank_map.get(policy_id),
+            "sparse_score": sparse_score_map.get(policy_id),
+            "retrieval_backend": _build_retrieval_backend_label(
+                dense_rank_map.get(policy_id),
+                sparse_rank_map.get(policy_id),
+            ),
+            "sparse_backend": _collapse_sparse_backend_labels(sparse_backend_labels),
+            "sparse_fallback_used": sparse_fallback_used,
             "relevant_chunk": chunk_text,
             "_dedupe_key": dedupe_key,
         })
@@ -557,6 +613,27 @@ def _strip_internal_fields(result: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in result.items() if not key.startswith("_")}
 
 
+def _build_retrieval_backend_label(
+    dense_rank: int | None,
+    sparse_rank: int | None,
+) -> str:
+    if dense_rank is not None and sparse_rank is not None:
+        return "dense+sparse"
+    if dense_rank is not None:
+        return "dense_only"
+    if sparse_rank is not None:
+        return "sparse_only"
+    return "none"
+
+
+def _collapse_sparse_backend_labels(sparse_backend_labels: set[str]) -> str | None:
+    if not sparse_backend_labels:
+        return None
+    if len(sparse_backend_labels) == 1:
+        return next(iter(sparse_backend_labels))
+    return "mixed"
+
+
 def _build_search_metadata(
     search_plan: list[SearchTask],
     intent_results: list[dict[str, Any]],
@@ -609,14 +686,14 @@ async def _vector_search(
     return [str(row[0]) for row in result.all()]
 
 
-async def _fts_search(
+async def _keyword_search_postgres(
     session: AsyncSession,
     keywords: list[str],
     region_filter: str | None,
     *,
     biz_info: dict[str, Any] | None = None,
     limit: int,
-) -> list[str]:
+) -> list[dict[str, Any]]:
     if not keywords:
         return []
 
@@ -670,7 +747,37 @@ async def _fts_search(
         ),
         reverse=True,
     )
-    return [str(policy.id) for policy in ranked[:limit]]
+    return [
+        {
+            "policy_id": str(policy.id),
+            "rank": rank,
+            "score": float(policy.view_count or 0),
+            "backend": "postgres_fallback",
+        }
+        for rank, policy in enumerate(ranked[:limit])
+    ]
+
+
+async def _sparse_search_elasticsearch(
+    *,
+    query_text: str,
+    keywords: list[str],
+    region_filter: str | None,
+    biz_info: dict[str, Any] | None,
+    limit: int,
+) -> list[dict[str, Any]]:
+    if not is_elasticsearch_enabled():
+        raise RuntimeError("elasticsearch disabled")
+
+    client = get_elasticsearch_client()
+    searcher = ElasticsearchSparseSearcher(client)
+    return await searcher.search(
+        query_text=query_text,
+        keywords=keywords,
+        region_filter=region_filter,
+        biz_info=biz_info,
+        limit=limit,
+    )
 
 
 def _extract_keywords(text: str) -> list[str]:

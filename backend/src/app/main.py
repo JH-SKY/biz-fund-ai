@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.api.v1.router import api_router
 from src.app.core.config import FRONTEND_ORIGINS
+from src.app.core.elasticsearch import close_elasticsearch_client
 from src.app.core.exceptions import (
     BaseAppException,
     base_app_exception_handler,
@@ -45,6 +46,7 @@ async def lifespan(app: FastAPI):
     # 개발 서버 재시작이나 배포 시 배치가 따로 떠서 꼬이는 상황을 줄일 수 있다.
     await start_scheduler()
     yield
+    await close_elasticsearch_client()
     await shutdown_scheduler()
 
 

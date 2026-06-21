@@ -53,6 +53,15 @@ NAVER_CLIENT_SECRET: str = os.getenv("NAVER_CLIENT_SECRET", "")
 NTS_API_KEY: str = os.getenv("NTS_API_KEY", "")
 BIZINFO_API_KEY: str = os.getenv("BIZINFO_API_KEY", "")
 OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+ELASTICSEARCH_URL: str = os.getenv("ELASTICSEARCH_URL", "http://localhost:9200")
+ELASTICSEARCH_INDEX_POLICY_CHUNKS: str = os.getenv(
+    "ELASTICSEARCH_INDEX_POLICY_CHUNKS",
+    "policy_chunks_sparse",
+)
+ELASTICSEARCH_REQUEST_TIMEOUT: float = float(
+    os.getenv("ELASTICSEARCH_REQUEST_TIMEOUT", "5.0")
+)
+ELASTICSEARCH_ENABLED: bool = _parse_bool_env("ELASTICSEARCH_ENABLED", True)
 
 FRONTEND_ORIGINS: list[str] = _parse_csv_env(
     "FRONTEND_ORIGINS",
