@@ -15,12 +15,18 @@ import statistics
 import sys
 import time
 
+import asyncpg
 import httpx
+from dotenv import load_dotenv
 
 if __package__ in {None, ""}:
     backend_root = Path(__file__).resolve().parents[3]
     if str(backend_root) not in sys.path:
         sys.path.insert(0, str(backend_root))
+else:
+    backend_root = Path(__file__).resolve().parents[3]
+
+load_dotenv(backend_root / ".env")
 
 from src.app.dev.bizmong_eval_cases import EVAL_CASES
 
@@ -182,6 +188,8 @@ def _classify_runner_error(error_message: str) -> str:
     infra_markers = (
         "enotfound",
         "connection refused",
+        "connection was closed",
+        "closed in the middle of operation",
         "timeout",
         "timed out",
         "temporary failure in name resolution",
@@ -193,6 +201,36 @@ def _classify_runner_error(error_message: str) -> str:
     if any(marker in normalized for marker in infra_markers):
         return "infra_unavailable"
     return "runner_error"
+
+
+def _normalize_database_url_for_asyncpg(database_url: str) -> str:
+    if database_url.startswith("postgresql+asyncpg://"):
+        return "postgresql://" + database_url[len("postgresql+asyncpg://") :]
+    return database_url
+
+
+async def _preflight_database_connection(database_url: str | None) -> str | None:
+    if not database_url:
+        return "DATABASE_URL is empty"
+
+    normalized_url = _normalize_database_url_for_asyncpg(database_url)
+    connection = None
+    try:
+        connection = await asyncpg.connect(
+            dsn=normalized_url,
+            timeout=5,
+            statement_cache_size=0,
+        )
+        await connection.fetchval("SELECT 1")
+        return None
+    except Exception as exc:
+        return str(exc)
+    finally:
+        if connection is not None:
+            try:
+                await connection.close()
+            except Exception:
+                pass
 
 
 def _select_cases(
@@ -222,6 +260,39 @@ async def main(
     if database_url:
         os.environ["DATABASE_URL"] = database_url
 
+    resolved_database_url = database_url or os.getenv("DATABASE_URL")
+
+    cases = _select_cases(
+        scenario_key=scenario_key,
+        contains=contains,
+        limit=limit,
+    )
+
+    preflight_error = await _preflight_database_connection(resolved_database_url)
+    if preflight_error is not None:
+        print(
+            json.dumps(
+                {
+                    "type": "preflight_error",
+                    "error_kind": _classify_runner_error(preflight_error),
+                    "message": preflight_error,
+                },
+                ensure_ascii=False,
+            )
+        )
+        print()
+        print(
+            json.dumps(
+                _summarize(
+                    [],
+                    planned_total=len(cases),
+                    aborted_reason=preflight_error,
+                ),
+                ensure_ascii=False,
+            )
+        )
+        return
+
     # 평가 함수만 import 하는 테스트에서는 앱 전체 초기화가 필요 없으므로,
     # 실제 실행 시점에만 app 을 가져오도록 지연 import 한다.
     from src.app.main import app
@@ -229,11 +300,6 @@ async def main(
     transport = httpx.ASGITransport(app=app)
     summary: list[dict] = []
     aborted_reason: str | None = None
-    cases = _select_cases(
-        scenario_key=scenario_key,
-        contains=contains,
-        limit=limit,
-    )
 
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver", timeout=120.0) as client:
         for case in cases:
