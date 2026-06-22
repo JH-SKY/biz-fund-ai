@@ -44,7 +44,7 @@
   GREEN  → 그 외
 ```
 
-- **Hard Filter**: DB 쿼리로 지역·업종·모집상태 조건에 맞지 않는 정책 사전 제거
+- **규칙 기반 진단**: DB에서 모집 중 정책을 1차 추리고, Python rule_engine으로 지역·업종·자격 조건 판정
 - **시뮬레이션**: "직원 1명 채용 시", "특허 취득 시" 변화하는 점수와 이자 절감액 계산
 
 ### 3. 비즈-픽 (Biz-Pick) — 맞춤형 정책 카드 뉴스
@@ -59,7 +59,6 @@
 
 - **신청·관심 이력 관리**: 현재 진행 중인 지원 사업의 단계(접수/심사/선정) 트래킹
 - **진단 히스토리**: 과거 진단 결과 타임라인으로 경영 지표 변화 추적
-- **서류 보관함**: 사업자등록증 등 필수 서류 업로드 → OCR 자동 분석 및 재활용
 
 ---
 
@@ -108,7 +107,7 @@ score(d) = 1/(k + rank_vector) + 1/(k + rank_fts),  k=60
 ```mermaid
 flowchart LR
     A[외부 공고 API\n기업마당 등] -->|원문 URL| B[PolicySyncAgent\nSelf-Correction LG]
-    B -->|파싱 실패 시 재시도 2회| C[문서 파서\nPDF/HWP/HTML]
+    B -->|파싱 실패 시 재시도 2회| C[문서 파서\nPDF 텍스트 추출]
     C -->|추출 텍스트| D[GPT-4o\n구조화 추출]
     D -->|ai_summary\ntarget_logic| E[(PostgreSQL\npolicies)]
     E -->|청크 분할\n섹션 헤더 감지| F[text-embedding-3-small\n임베딩 생성]
@@ -132,7 +131,7 @@ flowchart TD
     end
 
     subgraph RESTAPI["별도 REST API"]
-        DIAG["/diagnoses\nHard Filter + rule_engine 스코어카드"]
+        DIAG["/diagnoses\n후보 정책 추출 + rule_engine 스코어카드"]
         SIM["/simulations\n가상 조건 점수 변화 계산"]
     end
 

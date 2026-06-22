@@ -19,7 +19,7 @@
 | 문제 | 규모 | Biz-Up의 접근 |
 |:---|:---|:---|
 | 정보의 비대칭 | 연간 20조 원 정책자금 중 소상공인 80% 이상이 혜택 소외 | AI가 공고를 분석해 쉬운 일상 언어로 정책문서 재해석 |
-| 실패 비용 낭비 | 부적격 공고 신청으로 낭비되는 시간과 행정력 | 규칙 기반 Hard Filter로 사전 제거 |
+| 실패 비용 낭비 | 부적격 공고 신청으로 낭비되는 시간과 행정력 | 모집 중 정책 1차 추출 뒤 규칙 엔진으로 부적격 조건 판정 |
 | 개선 방향 부재 | "안 된다"는 결과만 있고 "어떻게 해야 되는지" 없음 | 시뮬레이션으로 구체적 액션 플랜 제시 |
 | 정보 접근 장벽 | 수십 페이지 공고문을 읽을 시간 없음 | AI 3줄 요약 + 카드 뉴스 형태 큐레이션 |
 
@@ -148,8 +148,8 @@ $$ROI(회수\ 개월) = \frac{기기\ 도입\ 자부담금}{월간\ 절감\ 인�
 
 **서류 보관함 (Document Vault)**
 - 사업자등록증, 부가세증명원 등 필수 서류 업로드
-- **OCR 자동 분석**: 서류에서 재무 수치 자동 추출 → 사업장 프로필에 반영
-- `Document.ocr_status`, `ocr_result` + `BusinessFinancialSnapshot.ai_analysis_report`
+- 현재 구현은 업로드 메타데이터와 상태값 저장까지 제공
+- `Document.ocr_status`, `ocr_result` 필드로 향후 OCR 연동 지점 확보
 
 ---
 
@@ -165,11 +165,11 @@ $$ROI(회수\ 개월) = \frac{기기\ 도입\ 자부담금}{월간\ 절감\ 인�
 
 **`biz_pick_policies` 테이블 기반**: 정책과 콘텐츠 간 N:M 관계 처리.
 
-### 4.2 서류 OCR 자동화
+### 4.2 서류 OCR 연동 계획
 
-- 사업자등록증 업로드 → OCR → `Business` 프로필 자동 채움
-- `Document.ocr_status`: PENDING → COMPLETED (비동기 처리)
-- 추출된 재무 수치는 `BusinessFinancialSnapshot.ai_analysis_report`에 저장
+- 현재 구현: 업로드 후 `Document` 레코드를 만들고 `ocr_status=PENDING`으로 시작
+- 향후 확장: OCR 큐/워커를 연결해 `ocr_result`를 채우고 후속 분석과 연동
+- 확장 시 `BusinessFinancialSnapshot.ai_analysis_report`와 연계 가능
 
 ### 4.3 국세청 API 연동 (온보딩)
 

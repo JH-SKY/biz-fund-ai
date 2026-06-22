@@ -54,9 +54,9 @@ Biz-Up은 **소상공인 경영 합리화 AI 플랫폼**이며, 비즈몽(BizMon
        ▼
 [FastAPI 서버]
   ├── /api/v1/auth          ← JWT 인증 (Access 30분 + Refresh 7일 Dual Token)
-  ├── /api/v1/businesses    ← 사업장 + 재무 CRUD + 국세청 API 연동 + OCR
+  ├── /api/v1/businesses    ← 사업장 + 재무 CRUD + 국세청 API 연동 + 서류 업로드
   ├── /api/v1/chats         ← 비즈몽 에이전트 진입점 + 대화 세션 관리
-  ├── /api/v1/diagnoses     ← 정밀 진단 (Hard Filter + LLM Evaluator)
+  ├── /api/v1/diagnoses     ← 정밀 진단 (규칙 엔진 + LLM Evaluator)
   ├── /api/v1/policies      ← 정책 조회 / 검색 / 북마크
   ├── /api/v1/biz-picks     ← AI 큐레이션 카드 뉴스 (비즈-픽)
   ├── /api/v1/notifications ← 알림 목록 + 설정 (비즈-핑)
@@ -111,9 +111,9 @@ Biz-Up은 **소상공인 경영 합리화 AI 플랫폼**이며, 비즈몽(BizMon
 
 ---
 
-### 3.2 서류 OCR 처리 플로우
+### 3.2 서류 업로드와 OCR 확장 지점
 
-사업자등록증, 재무제표 등 공식 서류를 업로드하면 OCR이 자동 추출하여 `business_financial_snapshots`에 반영합니다.
+현재 구현은 사업자 서류 업로드와 `documents` 레코드 생성, 초기 상태(`ocr_status=PENDING`) 저장까지 제공합니다.
 
 ```
 [사용자] 서류 업로드
@@ -122,22 +122,11 @@ Biz-Up은 **소상공인 경영 합리화 AI 플랫폼**이며, 비즈몽(BizMon
 [POST /api/v1/businesses/{id}/documents]
   ├── 파일 → 스토리지 저장
   └── documents 테이블 신규 행 생성
-      documents.ocr_status = "PENDING"
-        │
-        ▼
-[Background Task: OCR Worker]
-  ├── 파일 다운로드
-  ├── OCR 엔진 텍스트 추출
-  ├── 추출 성공: documents.ocr_status = "COMPLETED"
-  │             documents.ocr_result = { 추출된 필드 JSON }
-  │             → business_financial_snapshots 자동 갱신
-  │             → business_financial_snapshots.is_verified = true
-  └── 추출 실패: documents.ocr_status = "FAILED"
-        │
-        ▼
-[알림 발송]
-  → notifications 테이블 신규 행 (type: "OCR_COMPLETE" / "OCR_FAILED")
+      ├── documents.ocr_status = "PENDING"
+      └── documents.ocr_result = null
 ```
+
+향후 OCR 큐/워커를 붙이면 `ocr_result` 적재와 재무 스냅샷 연동을 확장할 수 있도록 스키마를 먼저 준비한 상태입니다.
 
 ---
 
@@ -175,7 +164,7 @@ Biz-Up은 **소상공인 경영 합리화 AI 플랫폼**이며, 비즈몽(BizMon
 ## 5. BizMong 에이전트 — 핵심 설계
 
 > **범위**: BizMong LangGraph 에이전트는 **일상 대화(chitchat), 정책 RAG 검색(rag), 동종업계 통계(stats)** 세 가지 노드로 구성됩니다.
-> 정밀 진단(Hard Filter + LLM Evaluator)과 시뮬레이션은 별도 서비스(`/api/v1/diagnoses`)로 분리되어 있습니다.
+> 정밀 진단(규칙 엔진 + LLM Evaluator)과 시뮬레이션은 별도 서비스(`/api/v1/diagnoses`)로 분리되어 있습니다.
 
 ### 5.1 State (전역 공유 상태)
 
@@ -353,9 +342,9 @@ async def _write_through(state, node_name, result):
 
 > BizMong LangGraph 에이전트와 별도로, 정밀 진단과 시뮬레이션은 독립 서비스로 구현되어 있습니다.
 
-### 6.1 Hard Filter (규칙 기반 필터링)
+### 6.1 규칙 기반 자격 판정
 
-LLM 없이 순수 Python 규칙으로 정책을 사전 제거합니다.
+DB에서 모집 중 정책을 1차 추린 뒤, LLM 없이 순수 Python 규칙으로 자격 조건을 판정합니다.
 
 **4가지 필터 룰**:
 
@@ -401,10 +390,10 @@ MIN_PASS_SCORE = 40  # 최종 포함 최소 점수
 /api/v1/
 ├── /auth/          ← 소셜 로그인(카카오/네이버), 토큰 갱신/로그아웃
 ├── /users/         ← 사용자 프로필 조회/수정/탈퇴
-├── /businesses/    ← 사업장 CRUD + 재무 스냅샷 + 서류 OCR
+├── /businesses/    ← 사업장 CRUD + 재무 스냅샷 + 서류 업로드
 ├── /chats/         ← 세션 관리 + BizMong 에이전트 메시지 (stream 포함)
 │   └── /sessions/{id}/messages  ← 에이전트 실행 엔드포인트
-├── /diagnoses/     ← 진단 요청/결과 조회 (Hard Filter + LLM Evaluator)
+├── /diagnoses/     ← 진단 요청/결과 조회 (규칙 엔진 + LLM Evaluator)
 ├── /policies/      ← 정책 조회/검색/북마크
 ├── /biz-picks/     ← 큐레이션 카드 뉴스 조회
 ├── /notifications/ ← 알림 목록/읽음 처리

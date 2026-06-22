@@ -194,7 +194,7 @@
 ## 9. 디지털 서류 업로드 (Upload Document)
 - **Method:** `POST`
 - **Endpoint:** `/api/v1/documents`
-- **Description:** 증빙 서류 파일을 업로드합니다. 서버는 즉시 응답을 반환(202)하고 비동기로 OCR 분석 태스크를 수행합니다.
+- **Description:** 증빙 서류 파일을 업로드하고 `documents` 레코드를 생성합니다. 현재 응답 상태는 `PENDING`으로 시작하며, OCR 워커 연동은 향후 확장 예정입니다.
 - **Headers:** `Authorization: Bearer {ACCESS_TOKEN}`
 - **Request Body (Multipart/form-data):**
   - `file`: (Binary File) PDF, JPG, PNG
@@ -215,7 +215,7 @@
 ## 10. 내 서류함 조회 (Get My Documents)
 - **Method:** `GET`
 - **Endpoint:** `/api/v1/documents`
-- **Description:** 사장님이 보관 중인 모든 서류의 목록과 현재 OCR 분석 진행 상태를 확인합니다.
+- **Description:** 사장님이 보관 중인 모든 서류의 목록과 저장된 상태값(`PENDING` 등)을 확인합니다.
 - **Headers:** `Authorization: Bearer {ACCESS_TOKEN}`
 - **Response Body (JSON):**
 ```json
@@ -237,7 +237,7 @@
 ## 11. 서류 상세 조회 (Get Document Detail)
 - **Method:** `GET`
 - **Endpoint:** `/api/v1/documents/{id}`
-- **Description:** 특정 서류의 S3 파일 URL과 OCR 분석을 통해 추출된 텍스트 원본 데이터를 조회합니다.
+- **Description:** 특정 서류의 파일 URL과 저장된 OCR 결과 필드(`ocr_data`, 존재 시)를 조회합니다.
 - **Headers:** `Authorization: Bearer {ACCESS_TOKEN}`
 - **Response Body (JSON):**
 ```json

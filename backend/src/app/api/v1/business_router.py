@@ -245,7 +245,7 @@ async def validate_stats(
     summary="서류 업로드",
     description=(
         "증빙 서류를 업로드합니다. 서버는 즉시 202를 반환하고 "
-        "비동기로 OCR 분석을 수행합니다. "
+        "documents 레코드를 PENDING 상태로 생성합니다. "
         "document_type: BIZ_REG | VAT_CERT | FINANCIAL_STAT"
     ),
     status_code=status.HTTP_202_ACCEPTED,
@@ -269,7 +269,7 @@ async def upload_document(
 @router.get(
     "/documents",
     summary="내 서류함 조회",
-    description="보관 중인 모든 서류 목록과 OCR 분석 진행 상태를 반환합니다.",
+    description="보관 중인 모든 서류 목록과 저장된 상태값을 반환합니다.",
 )
 async def get_my_documents(
     biz: ActiveBusiness,
@@ -285,7 +285,7 @@ async def get_my_documents(
 @router.get(
     "/documents/{document_id}",
     summary="서류 상세 조회",
-    description="특정 서류의 파일 URL과 OCR 결과를 반환합니다. 본인 소유 서류만 조회 가능합니다.",
+    description="특정 서류의 파일 URL과 저장된 OCR 결과 필드를 반환합니다. 본인 소유 서류만 조회 가능합니다.",
 )
 async def get_document_detail(
     document_id: uuid.UUID,
