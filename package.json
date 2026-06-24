@@ -6,6 +6,7 @@
     "frontend:type-check": "npm --prefix frontend run type-check",
     "frontend:build": "npm --prefix frontend run build",
     "backend:test": "uv run --project backend pytest backend/tests",
+    "backend:quality-eval:prepare-local": "uv run --project backend python backend/src/app/scripts/prepare_local_quality_eval.py --database-url postgresql+asyncpg://biz_user:biz_password@localhost:5432/biz_fund_ai --skip-embedding",
     "backend:quality-eval": "uv run --project backend python backend/src/app/scripts/evaluate_bizmong_quality.py",
     "backend:quality-eval:local": "uv run --project backend python backend/src/app/scripts/evaluate_bizmong_quality.py --database-url postgresql+asyncpg://biz_user:biz_password@localhost:5432/biz_fund_ai",
     "check": "npm run frontend:lint && npm run frontend:type-check && npm run backend:test"
