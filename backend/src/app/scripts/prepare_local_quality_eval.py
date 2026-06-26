@@ -27,6 +27,7 @@ from src.app.dev.test_seed import TEST_POLICY_IDS, seed_test_scenarios
 from src.app.domains.policy.embedding_service import PolicyEmbeddingService
 from src.app.domains.policy.model import Policy
 from src.app.domains.policy.repository import PolicyRepository
+from src.app.scripts.evaluate_bizmong_quality import main as run_quality_eval
 from src.app.scripts.evaluate_bizmong_quality import _preflight_database_connection
 
 
@@ -87,6 +88,8 @@ async def main(
     database_url: str | None = None,
     freeze_non_test: bool = True,
     run_embedding: bool = True,
+    run_eval: bool = False,
+    eval_limit: int | None = None,
 ) -> None:
     if APP_ENV == "production":
         raise RuntimeError("운영 환경에서는 로컬 품질평가 준비 스크립트를 실행할 수 없습니다.")
@@ -119,12 +122,22 @@ async def main(
     for key, value in summary.items():
         print(f"- {key}: {value}")
 
+    if run_eval:
+        print()
+        print("이어서 BizMong 품질평가를 실행합니다.")
+        await run_quality_eval(
+            limit=eval_limit,
+            database_url=resolved_database_url,
+        )
+
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Prepare local data for BizMong quality evaluation")
     parser.add_argument("--database-url")
     parser.add_argument("--skip-freeze", action="store_true")
     parser.add_argument("--skip-embedding", action="store_true")
+    parser.add_argument("--run-eval", action="store_true")
+    parser.add_argument("--eval-limit", type=int)
     return parser.parse_args()
 
 
@@ -135,5 +148,7 @@ if __name__ == "__main__":
             database_url=args.database_url,
             freeze_non_test=not args.skip_freeze,
             run_embedding=not args.skip_embedding,
+            run_eval=args.run_eval,
+            eval_limit=args.eval_limit,
         )
     )
