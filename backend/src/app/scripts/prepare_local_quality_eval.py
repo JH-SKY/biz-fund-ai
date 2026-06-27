@@ -19,19 +19,18 @@ else:
 
 load_dotenv(backend_root / ".env")
 
-from sqlalchemy import update
-
 from src.app.core.config import APP_ENV, OPENAI_API_KEY
-from src.app.database.postgres.database import SessionLocal
-from src.app.dev.test_seed import TEST_POLICY_IDS, seed_test_scenarios
-from src.app.domains.policy.embedding_service import PolicyEmbeddingService
-from src.app.domains.policy.model import Policy
-from src.app.domains.policy.repository import PolicyRepository
 from src.app.scripts.evaluate_bizmong_quality import main as run_quality_eval
 from src.app.scripts.evaluate_bizmong_quality import _preflight_database_connection
 
 
 async def _seed_and_freeze(*, freeze_non_test: bool) -> dict[str, int]:
+    from sqlalchemy import update
+
+    from src.app.database.postgres.database import SessionLocal
+    from src.app.dev.test_seed import TEST_POLICY_IDS, seed_test_scenarios
+    from src.app.domains.policy.model import Policy
+
     async with SessionLocal() as session:
         summary = await seed_test_scenarios(session)
         if freeze_non_test:
@@ -48,6 +47,11 @@ async def _seed_and_freeze(*, freeze_non_test: bool) -> dict[str, int]:
 
 
 async def _embed_test_policies() -> dict[str, int]:
+    from src.app.database.postgres.database import SessionLocal
+    from src.app.dev.test_seed import TEST_POLICY_IDS
+    from src.app.domains.policy.embedding_service import PolicyEmbeddingService
+    from src.app.domains.policy.repository import PolicyRepository
+
     async with SessionLocal() as session:
         repo = PolicyRepository(session)
         embedding_service = PolicyEmbeddingService(session=session, repo=repo)
