@@ -11,6 +11,8 @@ def test_parse_args_uses_default_prepare_options(monkeypatch):
     assert args.skip_embedding is False
     assert args.run_eval is False
     assert args.eval_limit is None
+    assert args.eval_fail_on_abort is False
+    assert args.eval_fail_under_pass_rate is None
 
 
 def test_parse_args_reads_skip_flags_and_database_url(monkeypatch):
@@ -25,6 +27,9 @@ def test_parse_args_reads_skip_flags_and_database_url(monkeypatch):
             "--run-eval",
             "--eval-limit",
             "5",
+            "--eval-fail-on-abort",
+            "--eval-fail-under-pass-rate",
+            "90",
         ],
     )
 
@@ -35,3 +40,5 @@ def test_parse_args_reads_skip_flags_and_database_url(monkeypatch):
     assert args.skip_embedding is True
     assert args.run_eval is True
     assert args.eval_limit == 5
+    assert args.eval_fail_on_abort is True
+    assert args.eval_fail_under_pass_rate == 90.0

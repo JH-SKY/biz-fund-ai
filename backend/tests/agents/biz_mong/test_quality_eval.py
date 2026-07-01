@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from src.app.scripts.evaluate_bizmong_quality import (
     _build_error_row,
     _classify_runner_error,
+    _determine_exit_code,
     _normalize_database_url_for_asyncpg,
     _evaluate,
     _parse_args,
@@ -103,6 +104,9 @@ def test_parse_args_reads_database_url_option(monkeypatch):
             "BIZ-01",
             "--database-url",
             "postgresql+asyncpg://biz_user:biz_password@localhost:5432/biz_fund_ai",
+            "--fail-on-abort",
+            "--fail-under-pass-rate",
+            "80",
         ],
     )
 
@@ -110,6 +114,8 @@ def test_parse_args_reads_database_url_option(monkeypatch):
 
     assert args.scenario_key == "BIZ-01"
     assert args.database_url == "postgresql+asyncpg://biz_user:biz_password@localhost:5432/biz_fund_ai"
+    assert args.fail_on_abort is True
+    assert args.fail_under_pass_rate == 80.0
 
 
 def test_build_error_row_marks_runner_error_case():
@@ -145,3 +151,11 @@ def test_normalize_database_url_for_asyncpg_strips_driver_name():
         )
         == "postgresql://biz_user:biz_password@localhost:5432/biz_fund_ai"
     )
+
+
+def test_determine_exit_code_respects_abort_and_pass_rate_threshold():
+    summary = {"aborted": True, "pass_rate": 66.7}
+
+    assert _determine_exit_code(summary, fail_on_abort=True, fail_under_pass_rate=None) == 1
+    assert _determine_exit_code(summary, fail_on_abort=False, fail_under_pass_rate=70.0) == 1
+    assert _determine_exit_code(summary, fail_on_abort=False, fail_under_pass_rate=60.0) == 0
