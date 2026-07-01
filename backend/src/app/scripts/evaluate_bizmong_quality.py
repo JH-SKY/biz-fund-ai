@@ -151,6 +151,23 @@ def _summarize(
     }
 
 
+def _determine_exit_code(
+    summary: dict[str, object],
+    *,
+    fail_on_abort: bool,
+    fail_under_pass_rate: float | None,
+) -> int:
+    if fail_on_abort and bool(summary.get("aborted")):
+        return 1
+
+    if fail_under_pass_rate is not None:
+        pass_rate = float(summary.get("pass_rate") or 0.0)
+        if pass_rate < fail_under_pass_rate:
+            return 1
+
+    return 0
+
+
 def _is_fallback_response(row: dict) -> bool:
     metadata = row.get("response_metadata") or {}
     return isinstance(metadata, dict) and metadata.get("is_fallback") is True
@@ -255,7 +272,7 @@ async def main(
     contains: str | None = None,
     limit: int | None = None,
     database_url: str | None = None,
-) -> None:
+) -> dict[str, object]:
     """전체 질문셋을 돌며 JSON 라인 로그와 최종 통계를 출력한다."""
     if database_url:
         os.environ["DATABASE_URL"] = database_url
@@ -270,6 +287,11 @@ async def main(
 
     preflight_error = await _preflight_database_connection(resolved_database_url)
     if preflight_error is not None:
+        summary = _summarize(
+            [],
+            planned_total=len(cases),
+            aborted_reason=preflight_error,
+        )
         print(
             json.dumps(
                 {
@@ -282,16 +304,9 @@ async def main(
         )
         print()
         print(
-            json.dumps(
-                _summarize(
-                    [],
-                    planned_total=len(cases),
-                    aborted_reason=preflight_error,
-                ),
-                ensure_ascii=False,
-            )
+            json.dumps(summary, ensure_ascii=False)
         )
-        return
+        return summary
 
     # 평가 함수만 import 하는 테스트에서는 앱 전체 초기화가 필요 없으므로,
     # 실제 실행 시점에만 app 을 가져오도록 지연 import 한다.
@@ -348,6 +363,7 @@ async def main(
     )
     print()
     print(json.dumps(summary_row, ensure_ascii=False))
+    return summary_row
 
 
 def _parse_args() -> argparse.Namespace:
@@ -356,16 +372,25 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--contains")
     parser.add_argument("--limit", type=int)
     parser.add_argument("--database-url")
+    parser.add_argument("--fail-on-abort", action="store_true")
+    parser.add_argument("--fail-under-pass-rate", type=float)
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = _parse_args()
-    asyncio.run(
+    summary = asyncio.run(
         main(
             scenario_key=args.scenario_key,
             contains=args.contains,
             limit=args.limit,
             database_url=args.database_url,
+        )
+    )
+    raise SystemExit(
+        _determine_exit_code(
+            summary,
+            fail_on_abort=args.fail_on_abort,
+            fail_under_pass_rate=args.fail_under_pass_rate,
         )
     )

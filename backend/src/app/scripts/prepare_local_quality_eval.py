@@ -19,6 +19,7 @@ else:
 
 load_dotenv(backend_root / ".env")
 
+from src.app.scripts.evaluate_bizmong_quality import _determine_exit_code
 from src.app.core.config import APP_ENV, OPENAI_API_KEY
 from src.app.scripts.evaluate_bizmong_quality import main as run_quality_eval
 from src.app.scripts.evaluate_bizmong_quality import _preflight_database_connection
@@ -94,6 +95,8 @@ async def main(
     run_embedding: bool = True,
     run_eval: bool = False,
     eval_limit: int | None = None,
+    eval_fail_on_abort: bool = False,
+    eval_fail_under_pass_rate: float | None = None,
 ) -> None:
     if APP_ENV == "production":
         raise RuntimeError("운영 환경에서는 로컬 품질평가 준비 스크립트를 실행할 수 없습니다.")
@@ -129,10 +132,17 @@ async def main(
     if run_eval:
         print()
         print("이어서 BizMong 품질평가를 실행합니다.")
-        await run_quality_eval(
+        summary = await run_quality_eval(
             limit=eval_limit,
             database_url=resolved_database_url,
         )
+        exit_code = _determine_exit_code(
+            summary,
+            fail_on_abort=eval_fail_on_abort,
+            fail_under_pass_rate=eval_fail_under_pass_rate,
+        )
+        if exit_code:
+            raise RuntimeError("품질평가 결과가 설정한 기준을 통과하지 못했습니다.")
 
 
 def _parse_args() -> argparse.Namespace:
@@ -142,6 +152,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-embedding", action="store_true")
     parser.add_argument("--run-eval", action="store_true")
     parser.add_argument("--eval-limit", type=int)
+    parser.add_argument("--eval-fail-on-abort", action="store_true")
+    parser.add_argument("--eval-fail-under-pass-rate", type=float)
     return parser.parse_args()
 
 
@@ -154,5 +166,7 @@ if __name__ == "__main__":
             run_embedding=not args.skip_embedding,
             run_eval=args.run_eval,
             eval_limit=args.eval_limit,
+            eval_fail_on_abort=args.eval_fail_on_abort,
+            eval_fail_under_pass_rate=args.eval_fail_under_pass_rate,
         )
     )
