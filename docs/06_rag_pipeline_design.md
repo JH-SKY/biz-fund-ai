@@ -37,7 +37,7 @@ flowchart LR
     Q --> K[키워드 추출]
 
     E --> VS[Vector Search\ncosine distance\ntop 20]
-    K --> FS[FTS Search\nilike 3컬럼\ntop 20]
+    K --> FS[BM25 Search\nElasticsearch + Nori\ntop 20]
 
     VS --> RRF[RRF 융합\nk=60\ntop 5]
     FS --> RRF
@@ -58,18 +58,17 @@ _VECTOR_LIMIT = 20   # 벡터 후보 수
 policy_id별로 청크 중 최소 cosine distance를 대표값으로 사용한다.  
 청크 수준이 아닌 **정책 수준**으로 먼저 집계해 중복 정책이 결과를 독점하는 것을 막는다.
 
-**FTS Search — ilike, 3컬럼 동시 검색**
+**BM25 Search — Elasticsearch + Nori 기반 sparse retrieval**
 
 ```python
 _FTS_LIMIT = 20
-# 검색 대상 컬럼
-Policy.title.ilike(f"%{kw}%")
-Policy.ai_summary.ilike(f"%{kw}%")
-Policy.ai_full_explanation.ilike(f"%{kw}%")
+# Elasticsearch multi_match 대상 필드
+title^4 / agency_name^3 / content^1
 ```
 
-pg_trgm 인덱스 없이도 동작하도록 표준 ilike를 선택했다.  
-키워드는 최대 5개로 제한해 과검색을 방지하고, `view_count` 기준 정렬로 노출도 높은 정책을 우선한다.
+정책명·기관명처럼 정확히 맞아야 하는 질의를 위해 BM25를 사용했다.  
+한국어 복합어·정책명 검색 누락을 줄이기 위해 Nori 분석기를 적용했고,  
+제목·기관명·본문에 서로 다른 가중치를 두어 sparse retrieval 점수를 구성했다.
 
 **RRF 융합 — k=60**
 
@@ -84,7 +83,32 @@ k=60은 Cormack et al.(2009) 논문에서 검증된 표준값이다.
 **임베딩 실패 폴백**
 
 OpenAI 임베딩 API 실패 시 `query_vector = None`으로 자동 처리,  
-FTS 단독 검색으로 fallback해 서비스 중단 없이 결과를 반환한다.
+Elasticsearch 비활성화 또는 검색 실패 시 PostgreSQL `ilike` 검색으로 fallback해 서비스 중단 없이 결과를 반환한다.
+
+### 2-3. Query Rewriting과 복합 의도 검색
+
+초기 평가 하네스에서 실패한 케이스는 단순 검색 실패가 아니라 **사용자 표현과 정책 검색어 사이의 간극**이었다.
+
+| 실패 유형 | 사용자 질문 예시 | 보완 로직 |
+|-----------|------------------|-----------|
+| 우회 표현 | "가스비 전기세가 너무 올라서 팍팍하네" | 생활어를 `운영자금`, `경영안정자금` 같은 검색 질의로 재작성 |
+| 복합 목적 | "고용 지원이랑 보증금 대출 각각 추천해줘" | 고용지원/운영자금 의도로 나누어 별도 검색 태스크 생성 |
+| 자연어 확장 | "공장 설비를 바꾸고 싶은데 지원 있어?" | 제조업·시설자금·설비 교체 키워드로 검색어 확장 |
+
+현재 `policy_rag.py`는 질문에서 의도를 먼저 감지하고, 의도별 `SearchTask`를 만든다.
+
+```python
+SearchTask(
+    intent_name="hiring",
+    rewritten_queries=["고용지원금", "인건비 지원", ...],
+    expected_support_types=["고용지원", "인건비", ...],
+)
+```
+
+각 태스크는 LLM 기반 query rewriting을 먼저 시도하고, 실패하면 규칙 기반 폴백으로 검색어를 만든다.  
+검색 결과는 의도별로 모은 뒤 다시 병합하며, `multi_intent_mode=True`이면 답변 생성 단계에서 의도별 섹션 분리를 강제한다.
+
+이 보완 이후 평가셋을 기존 12개에서 15개로 확장했고, 우회 표현·복합 의도·자연어 확장 질문까지 포함해 15/15 통과 기준으로 검증했다.
 
 ---
 
@@ -225,7 +249,9 @@ embedding: Mapped[Optional[list[float]]] = mapped_column(
 
 | 결정 | 선택 | 이유 |
 |------|------|------|
-| 검색 방식 | Vector + FTS + RRF | 표현 편차에 강하면서 고유명사도 잡음 |
+| 검색 방식 | Vector + BM25 + RRF | 표현 편차에 강하면서 정책명·기관명도 잡음 |
+| Query Rewriting | LLM 재작성 + 규칙 기반 폴백 | 생활어 질문을 검색 가능한 정책 키워드로 변환 |
+| 복합 의도 처리 | 의도별 SearchTask + 섹션형 답변 | 한 질문에 여러 목적이 섞여도 각각 검색·설명 |
 | 청킹 | 섹션 분할 우선, 슬라이딩 윈도우 폴백 | 정책 문서 구조에 맞는 경계 보존 |
 | Contextual Embedding | prefix 붙여 임베딩 | 청크 단독으로는 맥락 소실 방지 |
 | 노드 분리 | Router → 4개 노드 | 추적 가능성 + 비용 분리 |

@@ -75,21 +75,23 @@
 | RAG 답변 생성      | gpt-4o | **gpt-4o-mini** | 검색된 청크 정리, 창의적 추론 불필요             |
 | PolicySync 구조화  | gpt-4o | **gpt-4o 유지** | 비정형 공고문 → JSON 추출 정확도가 비용보다 우선 |
 
-품질 검증: 모델 변경 후 평가 하네스(12케이스) 재실행 → **83.3% 통과율 유지** 확인.
+품질 검증: 초기 평가 하네스 12케이스에서 10/12(83.3%)를 확인한 뒤, 실패했던 우회 표현·복합 의도 질문을 보완하고 15케이스로 확장 → **15/15(100%) 통과** 확인.
 
-### 검색 정확도 — Hybrid RAG (pgvector + FTS + RRF)
+### 검색 정확도 — Hybrid RAG (pgvector + BM25 + RRF)
 
-벡터 검색(의미적 유사도)과 키워드 검색(FTS)을 **Reciprocal Rank Fusion(k=60)** 으로 결합합니다.
+벡터 검색(의미적 유사도)과 **Elasticsearch BM25 기반 sparse retrieval**을  
+**Reciprocal Rank Fusion(k=60)** 으로 결합합니다.  
+한국어 정책명·기관명 검색 누락을 줄이기 위해 **Nori 분석기**를 적용했습니다.
 
 | 방식                 | 강점                          | 약점                        |
 | :------------------- | :---------------------------- | :-------------------------- |
 | 벡터 검색 (pgvector) | 의미적 유사도, 유사 표현 포착 | 고유명사·기관명 매칭 약함   |
-| 키워드 검색 (FTS)    | 정확한 단어 매칭              | 다른 표현·유의어 검색 안 됨 |
+| 키워드 검색 (BM25)   | 정책명·기관명 같은 정확 검색  | 의미적으로 비슷한 표현 포착 약함 |
 | **Hybrid (RRF)**     | **양쪽 장점 결합**            | —                           |
 
 ```
-score(d) = 1/(k + rank_vector) + 1/(k + rank_fts),  k=60
-→ 양쪽 모두 등장한 문서 → 두 점수 합산 → 최상위 랭크
+score(d) = 1/(k + rank_vector) + 1/(k + rank_bm25),  k=60
+→ 양쪽 모두 등장한 문서일수록 점수 합산 → 최상위 랭크
 ```
 
 ### 시스템 안정성 — Write-through 패턴 + Self-Correction
@@ -145,7 +147,7 @@ flowchart TD
 flowchart TD
     Q([사용자 질문]) --> EMB[질문 임베딩\ntext-embedding-3-small]
     EMB --> VEC[벡터 검색\npgvector cosine\n상위 20개]
-    EMB --> FTS[키워드 검색\nFTS / ilike\n상위 20개]
+    EMB --> FTS[키워드 검색\nElasticsearch BM25 + Nori\n상위 20개]
     VEC --> RRF[RRF 점수 결합\nk=60]
     FTS --> RRF
     RRF --> TOP5[상위 5개 정책 선정]
@@ -168,6 +170,7 @@ flowchart TD
 | **Embedding**        | text-embedding-3-small       | 정책 청크 임베딩 (1536-dim)                       |
 | **Database**         | PostgreSQL 16                | 정형 데이터 + JSONB(target_logic) + Checkpointer  |
 |                      | pgvector                     | 코사인 유사도 벡터 검색                           |
+| **Search**           | Elasticsearch + Nori         | BM25 sparse retrieval, 한국어 정책명·기관명 검색  |
 | **Frontend**         | React 18 + TypeScript        | 선언적 UI, 컴포넌트 기반 설계                     |
 |                      | Tailwind CSS + React Query   | 유틸리티 스타일링 / 서버 상태 관리                |
 | **Auth**             | JWT Dual Token               | Access 30분 + Refresh 7일                         |
@@ -182,7 +185,7 @@ flowchart TD
 | [01. 기획 및 요구사항](./docs/01_concept_and_requirements.md) | PM / PO                  | 5단계 사용자 여정, 비즈니스 페인포인트            |
 | [02. 시스템 아키텍처](./docs/02_system_architecture.md)       | 백엔드 / LLM 엔지니어    | 전체 시스템 구조, 비즈몽 에이전트 상세 설계       |
 | [03. 데이터 설계 명세](./docs/03_data_design_spec.md)         | 백엔드 / 프론트 엔지니어 | DB 스키마 전체, API 엔드포인트 목록               |
-| [04. 실험 및 검증](./docs/04_experiment_and_test.md)          | 모든 개발자              | 품질 평가 하네스(83.3%), 비용 최적화 근거         |
+| [04. 실험 및 검증](./docs/04_experiment_and_test.md)          | 모든 개발자              | 품질 평가 하네스(15/15), 비용 최적화 근거         |
 | [05. 트러블슈팅 로그](./docs/05_troubleshooting_log.md)       | 모든 개발자              | 주요 이슈 해결 기록                               |
 | [06. RAG 파이프라인 설계](./docs/06_rag_pipeline_design.md)   | 백엔드 / LLM 엔지니어    | 청킹 전략, Contextual Embedding, Hybrid 검색 상세 |
 | [API 명세 (chat)](./docs/api_spec/chat.md)                    | 프론트엔드 개발자        | 비즈몽 에이전트 응답 JSON 스키마                  |
