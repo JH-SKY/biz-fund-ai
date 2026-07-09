@@ -98,11 +98,14 @@ score(d) = 1/(k + rank_vector) + 1/(k + rank_bm25),  k=60
 → 양쪽 모두 등장한 문서일수록 점수 합산 → 최상위 랭크
 ```
 
+검색 후보는 사업자 컨텍스트로 한 번 더 재정렬합니다. `region_sido`, 업종/KSIC, 자금 목적(`funding_purpose`), 초기창업 여부, 벤처·특허 요구 조건을 점수에 반영해 같은 질문이라도 사업장 조건에 맞는 정책이 먼저 노출되도록 설계했습니다.
+
 ### 시스템 안정성 — Write-through 패턴 + Self-Correction
 
 - **Write-through**: 각 에이전트 노드 완료 시마다 `ChatLog`에 즉시 기록 → 서버 장애 시에도 대화 유실 없음
 - **PolicySyncAgent Self-Correction**: 공고 파싱 실패 시 최대 2회 자동 재시도 후 부분 저장
 - **PostgreSQL Checkpointer**: `thread_id = room_id` 기반 대화 상태 영속화 → 재접속 시 맥락 그대로 유지
+- **Agent Observability**: `AgentRunLog`/`AgentNodeLog`에 라우팅 결과, 모델명, 토큰, 비용, 지연시간, RAG hit 수, fallback 사유를 저장해 비용 분석과 장애 추적에 사용
 
 ---
 

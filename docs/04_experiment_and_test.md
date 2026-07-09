@@ -121,6 +121,9 @@ sequenceDiagram
 실제 서버를 띄우지 않고 `httpx.ASGITransport`로 앱을 직접 호출한다.  
 테스트용 사업자 프로필(BIZ-01 ~ BIZ-07)별로 `dev-login`을 수행해 업종·지역·재무 상태가 다른 사업자 컨텍스트를 주입한다.
 
+평가 리포트는 단순 통과율만 출력하지 않고 `route_accuracy`, `policy_accuracy`, `keyword_accuracy`, `fallback_count`, `fallback_rate`, 평균 응답시간, p95 응답시간까지 함께 집계한다.  
+그래서 "정답을 맞혔는가"뿐 아니라 "폴백에 기대지 않고 안정적으로 답했는가", "응답 지연이 과도하지 않았는가"도 같은 하네스에서 확인할 수 있다.
+
 ### 1-5. 결과
 
 ```
