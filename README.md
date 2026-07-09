@@ -77,6 +77,10 @@
 
 품질 검증: 초기 평가 하네스 12케이스에서 10/12(83.3%)를 확인한 뒤, 실패했던 우회 표현·복합 의도 질문을 보완하고 15케이스로 확장 → **15/15(100%) 통과** 확인.
 
+- 평가셋 구성: 실제 고객 데이터가 아니라 업종·지역·재무 상태가 다른 **테스트용 사업자 프로필 7종(BIZ-01~BIZ-07)** 에 대표 상담 질문 15건을 배분했습니다.
+- 평가 방식: `dev-login`으로 프로필별 사업자 컨텍스트를 주입하고, 실제 API 흐름에서 `route_ok`, `policy_ok`, `keyword_ok` 3개 기준을 모두 만족해야 통과로 집계했습니다.
+- 검색 보완: "가스비가 팍팍하다" 같은 생활어는 운영자금/경영안정자금 검색어로 재작성하고, "고용 지원과 보증금 대출 각각" 같은 복합 질문은 의도별 SearchTask로 나눠 검색·답변했습니다.
+
 ### 검색 정확도 — Hybrid RAG (pgvector + BM25 + RRF)
 
 벡터 검색(의미적 유사도)과 **Elasticsearch BM25 기반 sparse retrieval**을  
@@ -185,7 +189,7 @@ flowchart TD
 | [01. 기획 및 요구사항](./docs/01_concept_and_requirements.md) | PM / PO                  | 5단계 사용자 여정, 비즈니스 페인포인트            |
 | [02. 시스템 아키텍처](./docs/02_system_architecture.md)       | 백엔드 / LLM 엔지니어    | 전체 시스템 구조, 비즈몽 에이전트 상세 설계       |
 | [03. 데이터 설계 명세](./docs/03_data_design_spec.md)         | 백엔드 / 프론트 엔지니어 | DB 스키마 전체, API 엔드포인트 목록               |
-| [04. 실험 및 검증](./docs/04_experiment_and_test.md)          | 모든 개발자              | 품질 평가 하네스(15/15), 비용 최적화 근거         |
+| [04. 실험 및 검증](./docs/04_experiment_and_test.md)          | 모든 개발자              | 테스트용 사업자 프로필 7종, 대표 상담 질문 15건, 품질 평가 하네스(15/15) |
 | [05. 트러블슈팅 로그](./docs/05_troubleshooting_log.md)       | 모든 개발자              | 주요 이슈 해결 기록                               |
 | [06. RAG 파이프라인 설계](./docs/06_rag_pipeline_design.md)   | 백엔드 / LLM 엔지니어    | 청킹 전략, Contextual Embedding, Hybrid 검색 상세 |
 | [API 명세 (chat)](./docs/api_spec/chat.md)                    | 프론트엔드 개발자        | 비즈몽 에이전트 응답 JSON 스키마                  |
